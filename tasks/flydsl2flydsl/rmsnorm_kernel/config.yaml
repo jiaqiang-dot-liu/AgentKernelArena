@@ -20,3 +20,4 @@ prompt:
     Optimize the FlyDSL RMSNorm kernel for AMD MI300X GPU.
     The kernel computes RMSNorm: y = x / sqrt(mean(x^2) + eps) * gamma
     using float32 accumulation for numerical stability.
+    You MUST keep the kernel in FlyDSL — do NOT rewrite it in HIP, CUDA, or Triton.

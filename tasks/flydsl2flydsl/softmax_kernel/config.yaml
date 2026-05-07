@@ -20,3 +20,4 @@ prompt:
     Optimize the FlyDSL Softmax kernel for AMD MI300X GPU.
     The kernel computes numerically stable softmax using exp2(x * log2e)
     for fast exponentiation and float32 accumulation.
+    You MUST keep the kernel in FlyDSL — do NOT rewrite it in HIP, CUDA, or Triton.

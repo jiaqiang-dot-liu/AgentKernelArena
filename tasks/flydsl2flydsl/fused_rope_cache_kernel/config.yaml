@@ -20,3 +20,4 @@ prompt:
     Optimize the FlyDSL Fused RoPE + KV Cache kernel for AMD MI300X GPU.
     The kernel fuses Q/K RoPE rotation and KV cache writes into a single
     launch using NeoX-style rotation and ds_bpermute for cross-lane exchange.
+    You MUST keep the kernel in FlyDSL — do NOT rewrite it in HIP, CUDA, or Triton.

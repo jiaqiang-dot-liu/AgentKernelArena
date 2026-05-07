@@ -20,3 +20,4 @@ prompt:
     Optimize the FlyDSL LayerNorm kernel for AMD MI300X GPU.
     The kernel computes LayerNorm: y = (x - mean) / sqrt(var + eps) * gamma + beta
     using float32 accumulation for numerical stability.
+    You MUST keep the kernel in FlyDSL — do NOT rewrite it in HIP, CUDA, or Triton.

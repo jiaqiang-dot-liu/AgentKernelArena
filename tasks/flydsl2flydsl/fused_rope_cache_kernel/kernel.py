@@ -42,11 +42,15 @@ import flydsl.expr as fx
 from flydsl.expr import arith, vector, buffer_ops, range_constexpr, const_expr
 from flydsl.expr.arith import ArithValue
 from flydsl.expr.typing import T
-from kernels.kernels_common import get_warp_size
+from flydsl.runtime.device import get_rocm_arch, is_rdna_arch
 
 
-# WARP_SIZE is 32 on RDNA (wave32: gfx10xx/gfx11xx/gfx12xx) and 64 on CDNA (wave64: gfx9xx).
-# All derived values (VEC_WIDTH, vecs_per_half, BLOCK_THREADS) flow from this automatically.
+def get_warp_size(arch=None):
+    if arch is None:
+        arch = get_rocm_arch()
+    return 32 if is_rdna_arch(arch) else 64
+
+
 WARP_SIZE = get_warp_size()
 
 
