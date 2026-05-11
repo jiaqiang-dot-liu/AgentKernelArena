@@ -13,7 +13,7 @@ Thanks for your interest in AgentKernelArena! This guide explains how to contrib
 
 ```bash
 # Complete environment setup (auto-detects ROCm, creates .venv, installs deps)
-make setup
+make setup-venv
 
 # Activate the venv
 make act
