@@ -20,9 +20,16 @@ AgentKernelArena enables systematic evaluation of AI agents on GPU kernel optimi
 - **Task Categories**: HIP (ROCm examples, rocPRIM, customer HIP), Triton (TritonBench, ROCmBench), and Torch2HIP conversions
 - **Real Metrics**: Automated evaluation of compilation success, correctness, and real GPU performance speedups
 - **Designed for Fair Comparison**: Standardized tasks, environments, prompts, and scoring for leaderboard-style evaluation
+- **A/B Testing for Agent Tools**: Compare whether a new MCP server, skill, prompt, or agent-side tool actually improves outcomes by running the same task set with and without it and comparing standardized scores
 - **Workspace Isolation**: Each task runs in a timestamped duplicate workspace for reproducibility
 - **Comprehensive Logging**: Detailed logs with timestamps, prompts, outputs, and results for every task execution
 - **Flexible Configuration**: YAML-based configuration for tasks, agents, and LLM parameters
+
+### A/B Testing and Ablation Studies
+
+Beyond comparing different agents and models, AgentKernelArena can also be used to evaluate whether new agent-side capabilities actually help. For example, if you introduce a new MCP server, skill, prompt strategy, or tool integration, you can run the same task set twice — once with the capability enabled and once without it — and compare compilation, correctness, performance, and overall scores under the same evaluation conditions.
+
+This makes AgentKernelArena useful not only as a leaderboard-style benchmark, but also as a controlled A/B testing framework for measuring the real impact of agent improvements.
 
 
 ## **Leaderboard Coming: Stay Tuned!**
