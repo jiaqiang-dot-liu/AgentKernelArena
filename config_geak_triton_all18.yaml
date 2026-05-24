@@ -2,19 +2,19 @@ agent:
   template: geak_v3_triton
 
 tasks:
-  # L1
+  # L1 (6)
   - triton2triton/geak_eval/L1/llama_ff_triton
   - triton2triton/geak_eval/L1/fused_append_shared_experts
   - triton2triton/geak_eval/L1/moe_routing_sigmoid_top1
   - triton2triton/geak_eval/L1/mla_decode
   - triton2triton/geak_eval/L1/refk_identity
   - triton2triton/geak_eval/L1/refk_fp8_blockwise_mm
-  # L2
+  # L2 (4)
   - triton2triton/geak_eval/L2/fast_rms_layernorm
   - triton2triton/geak_eval/L2/ff_backward
   - triton2triton/geak_eval/L2/topk
   - triton2triton/geak_eval/L2/lean_atten_paged
-  # L3
+  # L3 (8)
   - triton2triton/geak_eval/L3/gemm
   - triton2triton/geak_eval/L3/gemm_a16w16_atomic
   - triton2triton/geak_eval/L3/gemm_a16wfp4
@@ -26,4 +26,4 @@ tasks:
 
 target_gpu_model: MI300
 log_directory: logs
-workspace_directory_prefix: workspace_all16
+workspace_directory_prefix: workspace_all18

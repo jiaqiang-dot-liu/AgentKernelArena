@@ -64,33 +64,25 @@ instead of re-running benchmarks.
 
 ### Running All 18 Triton Kernels (2 Slots, 8 GPUs)
 
-```bash
-# Slot 1: GPUs 0-3 (9 kernels)
-docker exec -d \
-  -e "AMD_LLM_API_KEY=$AMD_LLM_API_KEY" \
-  -e "GEAK_GPU_IDS=0,1,2,3" \
-  -e "PYTORCH_ROCM_ARCH=gfx950" \
-  -w /path/to/AgentKernelArena \
-  <container> \
-  python3 main.py --config_name config_geak_triton_slot1.yaml
+The convention is to optimize each kernel with 4 parallel GPUs, running two slots
+(GPUs 0-3 and 4-7) concurrently. [scripts/run_geak_triton.sh](../../scripts/run_geak_triton.sh)
+takes one config, splits its task list odd/even into two streams, and launches
+both inside the `geak-agent-$USER` Docker container:
 
-# Slot 2: GPUs 4-7 (9 kernels)
-docker exec -d \
-  -e "AMD_LLM_API_KEY=$AMD_LLM_API_KEY" \
-  -e "GEAK_GPU_IDS=4,5,6,7" \
-  -e "PYTORCH_ROCM_ARCH=gfx950" \
-  -w /path/to/AgentKernelArena \
-  <container> \
-  python3 main.py --config_name config_geak_triton_slot2.yaml
+```bash
+./scripts/run_geak_triton.sh config_geak_triton_all18.yaml
 ```
+
+Because `config_geak_triton_all18.yaml` lists tasks grouped by level
+(6 L1, 4 L2, 8 L3), the odd/even split is balanced: each slot gets
+3 L1 + 2 L2 + 4 L3 = 9 kernels.
 
 ### Config Files
 
 | Config | Kernels |
 |--------|---------|
-| `config_geak_triton_slot1.yaml` | 9 L1/L2/L3 kernels for GPUs 0-3 |
-| `config_geak_triton_slot2.yaml` | 9 L1/L2/L3 kernels for GPUs 4-7 |
-| `config_geak_triton_all16.yaml` | All 16 original kernels (single slot) |
+| `config_geak_triton_all18.yaml` | All 18 kernels (6 L1 + 4 L2 + 8 L3) |
+| `config_geak_triton_smoke.yaml` | 1 kernel (`refk_identity`) for quick sanity checks |
 
 ### All 18 Triton Kernels
 

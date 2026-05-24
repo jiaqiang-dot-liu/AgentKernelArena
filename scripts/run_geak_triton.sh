@@ -3,8 +3,8 @@
 # Everything runs inside the GEAK Docker container.
 #
 # Usage:
-#   ./scripts/run_geak_triton.sh                          # all 8 kernels, heterogeneous, memory OFF
-#   ./scripts/run_geak_triton.sh config_geak_triton_2kernel.yaml  # 2 kernels only
+#   ./scripts/run_geak_triton.sh                                       # all 18 kernels
+#   ./scripts/run_geak_triton.sh config_geak_triton_smoke.yaml         # smoke test
 #   GEAK_CONFIG_NAME=heterogeneous_memory_on ./scripts/run_geak_triton.sh  # memory ON
 #
 # Requires: AMD_LLM_API_KEY env var, geak-agent Docker container running
@@ -13,9 +13,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 AKA_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-CONFIG_NAME="${1:-config_geak_triton.yaml}"
+CONFIG_NAME="${1:-config_geak_triton_all18.yaml}"
 CONFIG_NAME="${CONFIG_NAME#--config-name=}"
-[[ -f "$AKA_ROOT/$CONFIG_NAME" ]] || CONFIG_NAME="config_geak_triton.yaml"
+[[ -f "$AKA_ROOT/$CONFIG_NAME" ]] || CONFIG_NAME="config_geak_triton_all18.yaml"
 
 GPU_A="0,1,2,3"
 GPU_B="4,5,6,7"

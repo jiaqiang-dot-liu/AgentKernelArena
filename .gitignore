@@ -14,7 +14,8 @@ agents/geak_optimagentv2/.geak_setup_complete
 agents/geak_ourllm_kernel2kernel/GEAK-agent
 run.sh
 config_*.yaml
-!config_geak_triton_mem_*.yaml
+!config_geak_triton_all18.yaml
+!config_geak_triton_smoke.yaml
 tmp*
 kill.sh
 saved_results
