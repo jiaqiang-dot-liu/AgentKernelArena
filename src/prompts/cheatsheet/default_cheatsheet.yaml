@@ -32,3 +32,4 @@ architecture:
 knowledge:
   hip:    src/prompts/cheatsheet/hip_cheatsheet.md
   triton: src/prompts/cheatsheet/triton_cheatsheet.md
+  flydsl: src/prompts/cheatsheet/flydsl_cheatsheet.md

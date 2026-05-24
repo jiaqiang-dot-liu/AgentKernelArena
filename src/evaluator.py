@@ -18,6 +18,10 @@ from .evaluator_utils import run_command
 from .performance import measure_performance, measure_baseline
 from .testcases import TestCaseResult, save_performance_results, calculate_average_speedup
 
+# Default timeouts for run_command (seconds). Repository CMake builds can exceed a few minutes.
+_DEFAULT_COMPILE_TIMEOUT_S = 3600
+_DEFAULT_CORRECTNESS_TIMEOUT_S = 3600
+
 
 def _valid_perf_cases(cases: List[TestCaseResult]) -> List[TestCaseResult]:
     """Return only test cases with valid positive execution time."""
@@ -51,9 +55,11 @@ def evaluate_compilation(
     if not compile_commands:
         log.warning("No compile_command found in task config")
         return False, "No compile_command specified"
+
+    compile_timeout = int(task_config.get("compile_timeout", _DEFAULT_COMPILE_TIMEOUT_S))
     
     for cmd in compile_commands:
-        success, stdout, stderr = run_command(cmd, workspace, timeout=120, logger=log, docker_container=docker_container)
+        success, stdout, stderr = run_command(cmd, workspace, timeout=compile_timeout, logger=log, docker_container=docker_container)
         if not success:
             error_msg = f"Compilation failed\nSTDOUT:\n{stdout}\nSTDERR:\n{stderr}"
             return False, error_msg
@@ -84,9 +90,15 @@ def evaluate_correctness(
     if not correctness_commands:
         log.warning("No correctness_command found in task config")
         return False, "No correctness_command specified"
+
+    correctness_timeout = int(
+        task_config.get("correctness_timeout", _DEFAULT_CORRECTNESS_TIMEOUT_S)
+    )
     
     for cmd in correctness_commands:
-        success, stdout, stderr = run_command(cmd, workspace, timeout=300, logger=log, docker_container=docker_container)
+        success, stdout, stderr = run_command(
+            cmd, workspace, timeout=correctness_timeout, logger=log, docker_container=docker_container
+        )
         if not success:
             error_msg = f"Correctness test failed\nSTDOUT:\n{stdout}\nSTDERR:\n{stderr}"
             return False, error_msg

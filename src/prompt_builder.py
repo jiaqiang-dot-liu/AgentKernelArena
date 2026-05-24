@@ -87,6 +87,10 @@ def _load_cheatsheet(task_type_name: str, target_gpu_model: str, project_root: P
       - architecture: maps GPU model name → hardware spec document + gfx_arch string
       - knowledge:    maps target language → language best-practice guide (GPU-agnostic)
 
+    For task_type ``repository``, the task config must set ``repository_language`` to a
+    key under ``knowledge`` (e.g. hip, triton). Add new stacks by extending that map and the
+    referenced markdown file.
+
     Returns:
         (cheatsheet_text, gfx_arch)  where gfx_arch may be None if not found.
     """
@@ -123,7 +127,20 @@ def _load_cheatsheet(task_type_name: str, target_gpu_model: str, project_root: P
             logger.warning(f"No architecture entry for GPU '{target_gpu_model}' in default_cheatsheet.yaml")
 
         # --- Knowledge section ---
-        target_language = (task_type_name.split('2')[-1] if '2' in task_type_name else task_type_name).lower()
+        # L3 repository tasks: language is configured per task (repository_language → key in default_cheatsheet.yaml).
+        if task_type_name == 'repository':
+            raw = task_config.get('repository_language')
+            if raw is None or str(raw).strip() == '':
+                raise ValueError(
+                    "repository_language is required when task_type is 'repository' "
+                    "(e.g. hip, triton). Must match a key under `knowledge` in "
+                    "src/prompts/cheatsheet/default_cheatsheet.yaml."
+                )
+            target_language = str(raw).lower().strip()
+        else:
+            target_language = (
+                task_type_name.split('2')[-1] if '2' in task_type_name else task_type_name
+            ).lower()
         knowledge_override = arch_entry.get('knowledge_override', {}) if arch_entry else {}
         knowledge_map = cheatsheet_config.get('knowledge', {})
         knowledge_file = knowledge_override.get(target_language) or knowledge_map.get(target_language)
@@ -131,11 +148,19 @@ def _load_cheatsheet(task_type_name: str, target_gpu_model: str, project_root: P
             knowledge_path = project_root / knowledge_file
             parts.append(knowledge_path.read_text())
             logger.info(f"Loaded knowledge cheatsheet for '{target_language}': {knowledge_path}")
+        elif task_type_name == 'repository':
+            known = sorted(knowledge_map.keys())
+            raise ValueError(
+                f"Unknown repository_language '{target_language}': not defined under "
+                f"knowledge in default_cheatsheet.yaml. Known keys: {known}"
+            )
         else:
             logger.warning(f"No knowledge cheatsheet for language '{target_language}' in default_cheatsheet.yaml")
 
         cheatsheet_text = "\n\n---\n\n".join(parts) if parts else ""
 
+    except ValueError:
+        raise
     except Exception as e:
         logger.warning(f"Failed to load cheatsheet: {e}, using empty cheatsheet")
         cheatsheet_text = ""
@@ -231,6 +256,10 @@ def prompt_builder(task_config_dir: str, workspace_directory: Path, eval_config:
         task_type_prompt = task_type.cuda2hip_task_type()
     elif task_type_name == 'instruction2triton':
         task_type_prompt = task_type.instruction2triton_task_type()
+    elif task_type_name == 'flydsl2flydsl':
+        task_type_prompt = task_type.flydsl2flydsl_task_type()
+    elif task_type_name == 'repository':
+        task_type_prompt = task_type.repository_task_type()
     else:
         raise ValueError(f"Unknown task type: {task_type_name}")
 
@@ -277,7 +306,16 @@ def prompt_builder(task_config_dir: str, workspace_directory: Path, eval_config:
     prompt_sections.append(cheatsheet_prompt)
 
     # 8. Workspace Directory Information
-    workspace_info = f"""
+    if task_type_name == 'repository':
+        workspace_info = f"""
+### Workspace Directory
+Your working directory is: `{workspace_directory}`
+
+This is a **full repository workspace** (Level-3 task): upstream sources, build files, and task scripts (e.g. `scripts/task_runner.py`) live under this tree. Explore and edit only what you need; keep changes consistent with the project build and test flow. All work stays inside this directory.
+
+"""
+    else:
+        workspace_info = f"""
 ### Workspace Directory
 Your working directory is: `{workspace_directory}`
 

@@ -6,9 +6,29 @@ import shutil
 import subprocess
 import logging
 import yaml
+import shlex
 from pathlib import Path
 from typing import Tuple, Optional, List
 from .testcases import TestCaseResult
+from .runtime_env import PYTHON_ENV_VAR, build_subprocess_env
+
+
+def _replace_leading_token(command: str, token: str, replacement: str) -> str:
+    leading_len = len(command) - len(command.lstrip())
+    leading = command[:leading_len]
+    stripped = command[leading_len:]
+    if stripped == token or stripped.startswith(f"{token} "):
+        return f"{leading}{replacement}{stripped[len(token):]}"
+    return command
+
+
+def normalize_python_command(command: str, python_path: str) -> str:
+    """Route bare Python tooling commands through the selected interpreter."""
+    normalized = command
+    normalized = _replace_leading_token(normalized, "python3", python_path)
+    normalized = _replace_leading_token(normalized, "python", python_path)
+    normalized = _replace_leading_token(normalized, "pytest", f"{python_path} -m pytest")
+    return normalized
 
 
 def run_command(
@@ -38,25 +58,36 @@ def run_command(
     log = logger or logging.getLogger(__name__)
 
     try:
+        env = build_subprocess_env()
         if docker_container:
+            # When running inside a Docker container we can't rewrite "python3" to
+            # the host interpreter path — skip normalize_python_command and wrap
+            # the original command in `docker exec` instead.
             escaped = command.replace("'", "'\\''")
             abs_workspace = Path(workspace).resolve()
-            command = (
+            command_to_run = (
                 f"docker exec -w {abs_workspace} {docker_container} "
                 f"bash -c '{escaped}'"
             )
-            log.info(f"Running in Docker [{docker_container}]: {command[:200]}")
+            log.info(f"Running in Docker [{docker_container}]: {command_to_run[:200]}")
         else:
-            log.info(f"Running command: {command}")
+            python_path = env.get(PYTHON_ENV_VAR)
+            quoted_python = shlex.quote(python_path) if python_path else None
+            command_to_run = normalize_python_command(command, quoted_python) if quoted_python else command
+            log.info(f"Running command: {command_to_run}")
+            if command_to_run != command:
+                log.info(f"Original command: {command}")
+
         log.info(f"Working directory: {workspace}")
 
         result = subprocess.run(
-            command,
+            command_to_run,
             shell=True,
             cwd=str(workspace),
             capture_output=True,
             text=True,
-            timeout=timeout
+            timeout=timeout,
+            env=env,
         )
 
         if result.returncode == 0:
@@ -141,4 +172,3 @@ def checkout_aiter(
 
     log.info(f"aiter checked out to {commit[:12]} in {docker_container}")
     return True
-
