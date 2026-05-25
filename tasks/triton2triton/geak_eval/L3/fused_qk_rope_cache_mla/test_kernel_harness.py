@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """
-Test harness for fused_kv_cache kernel (fused_qk_rope_cat_and_cache_mla).
+Test harness for fused_qk_rope_cat_and_cache_mla.
+
+Zero aiter dependency: every reference helper is inlined below from aiter
+op_tests, slimmed to only the path this harness actually exercises.
+
 Modes: --correctness, --benchmark, --full-benchmark, --profile
 """
 
@@ -8,29 +12,181 @@ import os
 import sys
 import argparse
 import math
-
-# Ensure the repo root is on sys.path so op_tests and aiter are importable
-REPO_ROOT = os.environ.get(
-    "GEAK_REPO_ROOT",
-    os.path.dirname(os.path.abspath(__file__)),
-)
-if REPO_ROOT not in sys.path:
-    sys.path.insert(0, REPO_ROOT)
+import random
+from enum import IntEnum
 
 import torch
 import triton
 
-# ── imports from the repo ──────────────────────────────────────────────
-from op_tests.test_rope import ref_rope_sbhd_fwd, RotateStyle
-from op_tests.triton_tests.test_rope import generate_rope_inputs
+# kernel.py sits next to this harness — Python adds the script's directory to
+# sys.path[0] automatically, so the bare import always picks up the agent's
+# edits.
+from kernel import fused_qk_rope_cat_and_cache_mla  # noqa: E402
 
-
-from aiter.ops.triton.fused_kv_cache import fused_qk_rope_cat_and_cache_mla
-from aiter.ops.triton.utils._triton import arch_info
 
 # ── constants ──────────────────────────────────────────────────────────
 WARMUP = 50
 ITERATIONS = int(os.environ.get("GEAK_BENCHMARK_ITERATIONS", "200"))
+
+
+# ============================================================================
+# INLINED REFERENCE HELPERS (from aiter/op_tests/*)
+# ----------------------------------------------------------------------------
+# Kept self-contained so this harness has zero aiter dependency. Slimmed to
+# the call-shape used here (layout="thd", cached=True, two_inputs=True,
+# nope=False, pos=True, offs=False, bwd=False; ref_rope_sbhd_fwd called with
+# nope_first=False and defaults for simulate_cached/comp_with_fp32).
+# ============================================================================
+
+
+# from aiter/op_tests/test_rope.py
+class RotateStyle(IntEnum):
+    NEOX = (0,)
+    GPTJ = 1
+
+
+def rotate_half_neox(x):
+    x1 = x[..., : x.shape[-1] // 2]
+    x2 = x[..., x.shape[-1] // 2 :]
+    return torch.cat((-x2, x1), dim=-1)
+
+
+def rotate_half_gptj(x):
+    x1 = x[..., ::2]
+    x2 = x[..., 1::2]
+    x = torch.stack((-x2, x1), dim=-1)
+    return x.flatten(-2)
+
+
+def ref_rope_sbhd_fwd(
+    x_,
+    freqs_,
+    rotate_style,
+    reuse_freqs_front_part,
+    nope_first,
+):
+    """Slimmed: harness always calls with default simulate_cached=False,
+    comp_with_fp32=False. Kept branch order matching aiter exactly."""
+    x = x_
+    freqs = freqs_
+    rotate_half = (
+        rotate_half_neox if rotate_style == RotateStyle.NEOX else rotate_half_gptj
+    )
+    rotate_dim = freqs.shape[-1] * (2 if reuse_freqs_front_part else 1)
+    if nope_first:
+        d = x.shape[-1]
+        x, x_forward = x[..., d - rotate_dim :], x[..., : d - rotate_dim]
+    else:
+        x, x_forward = x[..., :rotate_dim], x[..., rotate_dim:]
+    if reuse_freqs_front_part:
+        if rotate_style == RotateStyle.NEOX:
+            freqs = freqs.repeat([1] * (freqs.dim() - 1) + [2])
+        elif rotate_style == RotateStyle.GPTJ:
+            freqs = freqs.repeat_interleave(2, dim=-1)
+    cos = torch.cos(freqs)
+    sin = torch.sin(freqs)
+    x_embed = (x * cos) + (rotate_half(x) * sin)
+    return (
+        torch.cat((x_forward, x_embed.to(dtype=x.dtype)), dim=-1).to(dtype=x_.dtype)
+        if nope_first
+        else torch.cat((x_embed.to(dtype=x.dtype), x_forward), dim=-1).to(
+            dtype=x_.dtype
+        )
+    )
+
+
+# from aiter/op_tests/triton_tests/rope/test_rope.py
+def generate_rope_inputs(
+    B: int,
+    S: int,
+    H: int,
+    Q: int,
+    D: int,
+    cached: bool,
+    reuse_freqs_front_part: bool,
+    nope: bool,
+    pos: bool,
+    offs: bool,
+    two_inputs: bool,
+    layout: str,
+    dtype: torch.dtype,
+    bwd: bool = False,
+):
+    """Inlined verbatim (kept all branches to preserve seeding/order)."""
+    torch.manual_seed(20)
+    random.seed(20)
+
+    device = "cuda"
+    if layout == "thd":  # T == S
+        assert B == 1, "B should always be 1 in THD layout"
+        input_x_shape = (S, Q * H, D)
+        input_y_shape = (S, H, D)
+        pos_offs_shape = (S,)
+    elif layout == "sbhd":
+        input_x_shape = (S, B, Q * H, D)
+        input_y_shape = (S, B, H, D)
+        pos_offs_shape = (S, B)
+    else:
+        raise NotImplementedError(f"layout '{layout}' not supported")
+
+    x = torch.randn(input_x_shape, dtype=dtype, device="cuda", requires_grad=bwd)
+    y = (
+        torch.randn(input_y_shape, dtype=dtype, device="cuda", requires_grad=bwd)
+        if two_inputs
+        else None
+    )
+    gx = torch.randn(input_x_shape, dtype=dtype, device="cuda") if bwd else None
+    gy = (
+        torch.randn(input_y_shape, dtype=dtype, device="cuda")
+        if bwd and two_inputs
+        else None
+    )
+
+    freqs_D = D
+    if nope:
+        freqs_D = freqs_D // 2
+    if reuse_freqs_front_part:
+        freqs_D = freqs_D // 2
+
+    freqs = torch.randn((S, 1, 1, freqs_D), dtype=dtype, device="cuda")
+    positions = (
+        torch.randint(
+            max(0, int(S * 0.25) if offs else 0),
+            max(1, int(S * 0.75) if offs else S),
+            pos_offs_shape,
+            device=device,
+        )
+        if pos
+        else None
+    )
+    offsets = (
+        torch.randint(
+            max(0, int(S * -0.25)),
+            max(1, int(S * 0.25)),
+            pos_offs_shape,
+            device="cuda",
+        )
+        if offs
+        else None
+    )
+
+    cos = torch.cos(freqs) if cached else None
+    sin = torch.sin(freqs) if cached else None
+
+    if cached and layout == "thd":
+        cos = cos.reshape(S, freqs_D)
+        sin = sin.reshape(S, freqs_D)
+
+    return x, y, gx, gy, freqs, positions, offsets, cos, sin
+
+
+def _arch() -> str:
+    """Inlined replacement for aiter.ops.triton.utils._triton.arch_info.get_arch()."""
+    try:
+        return triton.runtime.driver.active.get_current_target().arch
+    except Exception:
+        return ""
+
 
 # ── full config list (matches test_fused_qk_rope_cat_and_cache_mla parametrize order) ──
 # Parametrize order (outermost first -> innermost last):
@@ -143,7 +299,7 @@ def _setup_inputs(cfg):
     )
 
     if cache_dtype == torch.uint8:
-        if arch_info.get_arch() in ["gfx950"]:
+        if _arch() in ("gfx950",):
             cache_dtype_actual = torch.float8_e4m3fn
         else:
             cache_dtype_actual = torch.float8_e4m3fnuz
@@ -205,12 +361,9 @@ def _run_kernel(inp):
         decode_q_pe_out=None,
         k_pe_out=None,
     )
-    # Kernel returns (q_out, decode_q_pe_out, k_pe_out, kv_cache[, q_nope_zeros_out])
-    if len(result) == 5:
-        q_out, decode_q_pe_out, k_pe_out, _kv, q_nope_zeros_out = result
-    else:
-        q_out, decode_q_pe_out, k_pe_out, _kv = result
-        q_nope_zeros_out = torch.zeros(0)
+    # aiter wrapper returns (q_out, decode_q_pe_out, k_pe_out, q_nope_zeros_out).
+    # kv_cache is mutated in-place via kv_cache_clone.
+    q_out, decode_q_pe_out, k_pe_out, q_nope_zeros_out = result
     return q_out, decode_q_pe_out, k_pe_out, q_nope_zeros_out, kv_cache_clone
 
 
@@ -320,7 +473,6 @@ def _benchmark_single(cfg):
     """Benchmark a single config. Returns median latency in ms."""
     inp = _setup_inputs(cfg)
 
-    # Build a closure for the kernel call
     def _kernel_fn():
         kv_cache_clone = inp["kv_cache"].clone()
         if inp["cache_dtype"] == torch.uint8:
@@ -344,12 +496,10 @@ def _benchmark_single(cfg):
             k_pe_out=None,
         )
 
-    # Warmup
     for _ in range(WARMUP):
         _kernel_fn()
     torch.cuda.synchronize()
 
-    # Timed iterations using GPU events
     times = []
     for _ in range(ITERATIONS):
         start = torch.cuda.Event(enable_timing=True)
@@ -410,7 +560,7 @@ def main():
         print(f"GEAK_RESULT_LATENCY_MS={geo_mean:.4f}")
 
     if args.benchmark:
-        indices = list(range(len(ALL_CONFIGS)))  # use all configs so benchmark matches full-benchmark
+        indices = list(range(len(ALL_CONFIGS)))
         configs = ALL_CONFIGS
         print(f"Running benchmark on {len(configs)} configs...")
         latencies = []
