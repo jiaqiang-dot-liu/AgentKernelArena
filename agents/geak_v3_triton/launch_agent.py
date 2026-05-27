@@ -23,6 +23,7 @@ from typing import Any
 import yaml
 
 from agents import register_agent
+from agents._parallel import resolve_num_parallel as _resolve_num_parallel
 
 
 def _read_stream(stream, lines: list, prefix: str, log_func):
@@ -337,7 +338,7 @@ def launch_agent(eval_config: dict[str, Any], task_config_dir: str, workspace: s
         run_env[k] = str(v)
 
     gpu_ids = os.environ.get("GEAK_GPU_IDS", eval_config.get("gpu_ids", "0,1,2,3"))
-    num_parallel = len(gpu_ids.split(","))
+    num_parallel = _resolve_num_parallel(eval_config, agent_config, gpu_ids)
     timeout = int(agent_config.get("timeout_seconds", 36000))
 
     prompt = _build_task_prompt(task_config, workspace_path)

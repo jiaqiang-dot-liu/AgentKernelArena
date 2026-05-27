@@ -13,6 +13,7 @@ import json
 import socket
 import yaml
 from agents import register_agent
+from agents._parallel import resolve_num_parallel as _resolve_num_parallel
 from src.preprocessing import setup_repo_from_config
 from agents.geak_v3.geak_pre_process import (
     simple_prompt_builder,
@@ -123,6 +124,20 @@ def launch_agent(eval_config: dict[str, Any], task_config_dir: str, workspace: s
         abs_path = agent_dir / config_file
         return f"-c {abs_path!s}"
     OPTIONS = re.sub(r'-c\s+(\S+)', replace_config_path, OPTIONS)
+
+    gpu_ids_for_geak = os.environ.get("GEAK_GPU_IDS", eval_config.get("gpu_ids", ""))
+    if gpu_ids_for_geak:
+        if re.search(r'--gpu-ids[= ]', OPTIONS):
+            OPTIONS = re.sub(r'--gpu-ids[= ]\S+', f'--gpu-ids={gpu_ids_for_geak}', OPTIONS)
+        else:
+            OPTIONS += f' --gpu-ids={gpu_ids_for_geak}'
+    gpu_match = re.search(r'--gpu-ids[= ](\S+)', OPTIONS)
+    gpu_ids_str = gpu_match.group(1) if gpu_match else (gpu_ids_for_geak or "0")
+    num_parallel = _resolve_num_parallel(eval_config, agent_config, gpu_ids_str)
+    if re.search(r'--num-parallel[= ]', OPTIONS):
+        OPTIONS = re.sub(r'--num-parallel[= ]\S+', f'--num-parallel={num_parallel}', OPTIONS)
+    else:
+        OPTIONS += f' --num-parallel={num_parallel}'
 
     # Check if the command exists
     if not shutil.which(AGENT):
