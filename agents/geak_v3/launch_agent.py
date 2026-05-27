@@ -155,6 +155,47 @@ def launch_agent(eval_config: dict[str, Any], task_config_dir: str, workspace: s
     prompt = simple_prompt_builder(task_config_dir, workspace, logger)
     prompt = integrate_agent_config(prompt, agent_config)
 
+    # Inject architecture context + language-specific cheatsheet from
+    # default_cheatsheet.yaml.  simple_prompt_builder() deliberately stays
+    # minimal, so the cheatsheet (and the arch-precheck directive) are
+    # appended here from the shared prompt_builder helpers, mirroring the
+    # section layout used by src/prompt_builder.py::prompt_builder.
+    #
+    # Also inject the hip2hip task contract for hip2hip tasks so the
+    # constraints (preserve names/signatures, launch interface, build
+    # interface, shared-memory sizing) reach GEAK-v3 agents too. The
+    # contract is hosted at the framework level rather than per-task to
+    # keep all hip2hip configs uniform.
+    try:
+        from src.prompt_builder import _load_cheatsheet, _gpu_arch_precheck_prompt
+        from src.prompts import task_type as _task_type_module
+        with open(task_config_dir, "r") as _f:
+            _task_config = yaml.safe_load(_f) or {}
+        _task_type_name = _task_config.get("task_type", "")
+        _target_gpu_model = eval_config.get("target_gpu_model")
+        if _task_type_name and _target_gpu_model:
+            _project_root = Path(__file__).resolve().parent.parent.parent
+            _cheatsheet_text, _gfx_arch = _load_cheatsheet(
+                _task_type_name, _target_gpu_model, _project_root, _task_config, logger,
+            )
+            _precheck = _gpu_arch_precheck_prompt(_target_gpu_model, _gfx_arch)
+            _contract = (
+                _task_type_module.hip2hip_task_contract(
+                    _task_config.get("target_kernel_functions")
+                )
+                if _task_type_name == "hip2hip"
+                else ""
+            )
+            _extras = [p for p in [_precheck, _contract, _cheatsheet_text] if p]
+            if _extras:
+                prompt = prompt.rstrip() + "\n\n" + "\n\n---\n\n".join(_extras) + "\n"
+                logger.info(
+                    f"Appended cheatsheet (arch={_gfx_arch}, +{sum(len(p) for p in _extras)} chars"
+                    f"{', incl. hip2hip contract' if _contract else ''})"
+                )
+    except Exception as _e:  # noqa: BLE001 — keep agent launch resilient
+        logger.warning(f"Cheatsheet injection skipped: {_e}")
+
     # Write prompt to a temporary file (mini agent reads from file if path exists)
     prompt_file = Path(workspace) / "task_prompt.md"
     prompt_file.write_text(prompt, encoding="utf-8")
@@ -376,31 +417,39 @@ def launch_agent(eval_config: dict[str, Any], task_config_dir: str, workspace: s
 def _apply_best_patch_to_workspace(workspace: str, logs_dir: Path, logger: logging.Logger) -> bool:
     """
     Apply the best patch from logs_dir to the original workspace.
-    
+
     This ensures the centralized evaluator (in main.py) evaluates the optimized code,
     not the original baseline code.
-    
+
     Args:
         workspace: Original workspace directory
-        logs_dir: Logs directory containing best_results.json and patch files
+        logs_dir: Logs directory containing final_report.json and patch files
         logger: Logger instance
-        
+
     Returns:
         True if patch was applied successfully, False otherwise
     """
     import json
-    
-    # Find best_results.json
+
+    # Try final_report.json first (new GEAK format), fall back to best_results.json (legacy)
+    final_report_file = logs_dir / "final_report.json"
     best_results_file = logs_dir / "best_results.json"
-    if not best_results_file.exists():
-        logger.warning("No best_results.json found, skipping patch application")
+
+    if final_report_file.exists():
+        report_path = final_report_file
+        patch_key = "best_patch"
+    elif best_results_file.exists():
+        report_path = best_results_file
+        patch_key = "best_patch_file"
+    else:
+        logger.warning("No final_report.json or best_results.json found, skipping patch application")
         return False
-    
+
     try:
-        with open(best_results_file, 'r') as f:
-            best_results = json.load(f)
-        
-        patch_file = best_results.get('best_patch_file')
+        with open(report_path, 'r') as f:
+            report = json.load(f)
+
+        patch_file = report.get(patch_key)
         if not patch_file or not Path(patch_file).exists():
             logger.warning(f"Best patch file not found: {patch_file}")
             return False
