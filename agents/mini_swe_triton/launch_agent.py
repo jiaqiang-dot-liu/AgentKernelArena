@@ -123,12 +123,18 @@ def launch_agent(eval_config: dict[str, Any], task_config_dir: str, workspace: s
     model = agent_config.get("agent", {}).get("model", "claude-opus-4-6")
     step_limit = agent_config.get("agent", {}).get("step_limit", 100)
 
-    # PYTHONPATH for mini-swe-agent modules
+    # PYTHONPATH for mini-swe-agent modules. GEAK_SRC must point to the
+    # absolute path of the GEAK source tree (the directory containing
+    # `minisweagent/`). No baked-in fallback — fail fast with a clear error
+    # rather than silently using a path that only exists in one user's setup.
     geak_src = os.environ.get("GEAK_SRC")
-    if geak_src and Path(geak_src).is_dir():
-        run_env["PYTHONPATH"] = f"{geak_src}:{run_env.get('PYTHONPATH', '')}"
-    else:
-        run_env["PYTHONPATH"] = f"/workspace/src:{run_env.get('PYTHONPATH', '')}"
+    if not geak_src or not Path(geak_src).is_dir():
+        raise RuntimeError(
+            "GEAK_SRC env var is unset or does not point to an existing "
+            "directory. Set GEAK_SRC to the absolute path of GEAK/src "
+            f"(got: {geak_src!r})."
+        )
+    run_env["PYTHONPATH"] = f"{geak_src}:{run_env.get('PYTHONPATH', '')}"
 
     timeout = int(agent_config.get("timeout_seconds", 7200))
 

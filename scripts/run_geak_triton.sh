@@ -7,7 +7,10 @@
 #   ./scripts/run_geak_triton.sh config_geak_triton_smoke.yaml         # smoke test
 #   GEAK_CONFIG_NAME=heterogeneous_memory_on ./scripts/run_geak_triton.sh  # memory ON
 #
-# Requires: AMD_LLM_API_KEY env var, geak-agent Docker container running
+# Required env vars (no defaults — script fails fast if unset):
+#   CONTAINER      Docker container name (e.g. geak-agent-$USER)
+#   GEAK_SRC       Absolute path to GEAK/src (editable-install source)
+#   AMD_LLM_API_KEY  LLM API key passed into the container
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -20,9 +23,17 @@ CONFIG_NAME="${CONFIG_NAME#--config-name=}"
 GPU_A="0,1,2,3"
 GPU_B="4,5,6,7"
 
-CONTAINER="geak-agent-${USER:-sapmajum}"
+# Always clean up the generated per-stream configs, even on crash / Ctrl-C.
+# `set -euo pipefail` + `|| FAIL=1` would otherwise leak them.
+cleanup_tmp_configs() {
+  rm -f "$AKA_ROOT/.tmp_config_stream_a.yaml" "$AKA_ROOT/.tmp_config_stream_b.yaml"
+}
+trap cleanup_tmp_configs EXIT INT TERM
+
+: "${CONTAINER:?CONTAINER must be set (e.g. CONTAINER=geak-agent-\$USER)}"
+: "${GEAK_SRC:?GEAK_SRC must be set to the absolute path of GEAK/src}"
 export GEAK_CONFIG_NAME="${GEAK_CONFIG_NAME:-heterogeneous_memory_off}"
-export GEAK_SRC="${GEAK_SRC:-/home/sapmajum/GEAK-agent-filtering-and-cli-unification/src}"
+export GEAK_SRC
 
 # Ensure container is running
 if ! docker ps --format '{{.Names}}' | grep -q "^${CONTAINER}$"; then
@@ -102,9 +113,6 @@ echo ""
 FAIL=0
 wait $PID_A || { echo "[$(date -Iseconds)] Stream A FAILED (exit $?)"; FAIL=1; }
 wait $PID_B || { echo "[$(date -Iseconds)] Stream B FAILED (exit $?)"; FAIL=1; }
-
-# Cleanup temp configs
-rm -f "$AKA_ROOT/.tmp_config_stream_a.yaml" "$AKA_ROOT/.tmp_config_stream_b.yaml"
 
 echo ""
 echo "============================================================"

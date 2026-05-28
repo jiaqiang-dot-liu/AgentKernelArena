@@ -22,25 +22,15 @@ WARMUP = 50
 ITERATIONS = int(os.environ.get("GEAK_BENCHMARK_ITERATIONS", "200"))
 
 # ── Resolve kernel location ───────────────────────────────────────────────
-_REPO_REL = "python/sglang/srt/layers/moe/fused_moe_triton"
-_KERNEL_FILENAME = "fused_moe_triton_kernels.py"
+_KERNEL_FILENAME = "kernel.py"
 
 
 def _resolve_kernel_path():
-    """Find the kernel file using GEAK env vars or fallback."""
-    candidates = []
+    """Find the kernel file the agent edits, next to this harness."""
     work_dir = os.environ.get("GEAK_WORK_DIR")
+    candidates = []
     if work_dir:
-        candidates.append(os.path.join(work_dir, _REPO_REL, _KERNEL_FILENAME))
-    repo_root = os.environ.get("GEAK_REPO_ROOT")
-    if repo_root:
-        candidates.append(os.path.join(repo_root, _REPO_REL, _KERNEL_FILENAME))
-    # Original location
-    candidates.append(
-        os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                     _REPO_REL, _KERNEL_FILENAME)
-    )
-    # Also check for kernel.py renamed in task directory
+        candidates.append(os.path.join(work_dir, _KERNEL_FILENAME))
     candidates.append(
         os.path.join(os.path.dirname(os.path.abspath(__file__)), _KERNEL_FILENAME)
     )
@@ -80,26 +70,16 @@ def _setup_sgl_kernel_mock():
 
 
 def _load_kernel_module():
-    """Load the kernel module directly, bypassing __init__.py chains."""
+    """Load the agent-edited kernel.py directly, bypassing __init__.py chains."""
     _setup_sgl_kernel_mock()
     kernel_path = _resolve_kernel_path()
-    # Walk up to find the 'python' directory and add it to sys.path
-    parts = kernel_path.split(os.sep)
-    for i, part in enumerate(parts):
-        if part == "python":
-            py_root = os.sep.join(parts[: i + 1])
-            if py_root not in sys.path:
-                sys.path.insert(0, py_root)
-            break
     spec = importlib.util.spec_from_file_location(
-        "sglang.srt.layers.moe.fused_moe_triton.fused_moe_triton_kernels",
+        "fused_append_shared_experts_kernel",
         kernel_path,
         submodule_search_locations=[],
     )
     mod = importlib.util.module_from_spec(spec)
-    sys.modules[
-        "sglang.srt.layers.moe.fused_moe_triton.fused_moe_triton_kernels"
-    ] = mod
+    sys.modules["fused_append_shared_experts_kernel"] = mod
     spec.loader.exec_module(mod)
     return mod
 

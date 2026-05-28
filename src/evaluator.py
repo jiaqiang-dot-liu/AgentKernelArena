@@ -8,7 +8,6 @@ This module provides standardized evaluation of optimized kernels:
 - Performance measurement
 - Baseline measurement for speedup calculation
 """
-import json
 import logging
 import yaml
 from pathlib import Path
@@ -113,185 +112,6 @@ def evaluate_correctness(
     
     return True, None
 
-
-def _collect_round_history(logs_dir: Path) -> list:
-    """Collect per-round speedup history from round_N_evaluation.json files."""
-    rounds = []
-    for rf in sorted(logs_dir.glob("round_*_evaluation.json")):
-        try:
-            rd = json.load(open(rf))
-            rfb = rd.get("full_benchmark") or {}
-            rounds.append({
-                "round": rd.get("round"),
-                "task": rd.get("best_task"),
-                "benchmark_speedup": rd.get("benchmark_speedup"),
-                "verified_speedup": rfb.get("verified_speedup"),
-            })
-        except Exception:
-            pass
-    return rounds
-
-
-def _read_geak_results(workspace: Path, log) -> Optional[Dict[str, Any]]:
-    """Read GEAK results with cascading priority.
-
-    Priority:
-    1. final_report.json -> full_benchmark.verified_speedup (golden)
-    2. final_report.json -> round_evaluation.benchmark_speedup (local benchmark)
-    3. Best benchmark_speedup from round_N_evaluation.json files
-    4. geak_summary.json -> best_verified_speedup
-
-    Returns dict with 'speedup', 'source', and optional timing fields,
-    or None if no GEAK results found.
-    """
-    logs_dir = workspace.parent / f"{workspace.name}_logs"
-    if not logs_dir.exists():
-        return None
-
-    round_history = _collect_round_history(logs_dir)
-    final_report = logs_dir / "final_report.json"
-
-    if final_report.exists():
-        try:
-            data = json.load(open(final_report))
-            re_data = data.get("round_evaluation") or {}
-            fb = re_data.get("full_benchmark") or {}
-
-            baseline_ms = float(fb.get("baseline_ms", 0))
-            candidate_ms = float(fb.get("candidate_ms", 0))
-            verified = float(fb.get("verified_speedup", 0))
-
-            if baseline_ms > 0 and candidate_ms > 0 and verified > 0:
-                log.info(f"GEAK verified_speedup={verified:.4f}x from full_benchmark")
-                return {
-                    "speedup": verified,
-                    "source": "full_benchmark.verified_speedup",
-                    "baseline_ms": baseline_ms,
-                    "candidate_ms": candidate_ms,
-                    "verified_speedup": verified,
-                    "benchmark_speedup": float(re_data.get("benchmark_speedup", 0)),
-                    "best_round": re_data.get("round"),
-                    "best_task": re_data.get("best_task"),
-                    "round_history": round_history,
-                }
-
-            bm_speedup = float(re_data.get("benchmark_speedup", 0))
-            bm_round = re_data.get("round")
-            bm_task = re_data.get("best_task")
-            for entry in round_history:
-                rnd_bm = float(entry.get("benchmark_speedup") or 0)
-                if rnd_bm > bm_speedup:
-                    bm_speedup = rnd_bm
-                    bm_round = entry.get("round")
-                    bm_task = entry.get("task")
-            if bm_speedup > 0:
-                log.info(
-                    f"GEAK best benchmark_speedup={bm_speedup:.4f}x "
-                    f"(round {bm_round})"
-                )
-                return {
-                    "speedup": bm_speedup,
-                    "source": "best_benchmark_speedup",
-                    "benchmark_speedup": bm_speedup,
-                    "best_round": bm_round,
-                    "best_task": bm_task,
-                    "round_history": round_history,
-                }
-            # Parse total_speedup string (e.g. "2.03x") or best_speedup numeric
-            for field in ("total_speedup", "best_speedup", "best_speedup_verified"):
-                raw = data.get(field)
-                if raw is None:
-                    continue
-                try:
-                    parsed = float(str(raw).rstrip("x"))
-                except (ValueError, TypeError):
-                    continue
-                if parsed > 0 and parsed > bm_speedup:
-                    log.info(f"GEAK {field}={parsed:.4f}x from final_report.json")
-                    return {
-                        "speedup": parsed,
-                        "source": f"final_report.{field}",
-                        "best_task": data.get("best_task"),
-                        "best_round": data.get("best_round"),
-                        "round_history": round_history,
-                    }
-        except Exception as e:
-            log.warning(f"Failed to read final_report.json: {e}")
-
-    if round_history:
-        best_bm = 0.0
-        best_entry = None
-        for entry in round_history:
-            bm = float(entry.get("benchmark_speedup") or 0)
-            if bm > best_bm:
-                best_bm = bm
-                best_entry = entry
-        if best_bm > 0 and best_entry:
-            log.info(
-                f"Using best round benchmark_speedup={best_bm:.4f}x "
-                f"from round {best_entry.get('round')}"
-            )
-            return {
-                "speedup": best_bm,
-                "source": "round_evaluation.best_benchmark_speedup",
-                "benchmark_speedup": best_bm,
-                "best_round": best_entry.get("round"),
-                "best_task": best_entry.get("task"),
-                "round_history": round_history,
-            }
-
-    best_results = logs_dir / "best_results.json"
-    if best_results.exists():
-        try:
-            br = json.load(open(best_results))
-            br_speedup = float(br.get("best_patch_speedup", 0))
-            if br_speedup > 0:
-                log.info(f"Using best_results.json best_patch_speedup={br_speedup:.4f}x")
-                return {
-                    "speedup": br_speedup,
-                    "source": "best_results.best_patch_speedup",
-                    "benchmark_speedup": br_speedup,
-                    "round_history": round_history,
-                }
-        except Exception as e:
-            log.warning(f"Failed to read best_results.json: {e}")
-
-    geak_summary = logs_dir / "geak_summary.json"
-    if geak_summary.exists():
-        try:
-            gs = json.load(open(geak_summary))
-            vs = float(gs.get("best_verified_speedup", 0))
-            if vs > 0:
-                log.info(f"Using geak_summary.json best_verified_speedup={vs:.4f}x")
-                return {
-                    "speedup": vs,
-                    "source": "geak_summary.best_verified_speedup",
-                    "round_history": round_history,
-                }
-        except Exception as e:
-            log.warning(f"Failed to read geak_summary.json: {e}")
-
-    return None
-
-
-def _read_geak_final_report(workspace: Path, log) -> Optional[Dict[str, float]]:
-    """Backward-compatible wrapper around _read_geak_results.
-
-    Returns the same dict format as before (with verified_speedup, baseline_ms,
-    candidate_ms) for callers that expect the old interface, or None.
-    """
-    result = _read_geak_results(workspace, log)
-    if result and result.get("verified_speedup"):
-        return {
-            "baseline_ms": result.get("baseline_ms", 0),
-            "candidate_ms": result.get("candidate_ms", 0),
-            "verified_speedup": result["verified_speedup"],
-            "benchmark_speedup": result.get("benchmark_speedup", 0),
-            "best_round": result.get("best_round"),
-            "best_task": result.get("best_task"),
-            "round_history": result.get("round_history", []),
-        }
-    return None
 
 
 def evaluate_kernel(
@@ -403,27 +223,6 @@ def evaluate_kernel(
     else:
         log.warning("Failed to measure optimized execution time")
 
-    # Step 3b: If performance measurement failed, read GEAK's final_report.json
-    if results['best_optimized_execution_time'] == 0.0:
-        geak_results = _read_geak_final_report(workspace, log)
-        if geak_results:
-            results['best_optimized_execution_time'] = geak_results['candidate_ms']
-            results['average_speedup'] = geak_results['verified_speedup']
-            results['valid_optimized_cases'] = 1
-            results['valid_baseline_cases'] = 1
-            results['geak_baseline_ms'] = geak_results['baseline_ms']
-            results['geak_benchmark_speedup'] = geak_results.get('benchmark_speedup')
-            results['geak_best_task'] = geak_results.get('best_task')
-            results['geak_best_round'] = geak_results.get('best_round')
-            results['geak_round_history'] = geak_results.get('round_history', [])
-            log.info(
-                f"Using GEAK verified results: {geak_results['verified_speedup']:.4f}x "
-                f"(baseline={geak_results['baseline_ms']:.4f}ms, "
-                f"candidate={geak_results['candidate_ms']:.4f}ms, "
-                f"benchmark={geak_results.get('benchmark_speedup', 'N/A')}x, "
-                f"task={geak_results.get('best_task', 'N/A')})"
-            )
-
     log.info("=" * 80)
     log.info("Evaluation completed")
     log.info("=" * 80)
@@ -454,12 +253,11 @@ def write_task_result(
     """
     log = logger or logging.getLogger(__name__)
     
-    # Get average baseline time — prefer GEAK's verified baseline if available
+    # Get average baseline time from AKA-measured cases. AKA is the single
+    # source of truth for evaluation — no agent-reported numbers leak in here.
     avg_baseline_time = 0.0
     valid_baseline_cases = _valid_perf_cases(baseline_cases)
-    if evaluation_results.get('geak_baseline_ms', 0) > 0:
-        avg_baseline_time = evaluation_results['geak_baseline_ms']
-    elif valid_baseline_cases:
+    if valid_baseline_cases:
         avg_baseline_time = sum(c.execution_time_ms for c in valid_baseline_cases) / len(valid_baseline_cases)
     elif baseline_cases:
         log.warning(
@@ -489,19 +287,6 @@ def write_task_result(
         'optimization_summary': f'Optimized by {agent_name} using centralized evaluator',
     }
 
-    # Add GEAK-specific detailed results if available
-    geak_details = {}
-    if evaluation_results.get('geak_benchmark_speedup'):
-        geak_details['benchmark_speedup'] = evaluation_results['geak_benchmark_speedup']
-    if evaluation_results.get('geak_best_task'):
-        geak_details['best_task'] = evaluation_results['geak_best_task']
-    if evaluation_results.get('geak_best_round'):
-        geak_details['best_round'] = evaluation_results['geak_best_round']
-    if evaluation_results.get('geak_round_history'):
-        geak_details['round_history'] = evaluation_results['geak_round_history']
-    if geak_details:
-        task_result['geak_details'] = geak_details
-    
     result_file = workspace / 'task_result.yaml'
     with open(result_file, 'w') as f:
         yaml.dump(task_result, f, default_flow_style=False, sort_keys=False)

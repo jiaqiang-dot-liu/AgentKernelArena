@@ -2,6 +2,7 @@
 """
 Utilities for evaluator: command execution and file I/O.
 """
+import os
 import shutil
 import subprocess
 import logging
@@ -112,13 +113,27 @@ def run_command(
 def checkout_aiter(
     commit: str,
     docker_container: str,
-    aiter_path: str = "/sgl-workspace/aiter",
+    aiter_path: Optional[str] = None,
     logger: Optional[logging.Logger] = None,
 ) -> bool:
-    """Checkout a specific aiter commit inside the Docker container.
+    """Pinned-commit checkout of the aiter repo.
 
-    Returns True on success, False on failure (container not running, git error).
+    aiter_path resolution order:
+      1. explicit ``aiter_path`` argument
+      2. ``AKA_AITER_PATH`` env var
+    No baked-in default — if neither is provided, returns False with a clear
+    error message. (Reviewer note: previously hardcoded to /sgl-workspace/aiter.)
     """
+    if aiter_path is None:
+        aiter_path = os.environ.get("AKA_AITER_PATH")
+    if not aiter_path:
+        log = logger or logging.getLogger(__name__)
+        log.error(
+            "aiter path is not configured: pass aiter_path explicitly or set "
+            "the AKA_AITER_PATH env var to the absolute path of the aiter repo."
+        )
+        return False
+
     log = logger or logging.getLogger(__name__)
 
     # Detect if we're already inside the container (no docker CLI available)

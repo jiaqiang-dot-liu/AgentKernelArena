@@ -36,7 +36,6 @@ The agent uses these defaults (from `agent_config.yaml` → `geak_env`):
 |---------|---------|-------------|
 | `GEAK_MAX_ROUNDS` | 5 | Optimization rounds per kernel |
 | `GEAK_MODEL` | claude-opus-4.6 | LLM model |
-| `GEAK_MODEL_ENSEMBLE` | gpt-5.2,claude-opus-4.6 | Model ensemble for parallel agents |
 | `GEAK_BENCHMARK_ITERATIONS` | 30 | Benchmark iterations per shape |
 | Heterogeneous | auto (Triton → heterogeneous) | Diverse strategy mode |
 | Working Memory | ON by default | Cross-round learning |
@@ -92,15 +91,15 @@ Because `config_geak_triton_all18.yaml` lists tasks grouped by level
 | 2 | `fused_append_shared_experts` | L1 | 18 | direct |
 | 3 | `moe_routing_sigmoid_top1` | L1 | 34 | direct |
 | 4 | `mla_decode` | L1 | 320 | wrapper (aiter) |
-| 5 | `ff_backward` | L1 | 4 | direct |
-| 6 | `refk_identity` | L1 | self-contained | direct |
-| 7 | `refk_fp8_blockwise_mm` | L1 | self-contained | direct |
-| 8 | `fast_rms_layernorm` | L2 | 1 | direct |
+| 5 | `refk_identity` | L1 | self-contained | direct |
+| 6 | `refk_fp8_blockwise_mm` | L1 | self-contained | direct |
+| 7 | `fast_rms_layernorm` | L2 | 1 | direct |
+| 8 | `ff_backward` | L2 | 4 | direct |
 | 9 | `topk` | L2 | 80 | direct |
 | 10 | `lean_atten_paged` | L2 | 7 | direct |
-| 11 | `rope` | L2 | 6480 | direct |
+| 11 | `gemm` | L3 | 13 | wrapper (aiter) |
 | 12 | `gemm_a16w16_atomic` | L3 | 13 | direct |
-| 13 | `gemm` | L3 | 13 | wrapper (aiter) |
+| 13 | `gemm_a16wfp4` | L3 | 13 | direct |
 | 14 | `fused_qkv_rope` | L3 | 1200 | direct |
 | 15 | `fused_mxfp4_quant_moe_sort` | L3 | 24 | wrapper (aiter) |
 | 16 | `fused_moe_mxfp4` | L3 | 15 | direct |
@@ -116,7 +115,6 @@ Edit `agents/geak_v3_triton/agent_config.yaml`:
 
 - `geak_env.GEAK_MAX_ROUNDS` — optimization rounds (default: 5)
 - `geak_env.GEAK_MODEL` — LLM model (default: claude-opus-4.6)
-- `geak_env.GEAK_MODEL_ENSEMBLE` — model ensemble for parallel agents
 - `geak_env.GEAK_BENCHMARK_ITERATIONS` — benchmark iterations per shape
 
 ### Monitoring
