@@ -27,3 +27,11 @@ tasks:
 target_gpu_model: MI300
 log_directory: logs
 workspace_directory_prefix: workspace_all18
+
+# GEAK subagents per stream (decoupled from GPU count).
+# 12 parallel agents will share the 4 GPUs in each stream (0-3 / 4-7).
+num_parallel: 12
+
+# Wall-clock budget profile forwarded to geak CLI as --mode.
+# 'quick' ~= 1h/kernel, 'full' ~= 2h/kernel.
+run_mode: quick

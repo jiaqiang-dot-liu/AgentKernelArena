@@ -341,6 +341,16 @@ def launch_agent(eval_config: dict[str, Any], task_config_dir: str, workspace: s
     num_parallel = _resolve_num_parallel(eval_config, agent_config, gpu_ids)
     timeout = int(agent_config.get("timeout_seconds", 36000))
 
+    # Wall-clock budget profile forwarded to the geak CLI as --mode.
+    # Priority: GEAK_RUN_MODE env > eval_config.run_mode > agent_config.run_mode > None (geak uses yaml default).
+    run_mode = (
+        os.environ.get("GEAK_RUN_MODE")
+        or eval_config.get("run_mode")
+        or (agent_config.get("run_mode") if agent_config else None)
+    )
+    if run_mode is not None:
+        run_mode = str(run_mode).strip().lower()
+
     prompt = _build_task_prompt(task_config, workspace_path)
     prompt_file = workspace_path / "task_prompt.md"
     prompt_file.write_text(prompt, encoding="utf-8")
@@ -354,6 +364,7 @@ def launch_agent(eval_config: dict[str, Any], task_config_dir: str, workspace: s
     logger.info(f"  logs_dir:     {logs_dir}")
     logger.info(f"  gpu_ids:      {gpu_ids}")
     logger.info(f"  num_parallel: {num_parallel}")
+    logger.info(f"  run_mode:     {run_mode or '(geak default)'}")
     logger.info(f"  timeout:      {timeout}s")
     for k, v in sorted(run_env.items()):
         if k.startswith("GEAK_"):
@@ -378,7 +389,8 @@ def launch_agent(eval_config: dict[str, Any], task_config_dir: str, workspace: s
         + (f" --test-command {shlex.quote(test_cmd)}" if test_cmd else "")
         + f" --gpu-ids {gpu_ids}"
         f" --num-parallel {num_parallel}"
-        f" --yolo"
+        + (f" --mode {shlex.quote(run_mode)}" if run_mode else "")
+        + f" --yolo"
         f" --exit-immediately"
         f" -t {shlex.quote(str(prompt_file))}"
         f" -o {shlex.quote(str(logs_dir))}"
