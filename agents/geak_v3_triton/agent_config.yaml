@@ -1,10 +1,14 @@
 version: 0
 timeout_seconds: 10800
 
-# Number of parallel GEAK subagents. Default (when unset) = len(gpu_ids).
-# Override priority: GEAK_NUM_PARALLEL env > top-level eval config num_parallel > this.
+# Number of parallel GEAK subagents.
+# Override priority: GEAK_NUM_PARALLEL env > top-level eval config num_parallel > this > len(gpu_ids).
 # With the gwiab-scheduler branch of GEAK, you can run >1 subagent per GPU.
-# num_parallel: 4
+num_parallel: 4
+
+# Wall-clock budget profile forwarded to geak CLI as --mode ('quick' ~1h/kernel, 'full' ~2h/kernel).
+# Override priority: GEAK_RUN_MODE env > top-level eval config run_mode > this > geak.yaml default.
+run_mode: full
 
 geak_env:
   GEAK_MAX_ROUNDS: "5"

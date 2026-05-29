@@ -29,9 +29,12 @@ log_directory: logs
 workspace_directory_prefix: workspace_all18
 
 # GEAK subagents per stream (decoupled from GPU count).
-# 12 parallel agents will share the 4 GPUs in each stream (0-3 / 4-7).
-num_parallel: 12
+# Default 4 matches the historical GPU-count default for the 4-GPU streams.
+# Raise (e.g. to 12) to oversubscribe the GPUs in each stream and explore
+# more strategies per round.
+num_parallel: 4
 
 # Wall-clock budget profile forwarded to geak CLI as --mode.
 # 'quick' ~= 1h/kernel, 'full' ~= 2h/kernel.
-run_mode: quick
+# Default 'full' until quick-mode results are validated across HIP + Triton.
+run_mode: full
