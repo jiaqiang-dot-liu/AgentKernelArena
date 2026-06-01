@@ -15,81 +15,17 @@ if _gpu is not None:
 
 import argparse
 import math
-import importlib.util
-import types
 
-# Resolve repo root
-REPO_ROOT = os.environ.get(
-    "GEAK_WORK_DIR",
-    os.environ.get(
-        "GEAK_REPO_ROOT",
-        os.path.dirname(os.path.abspath(__file__)),
-    ),
-)
-if REPO_ROOT not in sys.path:
-    sys.path.insert(0, REPO_ROOT)
-
-
-# ── Dynamic kernel.py loader ─────────────────────────────────────────────
-def _resolve_geak_kernel_dir():
-    candidates = []
-    work_dir = os.environ.get("GEAK_WORK_DIR", "").strip()
-    if work_dir:
-        candidates.append(work_dir)
-    repo_root = os.environ.get("GEAK_REPO_ROOT", "").strip()
-    if repo_root:
-        candidates.append(os.path.join(repo_root, '.'))
-    original_kernel_dir = os.path.dirname(os.path.abspath(__file__))
-    if original_kernel_dir:
-        candidates.append(original_kernel_dir)
-    for candidate in candidates:
-        if candidate and os.path.isfile(os.path.join(candidate, "kernel.py")):
-            return candidate
-    return original_kernel_dir or os.getcwd()
-
-
-def _ensure_geak_package(module_name):
-    parts = module_name.split(".")
-    for idx in range(1, len(parts)):
-        prefix = ".".join(parts[:idx])
-        if prefix in sys.modules:
-            continue
-        pkg = types.ModuleType(prefix)
-        pkg.__path__ = []
-        sys.modules[prefix] = pkg
-
-
-def _register_geak_aliases(kernel_dir):
-    aliases = ['gemm_a16w16', 'aiter.ops.triton.gemm_a16w16']
-    entry_file = os.path.join(kernel_dir, "kernel.py")
-    if not os.path.isfile(entry_file):
-        return
-    for alias in aliases:
-        if alias in sys.modules:
-            continue
-        _ensure_geak_package(alias)
-        spec = importlib.util.spec_from_file_location(alias, entry_file)
-        if spec is None or spec.loader is None:
-            continue
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[alias] = module
-        try:
-            spec.loader.exec_module(module)
-        except Exception:
-            pass
-
-
-_KERNEL_DIR = _resolve_geak_kernel_dir()
-if _KERNEL_DIR and _KERNEL_DIR not in sys.path:
-    sys.path.insert(0, _KERNEL_DIR)
-_register_geak_aliases(_KERNEL_DIR)
-# ── End dynamic loader ────────────────────────────────────────────────────
+# kernel.py lives next to this harness; Python puts the script dir on sys.path[0].
+_HARNESS_DIR = os.path.dirname(os.path.abspath(__file__))
+if _HARNESS_DIR not in sys.path:
+    sys.path.insert(0, _HARNESS_DIR)
 
 import torch
 import torch.nn.functional as F
 import triton
 
-from aiter.ops.triton.gemm_a16w16 import gemm_a16w16
+from kernel import gemm_a16w16
 
 # ---------------------------------------------------------------------------
 # Config list: from bench_gemm_a16w16.py -> benchmark_utils.get_x_vals(dims=3)
@@ -138,7 +74,12 @@ def _format_config(cfg):
 def _generate_inputs(M, N, K, dtype):
     x = torch.randn((M, K), dtype=dtype, device="cuda")
     w = torch.randn((K, N), dtype=dtype, device="cuda").T
-    bias = torch.empty((N,), dtype=dtype, device="cuda")
+    # Initialize bias with real values: aiter's generator uses torch.empty but
+    # defaults bias=False, so its uninitialized path is never exercised. This
+    # harness always adds bias, so uninitialized memory could carry a NaN bit
+    # pattern that makes assert_close flag NaN positions (NaN != NaN) even
+    # though kernel and reference propagate it identically.
+    bias = torch.randn((N,), dtype=dtype, device="cuda")
     return x, w, bias
 
 

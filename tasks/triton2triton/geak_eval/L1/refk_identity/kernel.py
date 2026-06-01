@@ -6,10 +6,6 @@ Copies an input tensor to an output tensor element-wise.
 Triton kernel generated from PyTorch's `output.copy_(input)` on float16 1-D tensors.
 """
 
-import math
-import os
-import time
-
 import torch
 import triton
 import triton.language as tl
@@ -98,7 +94,7 @@ def get_inputs(size, seed=42, device="cuda"):
 
 
 # ============================================================================
-# CONFIG SPACE — matches test_submission_harness.py ALL_CONFIGS
+# CONFIG SPACE — shapes exercised by test_kernel_harness.py
 # ============================================================================
 
 
@@ -124,147 +120,3 @@ PROFILE_CONFIGS = [
     {"size": 8192, "seed": 8841},
     {"size": 65536, "seed": 125432},
 ]
-
-WARMUP = 50
-ITERATIONS = int(os.environ.get("GEAK_BENCHMARK_ITERATIONS", "200"))
-RTOL, ATOL = 1e-5, 1e-5
-
-
-# ============================================================================
-# SELF-TEST HARNESS
-# ============================================================================
-
-
-def check_correctness(cfg) -> dict:
-    try:
-        data, out_triton = get_inputs(**cfg)
-        out_ref = torch.empty_like(data)
-        identity_triton(data, out_triton)
-        identity_pytorch(data, out_ref)
-        torch.cuda.synchronize()
-        correct = torch.equal(out_triton, out_ref)
-        max_diff = torch.max(torch.abs(out_triton.float() - out_ref.float())).item()
-        return {"correct": correct, "max_diff": max_diff, "error": None}
-    except Exception as e:
-        return {"correct": False, "max_diff": float("inf"), "error": str(e)}
-
-
-def benchmark_config(cfg, warmup=WARMUP, iters=ITERATIONS) -> dict:
-    data, output = get_inputs(**cfg)
-    for _ in range(warmup):
-        identity_triton(data, output)
-    torch.cuda.synchronize()
-
-    start = time.perf_counter()
-    for _ in range(iters):
-        identity_triton(data, output)
-    torch.cuda.synchronize()
-    triton_ms = (time.perf_counter() - start) * 1000 / iters
-
-    output2 = torch.empty_like(data)
-    for _ in range(warmup):
-        identity_pytorch(data, output2)
-    torch.cuda.synchronize()
-
-    start = time.perf_counter()
-    for _ in range(iters):
-        identity_pytorch(data, output2)
-    torch.cuda.synchronize()
-    torch_ms = (time.perf_counter() - start) * 1000 / iters
-
-    return {"triton_ms": triton_ms, "torch_ms": torch_ms,
-            "speedup": torch_ms / triton_ms if triton_ms > 0 else 0.0}
-
-
-def _config_label(cfg):
-    return f"(size={cfg['size']})"
-
-
-def evaluate(configs=None, warmup=WARMUP, iters=ITERATIONS, verbose=True) -> dict:
-    configs = configs or EVAL_CONFIGS
-    results, failures = [], []
-
-    if verbose:
-        print(f"{'Config':<22} {'Correct':>8} {'Torch':>10} {'Triton':>10} {'Speedup':>10}")
-        print("-" * 62)
-
-    for cfg in configs:
-        label = _config_label(cfg)
-        corr = check_correctness(cfg)
-        if not corr["correct"]:
-            failures.append({"config": cfg, **corr})
-            if verbose:
-                err = corr["error"] or f"max_diff={corr['max_diff']:.2e}"
-                print(f"{label:<22} {'FAIL':>8}   {err[:30]}")
-            continue
-
-        bench = benchmark_config(cfg, warmup=warmup, iters=iters)
-        results.append({"config": cfg, "correct": True, **bench})
-
-        if verbose:
-            marker = " *" if bench["speedup"] > 1.0 else ""
-            print(
-                f"{label:<22} {'PASS':>8} "
-                f"{bench['torch_ms']:>8.4f}ms {bench['triton_ms']:>8.4f}ms "
-                f"{bench['speedup']:>8.2f}x{marker}"
-            )
-
-    speedups = [r["speedup"] for r in results]
-    geomean = math.prod(speedups) ** (1 / len(speedups)) if speedups else 0.0
-
-    if verbose:
-        print("-" * 62)
-        status = "ALL PASS" if not failures else f"FAILED ({len(failures)}/{len(configs)})"
-        print(f"{'Status:':<22} {status}")
-        if speedups:
-            print(f"{'Speedup (geomean):':<22} {geomean:.2f}x")
-
-    return {
-        "correct": len(failures) == 0,
-        "num_correct": len(results),
-        "num_failed": len(failures),
-        "failures": failures,
-        "results": results,
-        "speedup_geomean": geomean,
-    }
-
-
-def run_profile(configs=None, warmup=5, iters=1, verbose=True):
-    configs = configs or PROFILE_CONFIGS
-    if verbose:
-        print(f"Profile: {len(configs)} config(s)")
-    for cfg in configs:
-        data, output = get_inputs(**cfg)
-        for _ in range(warmup):
-            identity_triton(data, output)
-        torch.cuda.synchronize()
-        for _ in range(iters):
-            identity_triton(data, output)
-        torch.cuda.synchronize()
-        if verbose:
-            print(f"  {_config_label(cfg)} done")
-
-
-# ============================================================================
-# MAIN
-# ============================================================================
-
-if __name__ == "__main__":
-    import argparse
-
-    parser = argparse.ArgumentParser(description="Identity Kernel (Triton)")
-    parser.add_argument("--profile", action="store_true")
-    args = parser.parse_args()
-
-    print("=" * 62)
-    print("Identity Kernel — Triton (torch.compile extracted)")
-    print("=" * 62)
-
-    if args.profile:
-        print("\n[Profile Mode]")
-        run_profile()
-    else:
-        print("\n[Evaluation]")
-        evaluate()
-
-    print("=" * 62)

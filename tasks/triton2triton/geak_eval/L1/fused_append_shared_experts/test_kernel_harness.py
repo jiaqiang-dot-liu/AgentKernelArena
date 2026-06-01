@@ -14,79 +14,17 @@ import argparse
 import math
 import os
 import sys
-import types
-import importlib.util
 
 # ── Constants ──────────────────────────────────────────────────────────────
 WARMUP = 50
 ITERATIONS = int(os.environ.get("GEAK_BENCHMARK_ITERATIONS", "200"))
 
-# ── Resolve kernel location ───────────────────────────────────────────────
-_KERNEL_FILENAME = "kernel.py"
+# kernel.py lives next to this harness; Python puts the script dir on sys.path[0].
+_HARNESS_DIR = os.path.dirname(os.path.abspath(__file__))
+if _HARNESS_DIR not in sys.path:
+    sys.path.insert(0, _HARNESS_DIR)
 
-
-def _resolve_kernel_path():
-    """Find the kernel file the agent edits, next to this harness."""
-    work_dir = os.environ.get("GEAK_WORK_DIR")
-    candidates = []
-    if work_dir:
-        candidates.append(os.path.join(work_dir, _KERNEL_FILENAME))
-    candidates.append(
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), _KERNEL_FILENAME)
-    )
-    for p in candidates:
-        if os.path.isfile(p):
-            return p
-    raise FileNotFoundError(
-        "Cannot find {} in any of: {}".format(_KERNEL_FILENAME, candidates)
-    )
-
-
-def _setup_sgl_kernel_mock():
-    """Mock sgl_kernel so the kernel file can be imported on ROCm
-    without the CUDA-only sgl_kernel native library."""
-    if "sgl_kernel" in sys.modules:
-        return
-    mock_sgl = types.ModuleType("sgl_kernel")
-    mock_sgl.__path__ = []
-    mock_sgl.__file__ = "mock"
-
-    def _noop(*a, **kw):
-        return None
-
-    for name in [
-        "gelu_and_mul", "silu_and_mul", "moe_align_block_size",
-        "moe_sum_reduce", "per_token_group_quant_fp8",
-        "scaled_fp4_quant", "transfer_kv_all_layer",
-    ]:
-        setattr(mock_sgl, name, _noop)
-    for submod_name in ["kvcacheio", "moe", "quantization", "elementwise"]:
-        submod = types.ModuleType("sgl_kernel.{}".format(submod_name))
-        for attr in ["transfer_kv_all_layer", "HostKVCache", "moe_align_block_size"]:
-            setattr(submod, attr, _noop)
-        sys.modules["sgl_kernel.{}".format(submod_name)] = submod
-        setattr(mock_sgl, submod_name, submod)
-    sys.modules["sgl_kernel"] = mock_sgl
-
-
-def _load_kernel_module():
-    """Load the agent-edited kernel.py directly, bypassing __init__.py chains."""
-    _setup_sgl_kernel_mock()
-    kernel_path = _resolve_kernel_path()
-    spec = importlib.util.spec_from_file_location(
-        "fused_append_shared_experts_kernel",
-        kernel_path,
-        submodule_search_locations=[],
-    )
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules["fused_append_shared_experts_kernel"] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-# ── Load kernel ───────────────────────────────────────────────────────────
-_kernel_mod = _load_kernel_module()
-fused_append_shared_experts = _kernel_mod.fused_append_shared_experts
+from kernel import fused_append_shared_experts
 
 import torch
 

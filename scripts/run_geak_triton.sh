@@ -34,6 +34,9 @@ trap cleanup_tmp_configs EXIT INT TERM
 : "${GEAK_SRC:?GEAK_SRC must be set to the absolute path of GEAK/src}"
 export GEAK_CONFIG_NAME="${GEAK_CONFIG_NAME:-heterogeneous_memory_off}"
 export GEAK_SRC
+# Path to the aiter repo *inside the container*. Required for tasks that pin an
+# aiter_commit (checkout_aiter in main.py); harmless for self-contained tasks.
+export AKA_AITER_PATH="${AKA_AITER_PATH:-/sgl-workspace/aiter}"
 
 # Ensure container is running
 if ! docker ps --format '{{.Names}}' | grep -q "^${CONTAINER}$"; then
@@ -88,6 +91,7 @@ echo "[$(date -Iseconds)] Starting Stream A (GPUs $GPU_A)..."
 docker exec \
   -e "GEAK_CONFIG_NAME=$GEAK_CONFIG_NAME" \
   -e "GEAK_SRC=$GEAK_SRC" \
+  -e "AKA_AITER_PATH=$AKA_AITER_PATH" \
   -e "AMD_LLM_API_KEY=${AMD_LLM_API_KEY:-}" \
   -e "GEAK_GPU_IDS=$GPU_A" \
   -w "$AKA_ROOT" "$CONTAINER" \
@@ -98,6 +102,7 @@ echo "[$(date -Iseconds)] Starting Stream B (GPUs $GPU_B)..."
 docker exec \
   -e "GEAK_CONFIG_NAME=$GEAK_CONFIG_NAME" \
   -e "GEAK_SRC=$GEAK_SRC" \
+  -e "AKA_AITER_PATH=$AKA_AITER_PATH" \
   -e "AMD_LLM_API_KEY=${AMD_LLM_API_KEY:-}" \
   -e "GEAK_GPU_IDS=$GPU_B" \
   -w "$AKA_ROOT" "$CONTAINER" \

@@ -120,27 +120,27 @@ _CONFIG_DICT = {
             "small":  {"BLOCK_M": 16, "BLOCK_K": 256, "num_warps": 4, "num_stages": 2, "waves_per_eu": 3, "kpack": 1},
             "medium": {"BLOCK_M": 16, "BLOCK_K": 256, "num_warps": 4, "num_stages": 2, "waves_per_eu": 3, "kpack": 1},
             "large":  {"BLOCK_M": 16, "BLOCK_K": 256, "num_warps": 4, "num_stages": 2, "waves_per_eu": 3, "kpack": 2},
-            "xlarge": {"BLOCK_M": 32, "BLOCK_K": 256, "num_warps": 4, "num_stages": 2, "waves_per_eu": 0, "kpack": 2},
+            "xlarge": {"BLOCK_M": 32, "BLOCK_K": 128, "num_warps": 8, "num_stages": 2, "waves_per_eu": 2, "kpack": 2},
         },
         "N128": {
-            "small":  {"BLOCK_M": 16, "BLOCK_K": 256, "num_warps": 8, "num_stages": 2, "waves_per_eu": 0, "kpack": 2},
-            "medium": {"BLOCK_M": 16, "BLOCK_K": 256, "num_warps": 8, "num_stages": 2, "waves_per_eu": 0, "kpack": 2},
-            "large":  {"BLOCK_M": 16, "BLOCK_K": 256, "num_warps": 8, "num_stages": 2, "waves_per_eu": 0, "kpack": 2},
-            "xlarge": {"BLOCK_M": 32, "BLOCK_K": 256, "num_warps": 4, "num_stages": 2, "waves_per_eu": 0, "kpack": 2},
+            "small":  {"BLOCK_M": 16, "BLOCK_K": 256, "num_warps": 8, "num_stages": 1, "waves_per_eu": 0, "kpack": 1},
+            "medium": {"BLOCK_M": 16, "BLOCK_K": 256, "num_warps": 8, "num_stages": 1, "waves_per_eu": 0, "kpack": 2},
+            "large":  {"BLOCK_M": 16, "BLOCK_K": 256, "num_warps": 8, "num_stages": 1, "waves_per_eu": 2, "kpack": 2},
+            "xlarge": {"BLOCK_M": 32, "BLOCK_K": 128, "num_warps": 8, "num_stages": 2, "waves_per_eu": 2, "kpack": 2},
         },
     },
     "gfx950": {
         "N16": {
-            "small":  {"BLOCK_M": 16, "BLOCK_K": 256, "num_warps": 4, "num_stages": 2, "waves_per_eu": 0, "kpack": 1},
-            "medium": {"BLOCK_M": 16, "BLOCK_K": 256, "num_warps": 4, "num_stages": 2, "waves_per_eu": 0, "kpack": 1},
-            "large":  {"BLOCK_M": 16, "BLOCK_K": 256, "num_warps": 4, "num_stages": 2, "waves_per_eu": 0, "kpack": 1},
-            "xlarge": {"BLOCK_M": 32, "BLOCK_K": 256, "num_warps": 4, "num_stages": 2, "waves_per_eu": 0, "kpack": 1},
+            "small":  {"BLOCK_M": 16, "BLOCK_K": 256, "num_warps": 4, "num_stages": 2, "waves_per_eu": 3, "kpack": 1},
+            "medium": {"BLOCK_M": 16, "BLOCK_K": 256, "num_warps": 4, "num_stages": 2, "waves_per_eu": 3, "kpack": 1},
+            "large":  {"BLOCK_M": 16, "BLOCK_K": 256, "num_warps": 4, "num_stages": 2, "waves_per_eu": 3, "kpack": 1},
+            "xlarge": {"BLOCK_M": 32, "BLOCK_K": 128, "num_warps": 8, "num_stages": 2, "waves_per_eu": 2, "kpack": 1},
         },
         "N128": {
-            "small":  {"BLOCK_M": 16, "BLOCK_K": 256, "num_warps": 8, "num_stages": 2, "waves_per_eu": 0, "kpack": 1},
-            "medium": {"BLOCK_M": 16, "BLOCK_K": 256, "num_warps": 8, "num_stages": 2, "waves_per_eu": 0, "kpack": 1},
-            "large":  {"BLOCK_M": 16, "BLOCK_K": 256, "num_warps": 8, "num_stages": 2, "waves_per_eu": 0, "kpack": 1},
-            "xlarge": {"BLOCK_M": 32, "BLOCK_K": 256, "num_warps": 4, "num_stages": 2, "waves_per_eu": 0, "kpack": 1},
+            "small":  {"BLOCK_M": 16, "BLOCK_K": 256, "num_warps": 8, "num_stages": 1, "waves_per_eu": 0, "kpack": 1},
+            "medium": {"BLOCK_M": 16, "BLOCK_K": 256, "num_warps": 8, "num_stages": 1, "waves_per_eu": 0, "kpack": 1},
+            "large":  {"BLOCK_M": 16, "BLOCK_K": 256, "num_warps": 8, "num_stages": 1, "waves_per_eu": 2, "kpack": 1},
+            "xlarge": {"BLOCK_M": 32, "BLOCK_K": 128, "num_warps": 8, "num_stages": 2, "waves_per_eu": 2, "kpack": 1},
         },
     },
 }
@@ -162,8 +162,8 @@ def _get_config(M, N, K):
     n_key = "N16" if N <= 16 else "N128"
     m_key = (
         "xlarge"
-        if M >= 4096
-        else "large" if M >= 2048 else "medium" if M >= 1024 else "small"
+        if M >= 8192
+        else "large" if M >= 4096 else "medium" if M >= 2048 else "small"
     )
     return configs[n_key][m_key]
 
