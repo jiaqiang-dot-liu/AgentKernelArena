@@ -1,0 +1,23 @@
+source_file_path:
+- pytorch_code_module/py_l2n66_Matmul_Dropout_Softmax.py
+target_kernel_functions:
+- forward
+compile_command:
+- python3 eval_tools/compile.py --hip_file hip/hip_l2n66_Matmul_Dropout_Softmax.hip
+correctness_command:
+- python3 eval_tools/correctness_check.py --py_modu_file pytorch_code_module/py_l2n66_Matmul_Dropout_Softmax.py
+  --py_func_file pytorch_code_functional/py_l2n66_Matmul_Dropout_Softmax_func.py --hip_file hip/hip_l2n66_Matmul_Dropout_Softmax.hip
+performance_command:
+- python3 eval_tools/cal_kernel_perf.py --py_modu_file pytorch_code_module/py_l2n66_Matmul_Dropout_Softmax.py
+  --py_func_file pytorch_code_functional/py_l2n66_Matmul_Dropout_Softmax_func.py --hip_file hip/hip_l2n66_Matmul_Dropout_Softmax.hip
+prompt:
+  source_code: null
+  instructions: You are a hip expert and good at gpu kernel implementation. Please
+    implemnt a target HIP kernel code corresponding to pytorch modullle code provided
+    as followings, which includes hip kernel, kernel laucher and python bliding code
+    for the hip launcher.
+  task_type: null
+  cheatsheet: null
+target_file_path: hip/hip_l2n66_Matmul_Dropout_Softmax.hip
+task_type: torch2hip
+task_result_template: null

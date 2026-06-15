@@ -6,15 +6,15 @@ import torch.nn.functional as F
 
 def module_fn(x: torch.Tensor) -> torch.Tensor:
     """
-    Applies the ReLU activation function in-place.
+    Applies the GELU activation function.
 
     Args:
         x (torch.Tensor): Input tensor.
 
     Returns:
-        torch.Tensor: Output tensor after applying in-place ReLU.
+        torch.Tensor: Output tensor after applying GELU.
     """
-    return F.relu(x, inplace=True)
+    return F.gelu(x)
 
 class GELU(nn.Module):
     def __init__(self):
