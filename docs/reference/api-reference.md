@@ -51,16 +51,36 @@ python main.py --config_name config_triton.yaml --run-suffix with_mcp
 Each task is defined by a `config.yaml` in its directory. Command fields are
 **lists**.
 
+For isolated-kernel tasks (`hip2hip`, `cuda2hip`, `triton2triton`,
+`instruction2triton`, `torch2hip`, and `flydsl2flydsl`):
+
 | Field | Required | Description |
 | --- | --- | --- |
 | `source_file_path` | yes | Source files containing the kernel, relative to the task root. |
 | `target_kernel_functions` | yes | Kernel function names that must be defined in the source. |
 | `compile_command` | yes | Command(s) to compile or build-check. |
 | `correctness_command` | yes | Command(s) to validate correctness. |
-| `task_type` | yes | One of `hip2hip`, `cuda2hip`, `triton2triton`, `instruction2triton`, `torch2hip`, `flydsl2flydsl`, `repository`. |
+| `task_type` | yes | One of `hip2hip`, `cuda2hip`, `triton2triton`, `instruction2triton`, `torch2hip`, or `flydsl2flydsl`. |
 | `performance_command` | no | Command(s) to measure performance. |
 | `task_result_template` | no | Override the result template (`null` = default). |
 | `prompt.source_code` | no | Override the prompt's source-code section. |
+| `prompt.instructions` | no | Custom prompt instructions. |
+| `prompt.cheatsheet` | no | Reference/cheatsheet content for the prompt. |
+
+For repository-level tasks (`task_type: repository`):
+
+| Field | Required | Description |
+| --- | --- | --- |
+| `repo_url` | yes | Upstream repository to clone for the task. |
+| `task_type` | yes | Must be `repository`. |
+| `repository_language` | yes | Primary optimization stack, for example `hip` or `triton`. |
+| `compile_command` | yes | Command(s) to compile or build-check. |
+| `correctness_command` | yes | Command(s) to validate correctness. |
+| `performance_command` | no | Command(s) to measure performance. |
+| `post_clone_install` | no | Setup command(s) to run after cloning the upstream repository. |
+| `post_clone_install_mode` | no | Controls when `post_clone_install` runs, for example `every_setup`. |
+| `source_file_path` | no | Optional target source-file hints, relative to the cloned repository root. |
+| `target_kernel_functions` | no | Optional target function or kernel-symbol hints. |
 | `prompt.instructions` | no | Custom prompt instructions. |
 | `prompt.cheatsheet` | no | Reference/cheatsheet content for the prompt. |
 

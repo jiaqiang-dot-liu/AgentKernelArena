@@ -39,7 +39,9 @@ path referenced in `config.yaml` resolves inside the task directory.
 
 ## Required `config.yaml` fields
 
-All command fields are **lists**, even when there is a single command.
+Most tasks optimize files that are copied into the task workspace. For those
+isolated-kernel tasks, all command fields are **lists**, even when there is a
+single command.
 
 ```yaml
 # Source files containing the kernel code (relative to the task root)
@@ -61,6 +63,24 @@ correctness_command:
 # One of: hip2hip, cuda2hip, triton2triton, instruction2triton,
 #         torch2hip, flydsl2flydsl, repository
 task_type: hip2hip
+```
+
+Repository-level tasks (`task_type: repository`) use a different shape because
+they clone and optimize an upstream project rather than a small source bundle.
+They require `repo_url`, `repository_language`, `compile_command`, and
+`correctness_command`; `source_file_path` and `target_kernel_functions` are
+optional hints when the target files and symbols are known.
+
+```yaml
+repo_url: https://github.com/ROCm/rocPRIM.git
+task_type: repository
+repository_language: hip
+
+compile_command:
+  - python3 scripts/task_runner.py compile
+
+correctness_command:
+  - python3 scripts/task_runner.py correctness
 ```
 
 ## Optional `config.yaml` fields
