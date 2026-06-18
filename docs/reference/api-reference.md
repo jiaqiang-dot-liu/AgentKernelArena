@@ -1,0 +1,128 @@
+# Configuration and API reference
+
+This page documents the run configuration (`config.yaml`), the per-task
+configuration, the command-line flags, the scoring formula, and the agent
+registry.
+
+## Run configuration (`config.yaml`)
+
+The root `config.yaml` defines a single evaluation run.
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `agent.template` | string | Agent to run. One of the [supported agents](../how-to/agents.md#supported-agents). |
+| `tasks` | list of strings | Task selectors relative to `tasks/`. Use `all` for every task, a category prefix for a group, or a full path for a single task. |
+| `target_gpu_model` | string | Target GPU model, for example `MI300`. Used to set `PYTORCH_ROCM_ARCH` and to name the workspace. |
+| `log_directory` | string | Directory for run logs. |
+| `workspace_directory_prefix` | string | Prefix for the workspace directory. The full name is `<prefix>_<gpu>_<agent>`. |
+
+Example:
+
+```yaml
+agent:
+  template: cursor
+
+tasks:
+  - hip2hip/gpumode/GELU
+  - triton2triton/vllm/triton_rms_norm
+
+target_gpu_model: MI300
+log_directory: logs
+workspace_directory_prefix: workspace
+```
+
+## Command-line flags
+
+`main.py` accepts the following flags:
+
+| Flag | Description |
+| --- | --- |
+| `--config_name <file>` | Config file to load (default `config.yaml`). Use separate files to keep multiple task sets in one folder. |
+| `--run-suffix <suffix>` | Suffix appended to the run directory name (letters, numbers, `.`, `_`, `-` only). Useful for labeling A/B runs. |
+| `--resume-run <run_dir>` | Resume a specific run directory, skipping completed tasks. |
+| `--resume-latest` | Resume the most recent run in the workspace. |
+
+```bash
+python main.py --config_name config_triton.yaml --run-suffix with_mcp
+```
+
+## Task configuration
+
+Each task is defined by a `config.yaml` in its directory. Command fields are
+**lists**.
+
+| Field | Required | Description |
+| --- | --- | --- |
+| `source_file_path` | yes | Source files containing the kernel, relative to the task root. |
+| `target_kernel_functions` | yes | Kernel function names that must be defined in the source. |
+| `compile_command` | yes | Command(s) to compile or build-check. |
+| `correctness_command` | yes | Command(s) to validate correctness. |
+| `task_type` | yes | One of `hip2hip`, `cuda2hip`, `triton2triton`, `instruction2triton`, `torch2hip`, `flydsl2flydsl`, `repository`. |
+| `performance_command` | no | Command(s) to measure performance. |
+| `task_result_template` | no | Override the result template (`null` = default). |
+| `prompt.source_code` | no | Override the prompt's source-code section. |
+| `prompt.instructions` | no | Custom prompt instructions. |
+| `prompt.cheatsheet` | no | Reference/cheatsheet content for the prompt. |
+
+See [Add a task](../how-to/add-task.md) for layout and authoring rules.
+
+## Result schema (`task_result.yaml`)
+
+Each task produces a `task_result.yaml` in its workspace:
+
+| Field | Description |
+| --- | --- |
+| `task_name` | `<task_type>/<task_name>` |
+| `pass_compilation` | Whether the optimized kernel compiled |
+| `compilation_error_message` | Error text if compilation failed, else `null` |
+| `pass_correctness` | Whether correctness passed |
+| `correctness_error_message` | Error text if correctness failed, else `null` |
+| `base_execution_time` | Baseline runtime in ms |
+| `best_optimized_execution_time` | Best optimized runtime in ms |
+| `speedup_ratio` | Speedup over baseline |
+| `optimization_summary` | Free-text summary from the agent |
+| `score` | Computed score (see below) |
+
+## Scoring
+
+The score is the sum of three components:
+
+| Component | Points | Condition |
+| --- | --- | --- |
+| Compilation | `20` | The kernel compiles successfully. |
+| Correctness | `100` | The kernel passes the correctness check. |
+| Speedup | `speedup_ratio × 100` | Added only when compilation **and** correctness pass. |
+
+The rules, expressed as the framework applies them:
+
+- Compilation fails → score `0`.
+- Compilation passes, correctness fails → score `20`.
+- Both pass → `120 + speedup_ratio × 100`.
+
+**Example**: a kernel that compiles (`20`), is correct (`100`), and achieves a
+`1.58×` speedup scores `20 + 100 + 158 = 278`.
+
+The speedup used for scoring prefers the explicit `speedup_ratio` written by the
+evaluator (which weights each test case equally for multi-testcase tasks) and
+falls back to `base_execution_time / best_optimized_execution_time` when an
+explicit ratio is not present.
+
+This is the default scoring scheme; you can define your own in `src/score.py`.
+
+## Agent registry
+
+Agents register themselves into a shared registry with the `register_agent`
+decorator, and the framework loads only the selected agent:
+
+```python
+from agents import register_agent
+
+@register_agent("your_agent")
+def launch_agent(eval_config, task_config_dir, workspace):
+    ...
+    return result
+```
+
+The selectable agent names are defined by the `AgentType` enum in
+`src/module_registration.py`. See [Configure agents and models](../how-to/agents.md)
+for the integration steps.

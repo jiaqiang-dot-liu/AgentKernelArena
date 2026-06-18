@@ -21,3 +21,7 @@ saved_results
 
 # Generated held-out test data (methodology is in held_out/, data is private)
 held_out_tests/
+
+# Documentation build environment and output
+.docvenv/
+docs/_build/

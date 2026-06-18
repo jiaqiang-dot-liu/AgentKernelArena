@@ -1,0 +1,46 @@
+# Table of contents for the AgentKernelArena documentation site.
+# Processed by rocm-docs-core into sphinx/_toc.yml at build time.
+# https://rocm.docs.amd.com/projects/rocm-docs-core/en/latest/
+
+defaults:
+  numbered: false
+
+root: index
+
+subtrees:
+  - caption: Install
+    entries:
+      - file: install/install
+        title: Install AgentKernelArena
+
+  - caption: Reference
+    entries:
+      - file: reference/release-notes
+        title: Release notes
+      - file: reference/compatibility-matrix
+        title: Compatibility matrix
+      - file: reference/api-reference
+        title: Configuration and API reference
+
+  - caption: How to
+    entries:
+      - file: how-to/run-evaluation
+        title: Run an evaluation
+      - file: how-to/agents
+        title: Configure agents and models
+      - file: how-to/add-task
+        title: Add a task
+      - file: how-to/task-validator
+        title: Validate tasks
+      - file: how-to/visualization
+        title: Visualize and compare runs
+
+  - caption: Examples
+    entries:
+      - file: examples/examples
+        title: Examples
+
+  - caption: About
+    entries:
+      - file: about/license
+        title: License

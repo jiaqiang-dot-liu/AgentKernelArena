@@ -1,0 +1,103 @@
+# Add a task
+
+A task is a single GPU kernel optimization problem. Each task lives in its own
+directory under `tasks/<task_type>/<task_name>/` and is described by a
+`config.yaml`. This page covers the directory layout, the configuration schema,
+and the supported task types.
+
+## Task types
+
+The `task_type` field declares what kind of optimization the task represents:
+
+| `task_type` | Meaning |
+| --- | --- |
+| `hip2hip` | Optimize an existing HIP kernel |
+| `cuda2hip` | Port and optimize a CUDA kernel to HIP |
+| `triton2triton` | Optimize an existing Triton kernel |
+| `instruction2triton` | Write a Triton kernel from an instruction/spec |
+| `torch2hip` | Replace a PyTorch reference with a HIP kernel |
+| `flydsl2flydsl` | Optimize a FlyDSL kernel (requires FlyDSL) |
+| `repository` | Repository-level task |
+
+The repository ships task suites including `hip2hip` (gpumode and others),
+`triton2triton` (vLLM and ROCmBench), `torch2hip`, `instruction2triton`, and
+`flydsl2flydsl`.
+
+## Directory layout
+
+```text
+tasks/<task_type>/<task_name>/
+├── config.yaml                  # Task configuration (required)
+├── scripts/
+│   └── task_runner.py           # Compile/correctness/performance runner (recommended)
+└── source/                      # or src/
+    └── <kernel files>           # .cu, .hip, .py, etc.
+```
+
+Makefile-based or test-file-based layouts are also acceptable, as long as every
+path referenced in `config.yaml` resolves inside the task directory.
+
+## Required `config.yaml` fields
+
+All command fields are **lists**, even when there is a single command.
+
+```yaml
+# Source files containing the kernel code (relative to the task root)
+source_file_path:
+  - source/my_kernel.hip
+
+# Kernel function names that must be defined in the source files
+target_kernel_functions:
+  - my_kernel_function
+
+# Command(s) to compile or build-check the task
+compile_command:
+  - python3 scripts/task_runner.py --mode compile
+
+# Command(s) to run correctness validation
+correctness_command:
+  - python3 scripts/task_runner.py --mode correctness
+
+# One of: hip2hip, cuda2hip, triton2triton, instruction2triton,
+#         torch2hip, flydsl2flydsl, repository
+task_type: hip2hip
+```
+
+## Optional `config.yaml` fields
+
+```yaml
+# Command(s) to measure performance
+performance_command:
+  - python3 scripts/task_runner.py --mode performance
+
+# Override which result template to use (null = default)
+task_result_template: null
+
+# Prompt overrides for the optimization agent (null = auto-generated)
+prompt:
+  source_code: null      # override the default source-code section
+  instructions: null     # custom instructions
+  cheatsheet: null        # reference/cheatsheet content
+```
+
+## Authoring rules
+
+To produce trustworthy, comparable scores, every task must be **self-contained**
+and must validate correctness meaningfully.
+
+- **Self-contained**: no references to external repositories or absolute paths,
+  no missing headers or Python imports, and no external data downloads. Generate
+  test inputs inline or bundle small files in the task directory.
+- **Real correctness check**: compare against a CPU/NumPy reference, known-good
+  output, or a PyTorch eager baseline; use sensible tolerances; test 2–3 shapes;
+  and exit non-zero on failure.
+- **Real compilation check**: actually compile or syntax-check the source, not a
+  text-pattern search; exit code `0` means success.
+- **Performance methodology**: a recommended pattern is 10 warmup iterations plus
+  100 measured iterations, reporting the average runtime.
+
+## Validate before merging
+
+Every new task must pass the **task_validator** agent before it is merged. It
+runs 10 automated checks and emits a `validation_report.yaml`. See
+[Validate tasks](task-validator.md) for the full check list and how to run it.
