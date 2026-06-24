@@ -1,0 +1,48 @@
+task_type: torch2flydsl
+source_file_path:
+  - model.py
+harness_path: test_kernel_harness.py
+compile_command:
+  - python3 test_kernel_harness.py --compile
+correctness_command:
+  - python3 test_kernel_harness.py --correctness
+performance_command:
+  - python3 test_kernel_harness.py --full-benchmark
+target_kernel_functions:
+  - flydsl_per_tensor_fp8_quant
+  - build_per_tensor_fp8_quant_module
+source_origin:
+  repo: AITER (local)
+  commit: e773193041689602e5431e110ef39db0390e7015
+  path:
+    - aiter/ops/quant.py
+    - op_tests/test_quant.py
+  note: >-
+    Model-only task. model.py is the pure-torch reference for FP8 dynamic
+    per-tensor quantization: the whole [m, n] activation is rescaled into the OCP
+    FP8 E4M3 (float8_e4m3fn, max 448) range by a single dynamic scale
+    (max(|x|)/448) and cast to FP8 with round-to-nearest-even, returning
+    (y_fp8 [m, n], scale_fp32 [1]). The reference mirrors
+    aiter.get_hip_quant(QuantType.per_Tensor) (the dynamic_per_tensor_quant
+    device kernel) and is byte-exact against it on gfx950. No standalone FlyDSL
+    per-tensor-quant kernel exists in aiter, so kernel.py is left for the agent to
+    author. The harness validates model.py against the real device op at a tight
+    quantized gate (near-exact scale + FP8 codes within 1 ULP). Real m x n shapes
+    are from op_tests/test_quant.py.
+prompt:
+  source_code: null
+  instructions: |
+    Author a FlyDSL kernel in kernel.py that computes the FP8 dynamic per-tensor
+    quantization defined by the PyTorch `Model.forward` in model.py: for a
+    row-major [m, n] bf16 input, compute the global amax, derive the fp32 scale
+    max(|x|)/448 (FP8 E4M3 max), then store y = round_to_nearest_even(x / scale)
+    as float8_e4m3fn [m, n] and the fp32 scale [1].
+    Expose `flydsl_per_tensor_fp8_quant(input)` returning the (y_fp8, scale_fp32)
+    tuple, plus `build_per_tensor_fp8_quant_module(...)` used to build the kernel.
+    Keep the kernel in FlyDSL — do NOT rewrite it in HIP, CUDA, or Triton.
+    Correctness and performance are checked with:
+      python3 test_kernel_harness.py --correctness
+      python3 test_kernel_harness.py --full-benchmark
+  task_type: null
+  cheatsheet: null
+task_result_template: null

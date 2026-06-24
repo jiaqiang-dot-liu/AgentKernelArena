@@ -1,0 +1,47 @@
+task_type: torch2flydsl
+source_file_path:
+  - model.py
+harness_path: test_kernel_harness.py
+compile_command:
+  - python3 -c "import model; print('compile ok')"
+correctness_command:
+  - python3 test_kernel_harness.py --correctness
+performance_command:
+  - python3 test_kernel_harness.py --full-benchmark
+target_kernel_functions:
+  - flydsl_gemm_a8w8_per_token_scale
+source_origin:
+  repo: AITER (local)
+  commit: e773193041689602e5431e110ef39db0390e7015
+  path:
+    - aiter/op_tests/triton_tests/gemm/basic/test_gemm_a8w8_per_token_scale.py
+    - aiter/aiter/ops/triton/gemm/basic/gemm_a8w8_per_token_scale.py
+  note: >-
+    model.py is a pure-torch (b)-faithful reference for the per-token-scale FP8
+    GEMM (per-token FP8 activation [M,1], per-channel FP8 weight [N,1], fp32
+    accumulate, bf16 out) matching aiter's gemm_a8w8_per_token_scale
+    (op_tests/triton_tests/gemm/basic/test_gemm_a8w8_per_token_scale.py
+    run_torch). The only aiter implementation of this op is the Triton kernel
+    (no CK/FlyDSL standalone), and there is no clean standalone FlyDSL device
+    kernel for gfx942/gfx950, so per the convention rule no kernel.py is
+    shipped: FlyDSL is GEAK's target. The harness quantizes via
+    model.quantize_a8w8_per_token_scale and validates the reference against the
+    real aiter Triton op (requires an FP8-capable GPU); shapes come from the
+    op_test enum (square sweeps, LL3 405B FC1, GPT-OSS-120B projections).
+prompt:
+  source_code: null
+  instructions: |
+    Author a FlyDSL kernel in kernel.py implementing the per-token-scale FP8
+    GEMM that the PyTorch `Model.forward` in model.py references: out = a @ w.T
+    where `a` is [M, K] quantized to FP8 (float8_e4m3fn) with a per-token scale
+    [M, 1] and `w` is [N, K] quantized to FP8 with a per-channel scale [N, 1],
+    dequantized and accumulated in fp32 with a bf16 output. Expose
+    `flydsl_gemm_a8w8_per_token_scale(a, w)` as the entry point (it may quantize
+    via the helpers in model.py for host-side prep). Keep the kernel in FlyDSL —
+    do NOT rewrite it in HIP, CUDA, or Triton.
+    Correctness and performance are checked with:
+      python3 test_kernel_harness.py --correctness
+      python3 test_kernel_harness.py --full-benchmark
+  task_type: null
+  cheatsheet: null
+task_result_template: null

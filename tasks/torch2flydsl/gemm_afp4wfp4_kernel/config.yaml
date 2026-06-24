@@ -1,0 +1,49 @@
+task_type: torch2flydsl
+supported_archs:
+  - gfx950  # FP4/MX scaled-MFMA is CDNA4-only; not runnable on gfx942/CDNA3
+source_file_path:
+  - model.py
+harness_path: test_kernel_harness.py
+compile_command:
+  - python3 -c "import model; print('compile ok')"
+correctness_command:
+  - python3 test_kernel_harness.py --correctness
+performance_command:
+  - python3 test_kernel_harness.py --full-benchmark
+target_kernel_functions:
+  - flydsl_gemm_afp4wfp4
+source_origin:
+  repo: AITER (local)
+  commit: e773193041689602e5431e110ef39db0390e7015
+  path:
+    - aiter/op_tests/triton_tests/gemm/basic/test_gemm_afp4wfp4.py
+    - aiter/aiter/ops/triton/gemm/basic/gemm_afp4wfp4.py
+    - aiter/aiter/utility/fp4_utils.py
+  note: >-
+    model.py is a pure-torch (b)-faithful reference for the MXFP4/MXFP4 GEMM
+    (per-1x32 e8m0 MXFP4 activation and weight, fp32 accumulate, bf16 out)
+    matching aiter's gemm_afp4wfp4 (op_tests/triton_tests/gemm/basic/
+    test_gemm_afp4wfp4.py run_torch). The only aiter implementation of this
+    dtype combo is the Triton/Gluon kernel (no CK/FlyDSL standalone for
+    gfx942/gfx950), so per the convention rule no kernel.py is shipped: FlyDSL
+    is GEAK's target. The harness quantizes both operands via
+    model.quantize_afp4wfp4 and validates the reference against the real aiter
+    Triton op (requires a gfx950 MXFP4-capable GPU) on the non-shuffle path;
+    shapes come from the op_test enum (square sweeps, projection shapes).
+prompt:
+  source_code: null
+  instructions: |
+    Author a FlyDSL kernel in kernel.py implementing the MXFP4/MXFP4 GEMM that
+    the PyTorch `Model.forward` in model.py references: out = a @ w.T where both
+    `a` is [M, K] and `w` is [N, K] quantized to MXFP4 (packed e2m1 codes
+    [*, K/2] with e8m0 per-1x32 block scales [*, K/32]), dequantized and
+    accumulated in fp32 with a bf16 output. Expose `flydsl_gemm_afp4wfp4(a, w)`
+    as the entry point (it may quantize via the helpers in model.py for
+    host-side prep). Keep the kernel in FlyDSL — do NOT rewrite it in HIP, CUDA,
+    or Triton.
+    Correctness and performance are checked with:
+      python3 test_kernel_harness.py --correctness
+      python3 test_kernel_harness.py --full-benchmark
+  task_type: null
+  cheatsheet: null
+task_result_template: null

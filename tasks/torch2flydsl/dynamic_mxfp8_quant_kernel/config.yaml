@@ -1,0 +1,51 @@
+task_type: torch2flydsl
+source_file_path:
+  - model.py
+harness_path: test_kernel_harness.py
+compile_command:
+  - python3 test_kernel_harness.py --compile
+correctness_command:
+  - python3 test_kernel_harness.py --correctness
+performance_command:
+  - python3 test_kernel_harness.py --full-benchmark
+target_kernel_functions:
+  - flydsl_dynamic_mxfp8_quant
+  - build_dynamic_mxfp8_quant_module
+source_origin:
+  repo: AITER (local)
+  commit: e773193041689602e5431e110ef39db0390e7015
+  path:
+    - aiter/ops/triton/quant/quant.py
+    - op_tests/triton_tests/quant/test_quant_mxfp8.py
+  note: >-
+    Model-only task. model.py is the pure-torch reference for MXFP8 (E4M3)
+    per-1x32 dynamic quantization: each contiguous 32-element block along the
+    last dim shares one E8M0 power-of-two block scale, derived by the integer
+    round-up sequence ((amax_i32 + 0x200000) & 0xFF800000) then
+    floor(log2(amax_p2)) - 8 (clamped to [-127,127], biased by 127); the 32
+    values are divided by 2**scale in fp32 and cast to FP8 E4M3
+    (float8_e4m3fn), returning (y_fp8 [m, k], scale_e8m0 uint8 [m, k//32]). The
+    reference mirrors the dynamic_mxfp8_quant Triton kernel quant logic. No
+    standalone FlyDSL mxfp8-quant kernel exists in aiter, so kernel.py is left for
+    the agent to author. The harness validates model.py against the real Triton op
+    at a tight quantized gate (byte-exact E8M0 scales + FP8 codes within 1 ULP).
+    Real m x k shapes are from op_tests/triton_tests/quant/test_quant_mxfp8.py.
+prompt:
+  source_code: null
+  instructions: |
+    Author a FlyDSL kernel in kernel.py that computes the MXFP8 per-1x32 dynamic
+    quantization defined by the PyTorch `Model.forward` in model.py: for a
+    row-major [m, k] bf16 input (k a multiple of group_size=32), for each
+    32-element block compute amax, derive the E8M0 power-of-two scale by the
+    integer round-up ((amax_i32 + 0x200000) & 0xFF800000) then
+    floor(log2)-8 clamp+bias, divide the block by 2**scale in fp32 and cast to
+    FP8 E4M3, returning (y_fp8 [m, k], scale_e8m0 uint8 [m, k//32]).
+    Expose `flydsl_dynamic_mxfp8_quant(input)` returning the (y_fp8, scale) tuple,
+    plus `build_dynamic_mxfp8_quant_module(...)` used to build the kernel.
+    Keep the kernel in FlyDSL — do NOT rewrite it in HIP, CUDA, or Triton.
+    Correctness and performance are checked with:
+      python3 test_kernel_harness.py --correctness
+      python3 test_kernel_harness.py --full-benchmark
+  task_type: null
+  cheatsheet: null
+task_result_template: null

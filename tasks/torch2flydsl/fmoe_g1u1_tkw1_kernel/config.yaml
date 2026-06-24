@@ -1,0 +1,60 @@
+task_type: torch2flydsl
+source_file_path:
+  - model.py
+harness_path: test_kernel_harness.py
+compile_command:
+  - python3 -c "import model; print('compile ok')"
+correctness_command:
+  - python3 test_kernel_harness.py --correctness
+performance_command:
+  - python3 test_kernel_harness.py --full-benchmark
+target_kernel_functions:
+  - flydsl_fmoe_g1u1_tkw1
+source_origin:
+  repo: AITER (local)
+  commit: e773193041689602e5431e110ef39db0390e7015
+  path:
+    - aiter/op_tests/test_moe_tkw1.py
+    - aiter/aiter/fused_moe_bf16_asm.py
+    - aiter/aiter/ops/moe_op.py
+  note: >-
+    model.py is a pure-torch (b)-faithful reference for the FP8 (float8_e4m3fn)
+    per-token fused MoE with stage-1 token weighting (tkw1): softmax top-k
+    router, FP8 per-token activation/weight quant, router weight folded into both
+    gate and up at stage 1 (silu(gate*w)*(up*w)), fused bf16 intermediate,
+    grouped down GEMM summed over top-k without stage-2 reweighting, fp32
+    accumulate, bf16 out. Matches aiter.fused_moe_bf16_asm.asm_moe_tkw1 ->
+    fused_moe (QuantType.per_Token, doweight_stage1=True; device entry
+    moe_stage1_g1u1) per op_tests/test_moe_tkw1.py:torch_moe_tkw1. No clean
+    standalone FlyDSL device kernel for this op exists for gfx942/gfx950, so per
+    the convention rule no kernel.py is shipped: FlyDSL is GEAK's target. The
+    harness FP8-quantizes the weights (aiter.pertoken_quant), adds the host-side
+    weight shuffle, and validates the reference against the real aiter op. The
+    correctness gate is the normalized worst-element error; because both GEMM
+    operands are FP8 per-token, the deployed kernel's FP8 MFMA accumulation leaves
+    an irreducible ~0.024-0.028 worst-element gap (aggregate cosine error ~2.7e-4,
+    ~40x under upstream's 0.01 threshold), so the gate uses the tightest honest
+    bound TOL=3.5e-2 (documented in the harness), not the 1e-2 used by the
+    bf16/blockscale MoE tasks. Shapes are the test_moe_tkw1 shapes
+    (model_dim=5120, inter_dim=1024, E in {16,128}).
+prompt:
+  source_code: null
+  instructions: |
+    Author a FlyDSL kernel in kernel.py implementing the FP8 per-token fused MoE
+    with stage-1 token weighting (tkw1) that the PyTorch `Model.forward` in
+    model.py references: a softmax top-k router selects topk experts per token;
+    stage 1 runs the grouped gate/up GEMM and folds the router weight into BOTH
+    the gate and up projections (silu(gate*w)*(up*w)); stage 2 runs the grouped
+    down GEMM and sums the experts over top-k WITHOUT re-applying the router
+    weight. Activations and weights are FP8 (float8_e4m3fn) per-token, the
+    intermediate is bf16, GEMMs accumulate in fp32, and the output is bf16;
+    routing uses a sorted token/expert dispatch (moe_sorting). Expose
+    `flydsl_fmoe_g1u1_tkw1(hidden_states, w1, w2, topk_weights, topk_ids, ...)`
+    (it may quantize/shuffle via host-side prep). Keep the kernel in FlyDSL — do
+    NOT rewrite it in HIP, CUDA, or Triton.
+    Correctness and performance are checked with:
+      python3 test_kernel_harness.py --correctness
+      python3 test_kernel_harness.py --full-benchmark
+  task_type: null
+  cheatsheet: null
+task_result_template: null

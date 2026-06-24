@@ -1,0 +1,52 @@
+task_type: torch2flydsl
+source_file_path:
+  - model.py
+harness_path: test_kernel_harness.py
+compile_command:
+  - python3 -c "import torch; from kernel import build_gemm_a8w8_bpreshuffle_module; build_gemm_a8w8_bpreshuffle_module(5120, 1280, tile_m=128, tile_n=128, tile_k=256, in_dtype='fp8', out_dtype='bf16'); print('compile ok')"
+correctness_command:
+  - python3 test_kernel_harness.py --correctness
+performance_command:
+  - python3 test_kernel_harness.py --full-benchmark
+target_kernel_functions:
+  - flydsl_gemm_a8w8_bpreshuffle
+  - build_gemm_a8w8_bpreshuffle_module
+  - compile_preshuffle_gemm_a8
+source_origin:
+  repo: AITER (local)
+  commit: e773193041689602e5431e110ef39db0390e7015
+  path:
+    - aiter/ops/flydsl/kernels/preshuffle_gemm.py
+    - aiter/ops/flydsl/kernels/mfma_preshuffle_pipeline.py
+    - aiter/ops/flydsl/kernels/mfma_epilogues.py
+    - aiter/ops/flydsl/gemm_kernels.py
+    - aiter/ops/shuffle.py
+  note: >-
+    model.py is the pure-torch (b)-faithful reference (per-token fp8 activation
+    quant, per-channel fp8 weight quant, fp32-accumulated matmul, per-token/
+    per-channel scale, bf16 output). kernel.py inlines the FlyDSL preshuffle
+    GEMM device kernel (compile_preshuffle_gemm_a8) plus its on-device shims
+    (mfma_preshuffle_pipeline, mfma_epilogues) and a self-contained host
+    launcher; the only host-side prep is the (16, 16) weight pre-shuffle
+    (preshuffle_weight_a8, mirroring aiter shuffle_weight). Real (M, N, K)
+    shapes come from configs/a8w8_bpreshuffle_tuned_gemm.csv and
+    configs/model_configs/*a8w8*bpreshuffle* (DS-V3 / GLM-4.7) on gfx950.
+prompt:
+  source_code: null
+  instructions: |
+    Translate the PyTorch `Model.forward` in model.py into a FlyDSL kernel in
+    kernel.py that computes the same result: an a8w8 b-preshuffle quantized GEMM
+    out = (XQ @ WQ.T) * x_scale * w_scale, where XQ is fp8 [M, K] (per-token
+    scaled), WQ is fp8 [N, K] stored in the (16, 16) pre-shuffled layout
+    (per-channel scaled), accumulation is in fp32 and the output is bf16/f16.
+    Expose `flydsl_gemm_a8w8_bpreshuffle(xq, wq, x_scale, w_scale, ...)` as the
+    entry point (build the device kernel via `build_gemm_a8w8_bpreshuffle_module`
+    / `compile_preshuffle_gemm_a8`) and `preshuffle_weight_a8(wq)` for the
+    host-side weight shuffle. Keep the kernel in FlyDSL — do NOT rewrite it in
+    HIP, CUDA, or Triton.
+    Correctness and performance are checked with:
+      python3 test_kernel_harness.py --correctness
+      python3 test_kernel_harness.py --full-benchmark
+  task_type: null
+  cheatsheet: null
+task_result_template: null

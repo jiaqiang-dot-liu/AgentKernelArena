@@ -1,0 +1,45 @@
+task_type: torch2flydsl
+source_file_path:
+  - model.py
+harness_path: test_kernel_harness.py
+compile_command:
+  - python3 -c "import model; print('compile ok')"
+correctness_command:
+  - python3 test_kernel_harness.py --correctness
+performance_command:
+  - python3 test_kernel_harness.py --full-benchmark
+target_kernel_functions:
+  - flydsl_gemm_a8w8_blockscale
+source_origin:
+  repo: AITER (local)
+  commit: e773193041689602e5431e110ef39db0390e7015
+  path:
+    - aiter/op_tests/test_gemm_a8w8_blockscale.py
+    - aiter/ops/gemm_op_a8w8.py
+    - aiter/aiter/configs/model_configs/a8w8_blockscale_tuned_gemm_ds_v3.csv
+  note: >-
+    model.py is a pure-torch (b)-faithful reference for the FP8 block-scaled GEMM
+    (per-1x128 activation scales, per-128x128 weight scales, fp32 accumulate, bf16
+    out) matching aiter.gemm_a8w8_blockscale (op_tests/test_gemm_a8w8_blockscale.py
+    run_torch). No clean standalone FlyDSL device kernel for this op exists for
+    gfx942/gfx950 (only gfx1250 and bpreshuffle-tune variants), so per the
+    convention rule no kernel.py is shipped: FlyDSL is GEAK's target. The harness
+    quantizes via model.quantize_a8w8_blockscale and validates the reference
+    against the real aiter op; real shapes come from the ds_v3 tuned-gemm CSV.
+prompt:
+  source_code: null
+  instructions: |
+    Author a FlyDSL kernel in kernel.py implementing the FP8 block-scaled GEMM
+    that the PyTorch `Model.forward` in model.py references: out = a @ w.T where
+    `a` is [M, K] and `w` is [N, K], both quantized to FP8 (float8_e4m3fn) with
+    block scales (activation per-1x128 along K, weight per-128x128), dequantized
+    and accumulated in fp32, with a bf16 output. Expose
+    `flydsl_gemm_a8w8_blockscale(a, w)` as the entry point (it may quantize via
+    the helpers in model.py for host-side prep). Keep the kernel in FlyDSL — do
+    NOT rewrite it in HIP, CUDA, or Triton.
+    Correctness and performance are checked with:
+      python3 test_kernel_harness.py --correctness
+      python3 test_kernel_harness.py --full-benchmark
+  task_type: null
+  cheatsheet: null
+task_result_template: null

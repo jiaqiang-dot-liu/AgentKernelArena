@@ -1,0 +1,51 @@
+task_type: torch2flydsl
+source_file_path:
+  - model.py
+harness_path: test_kernel_harness.py
+compile_command:
+  - python3 test_kernel_harness.py --compile
+correctness_command:
+  - python3 test_kernel_harness.py --correctness
+performance_command:
+  - python3 test_kernel_harness.py --full-benchmark
+target_kernel_functions:
+  - flydsl_rope_cached_fwd
+  - build_rope_cached_fwd_module
+source_origin:
+  repo: AITER (local)
+  commit: e773193041689602e5431e110ef39db0390e7015
+  path:
+    - aiter/aiter/ops/rope.py
+    - aiter/op_tests/test_rope.py
+  note: >-
+    Model-only task (no kernel.py): aiter has no clean standalone FlyDSL RoPE
+    kernel (only the already-done fused qk-norm-rope path), so FlyDSL is GEAK's
+    target. model.py is the pure-torch (b)-faithful reference (bf16 in/out, fp32
+    rotation) for cached-cos/sin RoPE in sbhd layout, mirroring
+    op_tests/test_rope.py:ref_rope_sbhd_fwd (simulate_cached=True,
+    comp_with_fp32=True). It handles rotate_style (0=NEOX, 1=GPT-J),
+    reuse_freqs_front_part, partial rotary, and nope_first. Primary variant: NEOX
+    cached sbhd forward, reuse_freqs_front_part=True, nope_first=False, full
+    rotary. The harness validates model.py against the REAL runtime op
+    aiter.rope_cached_fwd as ground truth at the bf16 tight gate.
+prompt:
+  source_code: null
+  instructions: |
+    Author a FlyDSL kernel in kernel.py that computes the same result as the
+    PyTorch `Model.forward` in model.py: cached-cos/sin Rotary Position Embedding
+    on an sbhd tensor — x_embed = x_rot * cos + rotate_half(x_rot) * sin on the
+    rotary slice, passing the remaining (no-position) elements through — with
+    bf16 in/out and an fp32 rotation. Support rotate_style (0=NEOX rotates the
+    second half, 1=GPT-J rotates odd/even pairs), reuse_freqs_front_part (cached
+    cos/sin hold one entry per pair and are expanded on use), partial rotary, and
+    nope_first.
+    Expose `flydsl_rope_cached_fwd(input, cos, sin, rotate_style,
+    reuse_freqs_front_part, nope_first)` as the entry point (build the device
+    kernel via `build_rope_cached_fwd_module`). Keep the kernel in FlyDSL — do
+    NOT rewrite it in HIP, CUDA, or Triton.
+    Correctness and performance are checked with:
+      python3 test_kernel_harness.py --correctness
+      python3 test_kernel_harness.py --full-benchmark
+  task_type: null
+  cheatsheet: null
+task_result_template: null

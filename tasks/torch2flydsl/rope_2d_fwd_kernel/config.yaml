@@ -1,0 +1,52 @@
+task_type: torch2flydsl
+source_file_path:
+  - model.py
+harness_path: test_kernel_harness.py
+compile_command:
+  - python3 test_kernel_harness.py --compile
+correctness_command:
+  - python3 test_kernel_harness.py --correctness
+performance_command:
+  - python3 test_kernel_harness.py --full-benchmark
+target_kernel_functions:
+  - flydsl_rope_2d_fwd
+  - build_rope_2d_fwd_module
+source_origin:
+  repo: AITER (local)
+  commit: e773193041689602e5431e110ef39db0390e7015
+  path:
+    - aiter/aiter/ops/rope.py
+    - aiter/op_tests/test_rope.py
+  note: >-
+    Model-only task (no kernel.py): aiter has no clean standalone FlyDSL kernel
+    for 2D-image RoPE, so FlyDSL is GEAK's target. model.py is the pure-torch
+    (b)-faithful reference: NEOX 2D-image RoPE on a [b, H*W, h, d] grid -- view to
+    [b, H, W, h, d], split the head dim in half, rotate the first half with the
+    per-row (height) cos/sin and the second half with the per-column (width)
+    cos/sin (rotate_half = NEOX, fp32 rotation, bf16 store), as in
+    op_tests/test_rope.py:ref_rope_2d_fwd(RotateStyle.NEOX). Each cos/sin cache
+    holds d/2 entries per position (reuse_freqs_front_part=False, nope_first=
+    False). The harness validates model.py against the REAL runtime op
+    aiter.rope_2d_fwd as ground truth at the tight bf16 gate (normalized
+    worst-element <= 1e-2 / isclose pass-rate >= 99.9%). Shapes: b in {1,2,4},
+    H=W in {16,24,32}, heads in {4,8,16}, head_dim in {64,128}.
+prompt:
+  source_code: null
+  instructions: |
+    Author a FlyDSL kernel in kernel.py that computes the same result as the
+    PyTorch `Model.forward` in model.py: 2D-image RoPE forward (NEOX). For a
+    [b, H*W, h, d] bf16 input and bf16 cos/sin caches cos_h/sin_h [1, H, 1, d/2]
+    and cos_w/sin_w [1, W, 1, d/2], view the input to [b, H, W, h, d], split the
+    head dim d in half, rotate the first half with the height cos/sin (broadcast
+    over W) and the second half with the width cos/sin (broadcast over H) using
+    the NEOX rotate-half (rotate the second half of the d/2 slice), in fp32, then
+    truncate to bf16 and reshape back to [b, H*W, h, d].
+    Expose `flydsl_rope_2d_fwd(input, cos_h, sin_h, cos_w, sin_w, height, width)`
+    returning the output, plus `build_rope_2d_fwd_module(...)`.
+    Keep the kernel in FlyDSL — do NOT rewrite it in HIP, CUDA, or Triton.
+    Correctness and performance are checked with:
+      python3 test_kernel_harness.py --correctness
+      python3 test_kernel_harness.py --full-benchmark
+  task_type: null
+  cheatsheet: null
+task_result_template: null

@@ -1,0 +1,65 @@
+task_type: torch2flydsl
+supported_archs:
+  - gfx950  # FP4/MX scaled-MFMA is CDNA4-only; not runnable on gfx942/CDNA3
+source_file_path:
+  - model.py
+harness_path: test_kernel_harness.py
+compile_command:
+  - python3 -c "import torch; from kernel import build_moe_stage1_module, build_moe_stage2_module; build_moe_stage1_module(model_dim=3072, inter_dim=512, experts=128, topk=4, tile_m=32, tile_n=256, tile_k=256, doweight_stage1=False, a_dtype='fp4', b_dtype='fp4', out_dtype='bf16', act='swiglu'); build_moe_stage2_module(model_dim=3072, inter_dim=512, experts=128, topk=4, tile_m=32, tile_n=256, tile_k=256, doweight_stage2=True, a_dtype='fp4', b_dtype='fp4', out_dtype='bf16'); print('compile ok')"
+correctness_command:
+  - python3 test_kernel_harness.py --correctness
+performance_command:
+  - python3 test_kernel_harness.py --full-benchmark
+target_kernel_functions:
+  - flydsl_moe_swiglu
+  - build_moe_stage1_module
+  - build_moe_stage2_module
+  - compile_mixed_moe_gemm1
+  - compile_mixed_moe_gemm2
+source_origin:
+  repo: AITER (local)
+  commit: 075c95f28383e6ca05fd829a21edb67083acb01c
+  path:
+    - aiter/ops/flydsl/kernels/mixed_moe_gemm_2stage.py
+    - aiter/ops/flydsl/kernels/mfma_preshuffle_pipeline.py
+    - aiter/ops/flydsl/kernels/mfma_epilogues.py
+    - aiter/ops/flydsl/kernels/layout_utils.py
+    - aiter/ops/flydsl/moe_common.py
+    - aiter/ops/flydsl/moe_kernels.py
+  note: >-
+    PyTorch reference in model.py (quantized a4w4 fused MoE with SWIGLU gated
+    activation). FlyDSL target in kernel.py inlines the same AITER two-stage
+    device kernels as the silu moe_kernel task
+    (compile_mixed_moe_gemm1 stage1 gate/up GEMM + fused gated activation,
+    compile_mixed_moe_gemm2 stage2 down GEMM + weighted top-k combine), with
+    their device dependencies inlined. It imports flydsl directly and does NOT
+    import any AITER device kernel. The ONLY difference vs moe_kernel is that
+    the host launcher (flydsl_moe_swiglu) passes act='swiglu' (and swiglu_limit)
+    to the inline stage1 builder, so the kernel fuses swiglu
+    (gate * sigmoid(1.702 * gate) * (up + 1), clamp limit 7.0) instead of silu;
+    activations and weights are still mxfp4 (float4_e2m1fn_x2) with e8m0
+    per_1x32 block scales. mxfp4 quant, e8m0 scales, weight preshuffle and
+    moe_sorting dispatch remain host-side prep (AITER utilities). Real swiglu
+    fp4 fmoe rows from aiter/configs/model_configs/gptoss_fp4_untuned_fmoe.csv
+    (GPT-OSS: D=3072, E=128, topk=4, inter_dim in {512, 1536}) --
+    q_dtype_a=q_dtype_w=torch.float4_e2m1fn_x2, QuantType.per_1x32,
+    act_type=ActivationType.Swiglu.
+prompt:
+  source_code: null
+  instructions: |
+    Translate the PyTorch `Model.forward` in model.py (fused MoE: softmax
+    router, top-k renormalized, per-expert gate/up GEMM + SWIGLU-gated
+    activation, down GEMM, weighted top-k combine) into a FlyDSL kernel in
+    kernel.py. The FlyDSL path is quantized a4w4: activations and weights are
+    mxfp4 (torch.float4_e2m1fn_x2) with e8m0 per_1x32 block scales, weights are
+    pre-shuffled, and routing uses a sorted token/expert dispatch (moe_sorting);
+    the stage1 activation is swiglu (gate * sigmoid(1.702 * gate) * (up + 1),
+    clamp limit 7.0); the stage1 output is re-quantized to mxfp4 before stage2;
+    final output is bf16. Expose `flydsl_moe_swiglu(hidden_states, w1, w2,
+    topk_weights, topk_ids, ...)`. Keep the kernel in FlyDSL — do NOT rewrite it
+    in HIP, CUDA, or Triton. Correctness and performance are checked with:
+      python3 test_kernel_harness.py --correctness
+      python3 test_kernel_harness.py --full-benchmark
+  task_type: null
+  cheatsheet: null
+task_result_template: null

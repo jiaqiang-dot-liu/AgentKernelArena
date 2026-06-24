@@ -1,0 +1,47 @@
+task_type: torch2flydsl
+source_file_path:
+  - model.py
+harness_path: test_kernel_harness.py
+compile_command:
+  - python3 -c "import model; print('compile ok')"
+correctness_command:
+  - python3 test_kernel_harness.py --correctness
+performance_command:
+  - python3 test_kernel_harness.py --full-benchmark
+target_kernel_functions:
+  - flydsl_topk_sigmoid
+source_origin:
+  repo: AITER (local)
+  commit: e773193041689602e5431e110ef39db0390e7015
+  path:
+    - aiter/ops/topk.py
+    - aiter/op_tests/test_moe_topk_gating.py
+  note: >-
+    model.py is the pure-torch (b)-faithful reference for sigmoid MoE top-k
+    routing (Llama-4 Maverick): top-k ids are the indices of the topk largest RAW
+    gating logits (no bias), and weights = sigmoid(gating) gathered at the
+    selected ids (the sigmoid is applied only to the selected logits, not used
+    for selection); no renormalization. Ground truth is
+    aiter.topk_gating(score_func="sigmoid", need_renorm=False); the harness
+    validates the reference against it (top-k ids EXACT modulo gating ties;
+    weights normalized <= 1e-2). No clean standalone FlyDSL routing kernel exists
+    in aiter (topk_gating is a CK/HIP module_moe_topk op), so per the convention
+    this is a model-only task: FlyDSL kernel.py is GEAK's target, exposing
+    flydsl_topk_sigmoid(gating_output, topk). Real shapes: Llama-4 Maverick
+    (E=128, topk=1) plus larger top-k configs.
+prompt:
+  source_code: null
+  instructions: |
+    Author a FlyDSL kernel in kernel.py that reproduces the PyTorch
+    `Model.forward` in model.py: sigmoid MoE top-k routing. For a router gating
+    output [num_tokens, num_experts], select the topk experts by the RAW gating
+    logits (no bias) and return topk_weights = sigmoid(gating) gathered at the
+    selected ids (fp32) and topk_ids (int32); no renormalization. Expose
+    `flydsl_topk_sigmoid(gating_output, topk)`. Keep the kernel in FlyDSL -- do
+    NOT rewrite it in HIP, CUDA, or Triton. Correctness and performance are
+    checked with:
+      python3 test_kernel_harness.py --correctness
+      python3 test_kernel_harness.py --full-benchmark
+  task_type: null
+  cheatsheet: null
+task_result_template: null

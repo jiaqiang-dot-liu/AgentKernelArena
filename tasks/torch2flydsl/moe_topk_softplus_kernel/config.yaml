@@ -1,0 +1,50 @@
+task_type: torch2flydsl
+source_file_path:
+  - model.py
+harness_path: test_kernel_harness.py
+compile_command:
+  - python3 -c "import model; print('compile ok')"
+correctness_command:
+  - python3 test_kernel_harness.py --correctness
+performance_command:
+  - python3 test_kernel_harness.py --full-benchmark
+target_kernel_functions:
+  - flydsl_topk_softplus
+source_origin:
+  repo: AITER (local)
+  commit: e773193041689602e5431e110ef39db0390e7015
+  path:
+    - aiter/ops/topk.py
+    - aiter/op_tests/test_moe_topk_gating.py
+  note: >-
+    model.py is the pure-torch (b)-faithful reference for sqrt-softplus MoE top-k
+    routing (DeepSeek-V4-Pro): scores = sqrt(softplus(gating)), selection scores
+    = scores + correction_bias, top-k ids picked on the biased scores, weights =
+    the UN-biased scores gathered at those ids, optionally renormalized across
+    the top-k, times routed_scaling_factor. Ground truth is aiter.topk_softplus
+    (aiter.topk_gating score_func="sqrtsoftplus"); the harness validates the
+    reference against it (top-k ids EXACT modulo selection-score ties; weights
+    normalized <= 1e-2). No clean standalone FlyDSL routing kernel exists in
+    aiter (topk_softplus is a CK/HIP module_moe_topk op), so per the convention
+    this is a model-only task: FlyDSL kernel.py is GEAK's target, exposing
+    flydsl_topk_softplus(gating_output, correction_bias, topk, renormalize,
+    route_scale). Real shapes: DeepSeek-V4-Pro routing (E=256, topk=8, renorm,
+    route_scale=2.5) plus a 384-expert and a smaller config.
+prompt:
+  source_code: null
+  instructions: |
+    Author a FlyDSL kernel in kernel.py that reproduces the PyTorch
+    `Model.forward` in model.py: sqrt-softplus MoE top-k routing. For a router
+    gating output [num_tokens, num_experts], compute scores =
+    sqrt(softplus(gating)), selection scores = scores + correction_bias, pick the
+    topk experts by the biased scores, gather the UN-biased scores at the
+    selected ids, optionally renormalize them to sum to 1 across the top-k, and
+    multiply by route_scale; return topk_weights (fp32) and topk_ids (int32).
+    Expose `flydsl_topk_softplus(gating_output, correction_bias, topk,
+    renormalize, route_scale)`. Keep the kernel in FlyDSL -- do NOT rewrite it in
+    HIP, CUDA, or Triton. Correctness and performance are checked with:
+      python3 test_kernel_harness.py --correctness
+      python3 test_kernel_harness.py --full-benchmark
+  task_type: null
+  cheatsheet: null
+task_result_template: null

@@ -1,0 +1,43 @@
+task_type: torch2flydsl
+source_file_path:
+  - model.py
+harness_path: test_kernel_harness.py
+compile_command:
+  - python3 -c "import model; print('compile ok')"
+correctness_command:
+  - python3 test_kernel_harness.py --correctness
+performance_command:
+  - python3 test_kernel_harness.py --full-benchmark
+target_kernel_functions:
+  - flydsl_batched_gemm_bf16
+source_origin:
+  repo: AITER (local)
+  commit: e773193041689602e5431e110ef39db0390e7015
+  path:
+    - aiter/op_tests/test_batched_gemm_bf16.py
+    - aiter/ops/batched_gemm_op_bf16.py
+    - aiter/aiter/configs/bf16_untuned_batched_gemm.csv
+  note: >-
+    model.py is a pure-torch (b)-faithful reference for the batched bf16 GEMM
+    (per-batch out[b] = x[b] @ w[b].T, fp32 accumulate, bf16 out) matching
+    aiter.batched_gemm_bf16_CK (op_tests/test_batched_gemm_bf16.py run_torch). No
+    clean standalone FlyDSL device kernel for this op exists for gfx942/gfx950
+    (the aiter batched bf16 path is CK with only tune-harness bindings), so per
+    the convention rule no kernel.py is shipped: FlyDSL is GEAK's target. The
+    harness validates the reference against the real aiter op; real shapes come
+    from the bf16 untuned batched-gemm CSV.
+prompt:
+  source_code: null
+  instructions: |
+    Author a FlyDSL kernel in kernel.py implementing the batched bf16 GEMM that
+    the PyTorch `Model.forward` in model.py references: per-batch
+    out[b] = x[b] @ w[b].T where `x` is [B, M, K] and `w` is [B, N, K], bf16
+    inputs accumulated in fp32 with a bf16 output. Expose
+    `flydsl_batched_gemm_bf16(x, w)` as the entry point. Keep the kernel in
+    FlyDSL — do NOT rewrite it in HIP, CUDA, or Triton.
+    Correctness and performance are checked with:
+      python3 test_kernel_harness.py --correctness
+      python3 test_kernel_harness.py --full-benchmark
+  task_type: null
+  cheatsheet: null
+task_result_template: null

@@ -1,0 +1,57 @@
+task_type: torch2flydsl
+source_file_path:
+  - model.py
+harness_path: test_kernel_harness.py
+compile_command:
+  - python3 test_kernel_harness.py --compile
+correctness_command:
+  - python3 test_kernel_harness.py --correctness
+performance_command:
+  - python3 test_kernel_harness.py --full-benchmark
+target_kernel_functions:
+  - flydsl_rope_thd_fwd
+  - build_rope_thd_fwd_module
+source_origin:
+  repo: AITER (local)
+  commit: e773193041689602e5431e110ef39db0390e7015
+  path:
+    - aiter/aiter/ops/rope.py
+    - aiter/op_tests/test_rope.py
+  note: >-
+    Model-only task (no kernel.py): aiter has no clean standalone FlyDSL thd-RoPE
+    kernel, so FlyDSL is GEAK's target. model.py is the pure-torch (b)-faithful
+    reference for variable-length (thd) RoPE forward: packed [T, h, d] bf16
+    activations delimited by cu_seqlens, each sequence rotated with the
+    within-sequence position indexing the uncached angle table freqs (the op
+    computes cos/sin from freqs in fp32, bf16 store). NEOX/GPT-J rotate styles,
+    reuse_freqs_front_part, nope_first supported. Mirrors
+    op_tests/test_rope.py:ref_rope_thd_fwd(..., simulate_cached=False,
+    comp_with_fp32=True). The harness validates model.py against the REAL runtime
+    op aiter.rope_thd_fwd as ground truth at the bf16 tight gate. Primary
+    variant: NEOX, reuse_freqs_front_part=True, nope_first=False, full rotary
+    (rotary_dim == d). Shapes: varlen cu_seqlens with h in {8,16,32}, d in
+    {64,128}.
+prompt:
+  source_code: null
+  instructions: |
+    Author a FlyDSL kernel in kernel.py that computes the same result as the
+    PyTorch `Model.forward` in model.py: variable-length (thd) RoPE forward. The
+    input is a packed [T, h, d] bf16 tensor delimited by cu_seqlens
+    ([num_seqs + 1] int32 prefix sums); each sequence is rotated independently
+    using the within-sequence position to index the uncached angle table freqs
+    ([F, 1, 1, rotary_dim/r], F >= max seqlen). For each token,
+    x_embed = x_rot * cos(freqs) + rotate_half(x_rot) * sin(freqs) over the
+    rotary slice, the rest passed through, computed in fp32 and stored bf16.
+    rotate_style 0 = NEOX (rotate second half), 1 = GPT-J (rotate odd/even
+    pairs); reuse_freqs_front_part expands freqs (NEOX repeat / GPT-J interleave)
+    so rotary_dim = freqs.shape[-1]*2; nope_first puts the un-rotated slice first.
+    Expose `flydsl_rope_thd_fwd(input, cu_seqlens, freqs, rotate_style,
+    reuse_freqs_front_part, nope_first)` returning the [T, h, d] bf16 output, plus
+    `build_rope_thd_fwd_module(...)`.
+    Keep the kernel in FlyDSL — do NOT rewrite it in HIP, CUDA, or Triton.
+    Correctness and performance are checked with:
+      python3 test_kernel_harness.py --correctness
+      python3 test_kernel_harness.py --full-benchmark
+  task_type: null
+  cheatsheet: null
+task_result_template: null

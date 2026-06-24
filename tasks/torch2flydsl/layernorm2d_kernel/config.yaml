@@ -1,0 +1,45 @@
+task_type: torch2flydsl
+source_file_path:
+  - model.py
+harness_path: test_kernel_harness.py
+compile_command:
+  - python3 test_kernel_harness.py --compile
+correctness_command:
+  - python3 test_kernel_harness.py --correctness
+performance_command:
+  - python3 test_kernel_harness.py --full-benchmark
+target_kernel_functions:
+  - flydsl_layernorm2d
+  - build_layernorm2d_module
+source_origin:
+  repo: AITER (local)
+  commit: e773193041689602e5431e110ef39db0390e7015
+  path:
+    - aiter/aiter/ops/norm.py
+    - aiter/op_tests/test_layernorm2d.py
+  note: >-
+    Model-only task (no kernel.py): aiter has no clean standalone FlyDSL
+    layernorm kernel, so FlyDSL is GEAK's target. model.py is the pure-torch
+    (b)-faithful reference (bf16 in/out, fp32 mean/variance reduction) for 2D
+    LayerNorm with affine weight and bias, mirroring
+    op_tests/test_layernorm2d.py:run_torch (residual=None, x_bias=None). The
+    harness validates model.py against the REAL runtime op aiter.layer_norm (CK
+    layernorm2d_fwd) as ground truth at the bf16 tight gate. Shapes: m in
+    {1,8,32,64,128,256}, n in {4096,6144,8192}.
+prompt:
+  source_code: null
+  instructions: |
+    Author a FlyDSL kernel in kernel.py that computes the same result as the
+    PyTorch `Model.forward` in model.py: 2D LayerNorm over the last dimension
+    with affine weight and bias — out = (x - mean) * rsqrt(var + eps) * weight +
+    bias, where mean/var are computed over dim=-1 — with bf16 input/output and an
+    fp32 reduction.
+    Expose `flydsl_layernorm2d(input, weight, bias, eps)` as the entry point
+    (build the device kernel via `build_layernorm2d_module`). Keep the kernel in
+    FlyDSL — do NOT rewrite it in HIP, CUDA, or Triton.
+    Correctness and performance are checked with:
+      python3 test_kernel_harness.py --correctness
+      python3 test_kernel_harness.py --full-benchmark
+  task_type: null
+  cheatsheet: null
+task_result_template: null

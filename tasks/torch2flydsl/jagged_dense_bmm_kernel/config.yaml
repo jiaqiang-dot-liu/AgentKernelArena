@@ -1,0 +1,48 @@
+task_type: torch2flydsl
+source_file_path:
+  - model.py
+harness_path: test_kernel_harness.py
+compile_command:
+  - python3 -c "import torch; from kernel import build_jagged_dense_bmm_module; build_jagged_dense_bmm_module(n_groups=2, max_seq_len=128); print('compile ok')"
+correctness_command:
+  - python3 test_kernel_harness.py --correctness
+performance_command:
+  - python3 test_kernel_harness.py --full-benchmark
+target_kernel_functions:
+  - flydsl_jagged_dense_bmm
+  - build_jagged_dense_bmm_module
+  - jagged_dense_bmm
+  - jdbba_kernel
+source_origin:
+  repo: AITER (local)
+  commit: 892751019a2cb97581dd46a2347583f94bfae1e0
+  branch: anguyenh/flydsl-jdbba
+  path:
+    - aiter/ops/flydsl/kernels/jagged_dense_bmm.py
+  note: >-
+    PyTorch reference in model.py (per-group jagged x dense matmul + broadcast
+    bias, fp32 accumulate, bf16 in/out). The FlyDSL kernel in kernel.py computes
+    the same result. build_jagged_dense_bmm_module JIT-compiles the kernel;
+    flydsl_jagged_dense_bmm is the host launcher (tall (B*N,K) dense reshape,
+    flat bias, padded output, A/C mark_layout_dynamic). The per-group problem
+    shape is fixed at N=128, K=128, BLOCK_M=128; only the per-group row count M_b
+    (from seq_offsets) varies. Dense is consumed pre-transposed.
+prompt:
+  source_code: null
+  instructions: |
+    Translate the PyTorch `Model.forward` in model.py into a FlyDSL kernel in
+    kernel.py that computes the same result: for each group b over its packed
+    row slice [s, e) (from seq_offsets),
+      Out[s:e, :] = Jagged[s:e, :] @ Dense[b] + Bias[b][None, :]
+    with fp32 accumulation and bf16 in/out. Dense is supplied pre-transposed as
+    (B, N, K) (consumed as a tall (B*N, K) matrix, NO preshuffle); bias is
+    (B, N) broadcast over rows. The prototype fixes N=128, K=128, BLOCK_M=128.
+    Expose `flydsl_jagged_dense_bmm(jagged, dense, bias, seq_offsets)` as the
+    entry point (build the device kernel via `build_jagged_dense_bmm_module`).
+    Keep the kernel in FlyDSL — do NOT rewrite it in HIP, CUDA, or Triton.
+    Correctness and performance are checked with:
+      python3 test_kernel_harness.py --correctness
+      python3 test_kernel_harness.py --full-benchmark
+  task_type: null
+  cheatsheet: null
+task_result_template: null

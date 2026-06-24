@@ -1,0 +1,51 @@
+task_type: torch2flydsl
+source_file_path:
+  - model.py
+harness_path: test_kernel_harness.py
+compile_command:
+  - python3 -c "import torch; from kernel import build_moe_sorting_module; build_moe_sorting_module(num_experts=256, topk=8, max_tokens=16, unit_size=32); build_moe_sorting_module(num_experts=32, topk=2, max_tokens=64, unit_size=32); build_moe_sorting_module(num_experts=8, topk=2, max_tokens=64, unit_size=32); print('compile ok')"
+correctness_command:
+  - python3 test_kernel_harness.py --correctness
+performance_command:
+  - python3 test_kernel_harness.py --full-benchmark
+target_kernel_functions:
+  - flydsl_moe_sorting
+  - build_moe_sorting_module
+  - _compile_moe_sorting_oneshot
+source_origin:
+  repo: FlyDSL (local)
+  commit: baae05f04e4a42cbd4d16610b8e04aa24f6fd80d
+  path:
+    - kernels/moe_sorting_kernel.py
+  note: >-
+    PyTorch reference in model.py is a pure-torch integer counting sort producing
+    the packed per-expert dispatch layout (histogram -> prefix-sum -> scatter):
+    packed id (slot<<24)|token, per-expert runs padded to multiples of
+    block_size=32 (UNIT_SIZE) with the sentinel (topk<<24)|M, sorted_expert_ids
+    per block, num_valid_ids=[total_padded, M], sorted_weights gathered per
+    packed token. The FlyDSL kernel in kernel.py implements the oneshot path
+    using DPP / ds_bpermute prefix sums (CDNA wave64). Coverage: oneshot path
+    only (M <= min(sub_tokens, ONESHOT_MAX_T)); the 2k/4k HBM multiphase paths
+    are not supported (the launcher raises NotImplementedError for out-of-range
+    M).
+prompt:
+  source_code: null
+  instructions: |
+    Translate the PyTorch `Model.forward` in model.py (MoE token sorting: an
+    integer counting sort that reorganizes router top-k selections into a
+    per-expert, block-padded packed token dispatch) into a FlyDSL kernel in
+    kernel.py. This is an INTEGER op: correctness is an EXACT match of the
+    integer outputs (sorted_token_ids, sorted_expert_ids, num_valid_ids) and
+    near-exact for sorted_weights -- there is NO float tolerance band for the
+    integer outputs. Reproduce the exact CK/AITER packed layout: packed id
+    (slot<<24)|token, per-expert runs padded to multiples of block_size=32 with
+    sentinel (topk<<24)|M, sorted_expert_ids per block, num_valid_ids=[total, M].
+    Expose `flydsl_moe_sorting(topk_ids, topk_weights, num_experts, unit_size,
+    model_dim)` and `build_moe_sorting_module(...)`. Keep the kernel in FlyDSL --
+    do NOT rewrite it in HIP, CUDA, or Triton. Correctness and performance are
+    checked with:
+      python3 test_kernel_harness.py --correctness
+      python3 test_kernel_harness.py --full-benchmark
+  task_type: null
+  cheatsheet: null
+task_result_template: null

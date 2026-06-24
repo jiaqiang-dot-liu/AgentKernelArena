@@ -1,0 +1,51 @@
+task_type: torch2flydsl
+source_file_path:
+  - model.py
+harness_path: test_kernel_harness.py
+compile_command:
+  - python3 -c "import model; print('compile ok')"
+correctness_command:
+  - python3 test_kernel_harness.py --correctness
+performance_command:
+  - python3 test_kernel_harness.py --full-benchmark
+target_kernel_functions:
+  - flydsl_topk_softmax
+source_origin:
+  repo: AITER (local)
+  commit: e773193041689602e5431e110ef39db0390e7015
+  path:
+    - aiter/ops/topk.py
+    - aiter/op_tests/test_moe_topk_gating.py
+  note: >-
+    model.py is the pure-torch (b)-faithful reference for softmax MoE top-k
+    routing: selection scores = softmax(gating) + correction_bias (bias added
+    AFTER softmax, matching the kernel), top-k ids picked on the biased scores,
+    weights = the UN-biased softmax probabilities gathered at those ids times
+    routed_scaling_factor (no renorm; softmax is already normalized). Ground
+    truth is aiter.topk_gating(score_func="softmax"); the harness validates the
+    reference against it (top-k ids EXACT modulo selection-score ties; weights
+    normalized <= 1e-2). No clean standalone FlyDSL routing kernel exists in
+    aiter (topk_gating is a CK/HIP module_moe_topk op), so per the convention
+    this is a model-only task: FlyDSL kernel.py is GEAK's target, exposing
+    flydsl_topk_softmax(gating_output, correction_bias, topk, route_scale).
+    Real shapes: DeepSeek-V3 / classic MoE routing (E=256, topk=8) plus smaller
+    dense-MoE configs.
+prompt:
+  source_code: null
+  instructions: |
+    Author a FlyDSL kernel in kernel.py that reproduces the PyTorch
+    `Model.forward` in model.py: softmax MoE top-k routing. For a router gating
+    output [num_tokens, num_experts], compute selection scores
+    softmax(gating, dim=-1) + correction_bias (bias added AFTER softmax), pick
+    the topk experts by the biased scores, and return topk_weights = the
+    UN-biased softmax probabilities gathered at the selected ids times
+    route_scale (fp32) and topk_ids (int32). Softmax is already normalized, so
+    no top-k renormalization. Expose
+    `flydsl_topk_softmax(gating_output, correction_bias, topk, route_scale)`.
+    Keep the kernel in FlyDSL -- do NOT rewrite it in HIP, CUDA, or Triton.
+    Correctness and performance are checked with:
+      python3 test_kernel_harness.py --correctness
+      python3 test_kernel_harness.py --full-benchmark
+  task_type: null
+  cheatsheet: null
+task_result_template: null

@@ -1,0 +1,49 @@
+task_type: torch2flydsl
+source_file_path:
+  - model.py
+harness_path: test_kernel_harness.py
+compile_command:
+  - python3 test_kernel_harness.py --compile
+correctness_command:
+  - python3 test_kernel_harness.py --correctness
+performance_command:
+  - python3 test_kernel_harness.py --full-benchmark
+target_kernel_functions:
+  - flydsl_per_token_i8_quant
+  - build_per_token_i8_quant_module
+source_origin:
+  repo: AITER (local)
+  commit: e773193041689602e5431e110ef39db0390e7015
+  path:
+    - aiter/aiter/ops/quant.py
+    - aiter/op_tests/test_quant.py
+  note: >-
+    Model-only task (no kernel.py): aiter has no clean standalone FlyDSL kernel
+    for dynamic per-token INT8 quant, so FlyDSL is GEAK's target. model.py is the
+    pure-torch (b)-faithful reference: dynamic per-token (per-row) INT8 quant of
+    a [m, n] bf16 input with scale = amax(|x|)/127 (all-zero row -> 1), where the
+    fp32 division result is truncated toward zero (saturated to [-128,127]) for
+    the int8 store, returning (y_int8 [m, n], y_scale_fp32 [m, 1]). Mirrors
+    aiter.pertoken_quant (per_Token, i8) with no smoothing scale. The harness
+    validates model.py against the REAL runtime op
+    aiter.dynamic_per_token_scaled_quant as ground truth at the tight quantized
+    gate (int8 codes within 1 ULP + near-exact per-token fp32 scale). Shapes:
+    m in {1,16,128,256,1024}, n in {4096,8192}.
+prompt:
+  source_code: null
+  instructions: |
+    Author a FlyDSL kernel in kernel.py that computes the dynamic per-token INT8
+    quantization defined by the PyTorch `Model.forward` in model.py: for a
+    row-major [m, n] bf16 input, compute the per-row amax, the fp32 scale
+    amax/127 (INT8 max; keep scale 1 for an all-zero row), then store
+    y = truncate_toward_zero(clamp(x / scale, -128, 127)) as int8 [m, n] and the
+    fp32 scale [m, 1].
+    Expose `flydsl_per_token_i8_quant(input)` returning the (y_int8, scale_fp32)
+    tuple, plus `build_per_token_i8_quant_module(...)`.
+    Keep the kernel in FlyDSL — do NOT rewrite it in HIP, CUDA, or Triton.
+    Correctness and performance are checked with:
+      python3 test_kernel_harness.py --correctness
+      python3 test_kernel_harness.py --full-benchmark
+  task_type: null
+  cheatsheet: null
+task_result_template: null
