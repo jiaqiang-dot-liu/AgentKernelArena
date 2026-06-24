@@ -1,4 +1,11 @@
-# Compatibility matrix
+---
+myst:
+    html_meta:
+        "description": "Supported and tested hardware, software versions, agent CLIs, and model providers for AgentKernelArena, including ROCm and Python requirements."
+        "keywords": "AgentKernelArena, compatibility matrix, ROCm, AMD Instinct, Python, PyTorch, GPU, agents, model providers"
+---
+
+# AgentKernelArena compatibility matrix
 
 The following versions are the supported and tested configurations for
 AgentKernelArena. Entries marked `TODO (verify)` must be confirmed against a
@@ -6,12 +13,16 @@ tested environment before publication.
 
 ## Hardware
 
+The following hardware configurations are supported and tested.
+
 | Component | Supported | Notes |
 | --- | --- | --- |
-| GPU architecture | AMD Instinct MI300 series | `target_gpu_model: MI300`. TODO (verify) other architectures. |
+| GPU architecture | AMD Instinct™ MI300 series | `target_gpu_model: MI300`. TODO (verify) other architectures. |
 | GPU architecture | AMD Instinct MI355X | TODO (verify) |
 
 ## Software
+
+The following software versions are required or verified.
 
 | Component | Version | Notes |
 | --- | --- | --- |
@@ -26,9 +37,11 @@ tested environment before publication.
 
 ## Agents
 
+The following agent CLIs have been tested with AgentKernelArena.
+
 | Agent | Tested version | Notes |
 | --- | --- | --- |
-| Cursor Agent CLI | TODO (verify) | Installed via `make install-cursor-agent`. |
+| Cursor Agent CLI | TODO (verify) | Installed using `make install-cursor-agent`. |
 | Claude Code | TODO (verify) | `npm install -g @anthropic-ai/claude-code`. |
 | Codex CLI | TODO (verify) | Installed per the official Codex CLI instructions. |
 | SWE-agent | TODO (verify) | |
@@ -36,9 +49,11 @@ tested environment before publication.
 
 ## Model providers
 
+The following model providers are supported.
+
 | Provider | Notes |
 | --- | --- |
 | OpenAI | Requires `OPENAI_API_KEY`. |
 | Anthropic | Requires `ANTHROPIC_API_KEY`. |
 | OpenRouter | Requires `OPENROUTER_API_KEY`. |
-| Local vLLM | Self-hosted on port `30001` via `make vllm`. |
+| Local vLLM | Self-hosted on port `30001` using `make vllm`. |
