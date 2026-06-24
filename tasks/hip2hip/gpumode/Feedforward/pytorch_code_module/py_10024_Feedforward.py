@@ -26,16 +26,16 @@ def get_inputs():
     """
     Generate multiple test cases for Feedforward
     HIP kernel expects x and y to be at least 1D with matching last dimension
-    To work around HIP kernel shape calculation bug, use 2D inputs [batch, features]
-    where features matches input_size=4
+    Use 2D inputs [batch, features] where features matches input_size.
+    input_size kept at 128 (the reference kernel caps cached features at 256);
+    hidden_size scaled to 2048 so fc1 is a real GEMM. vstack(x,y) -> 2*batch rows.
     """
     configs = [
-        # (batch, features) - features must match input_size=4
-        ([1, 4], [1, 4]),  # Both x and y are 2D with (batch=1, features=4)
-        ([2, 4], [2, 4]),  # (batch=2, features=4)
-        ([4, 4], [4, 4]),  # (batch=4, features=4)
-        ([8, 4], [8, 4]),  # (batch=8, features=4)
-        ([16, 4], [16, 4]),  # (batch=16, features=4)
+        # (batch, features) - features must match input_size=128
+        ([512, 128], [512, 128]),    # 1024 rows after vstack
+        ([1024, 128], [1024, 128]),  # 2048 rows
+        ([2048, 128], [2048, 128]),  # 4096 rows
+        ([4096, 128], [4096, 128]),  # 8192 rows
     ]
     
     for x_shape, y_shape in configs:
@@ -45,4 +45,4 @@ def get_inputs():
 
 
 def get_init_inputs():
-    return [[], {'input_size': 4}]
+    return [[], {'input_size': 128, 'hidden_size': 2048}]

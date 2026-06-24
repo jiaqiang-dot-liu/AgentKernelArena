@@ -5,11 +5,13 @@ import logging
 import threading
 import os
 import shlex
+import sys
 from pathlib import Path
 from typing import Any
 import yaml
 from agents import register_agent
 from src.module_registration import AgentType, load_prompt_builder
+from src.runtime_env import PYTHON_ENV_VAR
 
 
 def _get_cli_version(agent_cmd: str) -> str:
@@ -28,14 +30,21 @@ def _get_cli_version(agent_cmd: str) -> str:
     return text or "unknown"
 
 
-def integrate_agent_config(prompt: str, agent_config: dict[str, Any]) -> str:
+def _runtime_python_path(agent_config: dict[str, Any]) -> str:
+    """Return the explicit or current framework Python for agent guidance."""
+    configured = agent_config.get("python_path")
+    if configured:
+        return str(configured)
+    return os.environ.get(PYTHON_ENV_VAR) or sys.executable
+
+
+def integrate_agent_config(prompt: str, agent_config: dict[str, Any], python_path: str) -> str:
     """
     Integrate agent config into prompt.
     """
     max_iters = agent_config.get("max_iterations")
     if max_iters is not None:
         prompt = prompt.rstrip() + f"\n\nFor this optimization, you must iterate up to {max_iters} versions."
-    python_path = agent_config.get("python_path")
     if python_path:
         prompt = prompt.rstrip() + f"\n\nUse this Python interpreter: `{python_path}`."
     return prompt
@@ -56,13 +65,14 @@ def launch_agent(eval_config: dict[str, Any], task_config_dir: str, workspace: s
     """
     AGENT = "claude"
     # Streamed output (partial messages) and permissive permissions for sandboxed runs.
+    # Note: --dangerously-skip-permissions is exactly equivalent to
+    # `--permission-mode bypassPermissions`, so we only pass the latter.
     OPTIONS = (
         "--print "
         "--verbose "
         "--output-format stream-json "
         "--include-partial-messages "
-        "--permission-mode bypassPermissions "
-        "--dangerously-skip-permissions"
+        "--permission-mode bypassPermissions"
     )
 
     agent_bin = shutil.which(AGENT)
@@ -79,7 +89,8 @@ def launch_agent(eval_config: dict[str, Any], task_config_dir: str, workspace: s
     prompt_builder = load_prompt_builder(AgentType.CLAUDE_CODE, logger)
     prompt = prompt_builder(task_config_dir, workspace, eval_config, logger)
 
-    prompt = integrate_agent_config(prompt, agent_config)
+    runtime_python = _runtime_python_path(agent_config)
+    prompt = integrate_agent_config(prompt, agent_config, runtime_python)
     configured_model = agent_config.get("model")
     configured_effort = agent_config.get("effort")
     quoted_prompt = shlex.quote(prompt)
@@ -91,12 +102,15 @@ def launch_agent(eval_config: dict[str, Any], task_config_dir: str, workspace: s
         dynamic_options += f" --effort {shlex.quote(str(configured_effort))}"
 
     # IS_SANDBOX=1 allows skip-permissions even when invoked from a privileged user.
-    cmd = f"IS_SANDBOX=1 {AGENT} {dynamic_options} {quoted_prompt}"
+    # CLAUDE_CODE_DISABLE_AUTO_MEMORY=1 turns off the auto-memory feature (ON by
+    # default in CLI >=2.1.59) so headless runs never read/write learned memory.
+    cmd = f"IS_SANDBOX=1 CLAUDE_CODE_DISABLE_AUTO_MEMORY=1 {AGENT} {dynamic_options} {quoted_prompt}"
 
     logger.info("Claude Code Preflight")
     logger.info(f"  binary: {agent_bin}")
     logger.info(f"  version: {_get_cli_version(AGENT)}")
     logger.info(f"  workspace: {workspace}")
+    logger.info(f"  python_path: {runtime_python}")
     logger.info(f"  model: {configured_model if configured_model else '<claude CLI default/config>'}")
     logger.info(f"  effort: {configured_effort if configured_effort else '<claude CLI default/config>'}")
 

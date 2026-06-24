@@ -22,16 +22,17 @@ class GateGRUSelectionLayer(nn.Module):
 def get_inputs():
     """
     Generate multiple test cases with varying sizes
-    GateGRUSelectionLayer expects 4D tensors [B0, B1, B2, D]
-    All test cases must use D=4 to match dim_model=4 in get_init_inputs()
+    GateGRUSelectionLayer expects 4D tensors [B0, B1, B2, D].
+    D scaled to 512 so the three Linear(2D, D) gates are real GEMMs against
+    fused rocBLAS; rows = B0*B1*B2.
     """
     configs = [
-        # 4D tensors: (B0, B1, B2, D) where D must be 4
-        ([4, 4, 4, 4],),  # (4, 4, 4, 4)
-        ([8, 4, 4, 4],),  # (8, 4, 4, 4) - keep D=4
-        ([16, 4, 4, 4],),  # (16, 4, 4, 4) - keep D=4
-        ([32, 4, 4, 4],),  # (32, 4, 4, 4) - keep D=4
-        ([64, 4, 4, 4],),  # (64, 4, 4, 4) - keep D=4
+        # 4D tensors: (B0, B1, B2, D) where D must match dim_model=512
+        ([64, 4, 4, 512],),    # 1024 rows
+        ([128, 4, 4, 512],),   # 2048 rows
+        ([256, 4, 4, 512],),   # 4096 rows
+        ([512, 4, 4, 512],),   # 8192 rows
+        ([1024, 4, 4, 512],),  # 16384 rows
     ]
     
     for shape in configs:
@@ -42,4 +43,4 @@ def get_inputs():
 
 
 def get_init_inputs():
-    return [[], {'dim_model': 4, 'dim_ff': 4, 'prob_dropout': 0.5}]
+    return [[], {'dim_model': 512, 'dim_ff': 2048, 'prob_dropout': 0.5}]

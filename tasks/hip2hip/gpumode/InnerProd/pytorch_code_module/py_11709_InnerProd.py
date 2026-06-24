@@ -42,14 +42,14 @@ def get_inputs():
     """
     Generate multiple test cases with varying sizes
     HIP kernel expects feat_img: [B, 1, C] (3D with middle dim=1) and feat_sound: [B, C, H, W]
+    C scaled to 512 so the per-pixel channel reduction is real work; C must match fc_dim.
     """
     configs = [
-        # (B, C, H, W) for feat_sound, feat_img will be [B, 1, C]
-        (4, 4, 4, 4),  # B=4, C=4, H=4, W=4
-        (8, 4, 8, 8),  # Keep C=4 to match fc_dim=4
-        (16, 4, 16, 16),  # Keep C=4
-        (32, 4, 32, 32),  # Keep C=4
-        (64, 4, 64, 64),  # Keep C=4
+        # (B, C, H, W) for feat_sound, feat_img will be [B, 1, C]; C must match fc_dim=512
+        (4, 512, 16, 16),   # B=4, C=512
+        (8, 512, 16, 16),   # C=512
+        (16, 512, 32, 32),  # C=512
+        (32, 512, 32, 32),  # C=512
     ]
     
     for B, C, H, W in configs:
@@ -60,4 +60,4 @@ def get_inputs():
 
 
 def get_init_inputs():
-    return [[], {'fc_dim': 4}]
+    return [[], {'fc_dim': 512}]

@@ -7,9 +7,8 @@ coding agents on GPU kernel optimization tasks on AMD GPUs.
 
 ### Features
 
-- **Multi-agent arena**: run Cursor, Claude Code, Codex, SWE-agent, OpenEvolve
-  (GEAK), GEAK HIP, GEAK OptimAgent v2, GEAK OurLLM kernel-to-kernel, and
-  single-LLM-call agents through a common evaluation pipeline.
+- **Multi-agent arena**: run Cursor, Claude Code, and Codex agents through a
+  common evaluation pipeline.
 - **Multi-model support**: OpenAI, Anthropic, and additional models via
   OpenRouter or a self-hosted vLLM server.
 - **Task categories**: `hip2hip`, `cuda2hip`, `triton2triton`,

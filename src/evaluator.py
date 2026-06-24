@@ -149,6 +149,7 @@ def evaluate_kernel(
         'valid_optimized_cases': 0,
         'compilation_error_message': None,
         'correctness_error_message': None,
+        'speedup_calculation_error_message': None,
     }
     
     # 1. Compilation check
@@ -199,22 +200,53 @@ def evaluate_kernel(
 
             # Calculate average speedup across valid test cases only
             if valid_baseline_cases:
-                avg_speedup = calculate_average_speedup(valid_baseline_cases, valid_optimized_cases, logger)
-                results['average_speedup'] = avg_speedup
                 avg_baseline_time = sum(c.execution_time_ms for c in valid_baseline_cases) / len(valid_baseline_cases)
                 log.info(
                     f"Baseline: {len(valid_baseline_cases)}/{len(baseline_cases)} valid test case(s), "
                     f"average time: {avg_baseline_time:.4f} ms"
                 )
-                log.info(f"Average speedup: {avg_speedup:.2f}x")
+
+                if (
+                    len(valid_baseline_cases) != len(baseline_cases)
+                    or len(valid_optimized_cases) != len(optimized_cases)
+                ):
+                    error_msg = (
+                        "Cannot calculate speedup because performance results contain invalid "
+                        "test case timings: "
+                        f"baseline_valid={len(valid_baseline_cases)}/{len(baseline_cases)}, "
+                        f"optimized_valid={len(valid_optimized_cases)}/{len(optimized_cases)}"
+                    )
+                    results['speedup_calculation_error_message'] = error_msg
+                    log.warning(error_msg)
+                else:
+                    avg_speedup = calculate_average_speedup(
+                        valid_baseline_cases,
+                        valid_optimized_cases,
+                        logger,
+                        require_complete_match=True,
+                    )
+                    if avg_speedup > 0:
+                        results['average_speedup'] = avg_speedup
+                        log.info(f"Average speedup: {avg_speedup:.2f}x")
+                    else:
+                        error_msg = (
+                            "Cannot calculate speedup because baseline and optimized "
+                            "test cases did not match completely"
+                        )
+                        results['speedup_calculation_error_message'] = error_msg
+                        log.warning(error_msg)
             else:
                 if baseline_cases:
-                    log.warning(
+                    error_msg = (
                         "Baseline data exists but has no valid performance samples "
                         "(execution_time_ms <= 0 or invalid). Cannot calculate speedup."
                     )
+                    results['speedup_calculation_error_message'] = error_msg
+                    log.warning(error_msg)
                 else:
-                    log.warning("Baseline not available, cannot calculate speedup")
+                    error_msg = "Baseline not available, cannot calculate speedup"
+                    results['speedup_calculation_error_message'] = error_msg
+                    log.warning(error_msg)
     else:
         log.warning("Failed to measure optimized execution time")
     
@@ -262,9 +294,10 @@ def write_task_result(
     # Get results
     optimized_time = evaluation_results.get('best_optimized_execution_time', 0.0)
     avg_speedup = evaluation_results.get('average_speedup', 0.0)
+    speedup_error = evaluation_results.get('speedup_calculation_error_message')
     
     # Use average speedup if available, otherwise calculate from average times
-    if avg_speedup == 0.0 and avg_baseline_time > 0 and optimized_time > 0:
+    if avg_speedup == 0.0 and not speedup_error and avg_baseline_time > 0 and optimized_time > 0:
         avg_speedup = avg_baseline_time / optimized_time
     
     task_result = {
@@ -278,6 +311,7 @@ def write_task_result(
         'speedup_ratio': avg_speedup,  # Average speedup across test cases
         'valid_baseline_cases': len(valid_baseline_cases),
         'valid_optimized_cases': evaluation_results.get('valid_optimized_cases', 0),
+        'speedup_calculation_error_message': speedup_error,
         'optimization_summary': f'Optimized by {agent_name} using centralized evaluator'
     }
     

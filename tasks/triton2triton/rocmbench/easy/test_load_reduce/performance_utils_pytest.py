@@ -26,21 +26,120 @@ def _sync_if_needed() -> None:
         torch.cuda.synchronize()
 
 
-def _measure_times(callable_fn: Callable[[], Any], config: BenchConfig) -> list[float]:
-    """Run warmup + measured iterations and return list of times in ms."""
+def _median(values: list[float]) -> float:
+    values_sorted = sorted(values)
+    return values_sorted[len(values_sorted) // 2]
+
+
+def _measure_cuda_events(callable_fn: Callable[[], Any], repetition: int) -> list[float]:
+    """Measure eager callable executions with CUDA events, falling back to CPU time without CUDA."""
+    repetition = max(1, int(repetition))
+    if not torch.cuda.is_available():
+        times_ms: list[float] = []
+        for _ in range(repetition):
+            start = time.perf_counter()
+            callable_fn()
+            end = time.perf_counter()
+            times_ms.append((end - start) * 1000.0)
+        return times_ms
+
+    times_ms = []
+    for _ in range(repetition):
+        torch.cuda.synchronize()
+        start_event = torch.cuda.Event(enable_timing=True)
+        end_event = torch.cuda.Event(enable_timing=True)
+        start_event.record()
+        callable_fn()
+        end_event.record()
+        torch.cuda.synchronize()
+        times_ms.append(start_event.elapsed_time(end_event))
+    return times_ms
+
+
+def _measure_times(
+    callable_fn: Callable[[], Any],
+    config: BenchConfig,
+    target_ms: float = 20.0,
+    n_retries: int = 5,
+    estimate_reps: int = 5,
+    max_graph_repeats: int = 1000,
+) -> tuple[list[float], dict[str, Any]]:
+    """Run warmup + measured iterations and return per-call times in ms plus metadata."""
     for _ in range(config.warm_up):
         callable_fn()
     _sync_if_needed()
 
-    times_ms: list[float] = []
-    for _ in range(config.repetition):
-        _sync_if_needed()
-        start = time.perf_counter()
-        callable_fn()
-        _sync_if_needed()
-        end = time.perf_counter()
-        times_ms.append((end - start) * 1000.0)
-    return times_ms
+    max_graph_repeats = max(1, int(max_graph_repeats))
+    metadata: dict[str, Any] = {
+        "benchmark_target_ms": float(target_ms),
+        "benchmark_retries": int(n_retries),
+        "benchmark_max_repeats": int(max_graph_repeats),
+    }
+
+    if not torch.cuda.is_available():
+        metadata.update({
+            "benchmark_method": "cpu_timer_fallback",
+            "benchmark_effective_repeats": int(config.repetition),
+            "benchmark_fallback_reason": "cuda_unavailable",
+        })
+        return _measure_cuda_events(callable_fn, config.repetition), metadata
+
+    try:
+        stream = torch.cuda.Stream()
+        stream.wait_stream(torch.cuda.current_stream())
+        with torch.cuda.stream(stream):
+            estimate_reps = max(1, int(estimate_reps))
+            estimate_graph = torch.cuda.CUDAGraph()
+            with torch.cuda.graph(estimate_graph):
+                for _ in range(estimate_reps):
+                    callable_fn()
+            torch.cuda.synchronize()
+
+            start_event = torch.cuda.Event(enable_timing=True)
+            end_event = torch.cuda.Event(enable_timing=True)
+            start_event.record(stream)
+            estimate_graph.replay()
+            end_event.record(stream)
+            torch.cuda.synchronize()
+
+            estimate_ms = start_event.elapsed_time(end_event) / estimate_reps
+            if estimate_ms == 0:
+                n_repeat = max_graph_repeats
+            else:
+                n_repeat = min(max_graph_repeats, max(1, int(float(target_ms) / estimate_ms)))
+
+            graph = torch.cuda.CUDAGraph()
+            with torch.cuda.graph(graph):
+                for _ in range(n_repeat):
+                    callable_fn()
+            torch.cuda.synchronize()
+
+            retry_times: list[float] = []
+            for _ in range(max(1, int(n_retries))):
+                start_event = torch.cuda.Event(enable_timing=True)
+                end_event = torch.cuda.Event(enable_timing=True)
+                start_event.record(stream)
+                graph.replay()
+                end_event.record(stream)
+                torch.cuda.synchronize()
+                retry_times.append(start_event.elapsed_time(end_event) / n_repeat)
+
+        metadata.update({
+            "benchmark_method": "cuda_graph",
+            "benchmark_effective_repeats": int(n_repeat),
+        })
+        return retry_times, metadata
+    except Exception as exc:
+        try:
+            torch.cuda.synchronize()
+        except Exception:
+            pass
+        metadata.update({
+            "benchmark_method": "cuda_event_fallback",
+            "benchmark_effective_repeats": int(config.repetition),
+            "benchmark_fallback_reason": f"cuda_graph_failed: {type(exc).__name__}: {str(exc)[:160]}",
+        })
+        return _measure_cuda_events(callable_fn, config.repetition), metadata
 
 
 def _compute_timing_stats(times_ms: list[float], config: BenchConfig) -> dict[str, Any]:
@@ -49,7 +148,7 @@ def _compute_timing_stats(times_ms: list[float], config: BenchConfig) -> dict[st
     n = len(times_sorted)
     return {
         "mean": sum(times_sorted) / n,
-        "median": times_sorted[n // 2],
+        "median": _median(times_sorted),
         "p90": times_sorted[min(n - 1, int(round(0.9 * (n - 1))))],
         "min": times_sorted[0],
         "max": times_sorted[-1],
@@ -74,7 +173,7 @@ class PytestBenchmarker:
         baseline_callable: Callable[[], Any] | None = None,
     ) -> dict[str, Any]:
         # Measure the main (optimized/triton) operation.
-        times_ms = _measure_times(self.op_callable, self.config)
+        times_ms, benchmark_metadata = _measure_times(self.op_callable, self.config)
         timing_stats = _compute_timing_stats(times_ms, self.config)
         mean_ms = timing_stats["mean"]
 
@@ -82,6 +181,7 @@ class PytestBenchmarker:
             "op_name": self.op_name,
             "params": current_params_dict,
             "timing_ms": timing_stats,
+            **benchmark_metadata,
         }
 
         if gbps_calculator is not None:
@@ -97,9 +197,11 @@ class PytestBenchmarker:
 
         # Measure baseline (e.g. PyTorch reference) if provided.
         if baseline_callable is not None:
-            baseline_times = _measure_times(baseline_callable, self.config)
+            baseline_times, baseline_metadata = _measure_times(baseline_callable, self.config)
             baseline_stats = _compute_timing_stats(baseline_times, self.config)
             result["baseline_timing_ms"] = baseline_stats
+            for key, value in baseline_metadata.items():
+                result[f"baseline_{key}"] = value
             baseline_mean = baseline_stats["mean"]
             if mean_ms > 0:
                 result["speedup_ratio"] = baseline_mean / mean_ms

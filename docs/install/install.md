@@ -1,62 +1,65 @@
 # Install AgentKernelArena
 
 AgentKernelArena runs AI coding agents against GPU kernel tasks on an AMD GPU and
-evaluates the results. Installation sets up a Python environment with the correct
-ROCm PyTorch build, installs the framework dependencies, and makes at least one
-agent CLI available.
+evaluates the results. The recommended workflow runs the evaluator inside the
+GPU-arch-specific SGLang Docker image and bind-mounts the local
+agent CLIs plus their login state.
 
 ## Prerequisites
 
-- **Python 3.12+**
-- **AMD GPU with ROCm** — ROCm 6.4, 7.0, or 7.1 (the `Makefile` auto-detects the
-  installed version under `/opt/rocm-*`)
-- **ROCm toolchain for HIP tasks** — `hipcc` and `rocprof-compute`
-- **Triton** — required for Triton tasks (installed with the ROCm PyTorch wheel)
-- **[uv](https://github.com/astral-sh/uv)** — used by the `Makefile` to create the
-  virtual environment
+- **Docker**
+- **AMD GPU with ROCm-compatible Docker access** — the runner mounts `/dev/kfd`,
+  `/dev/dri`, and `/dev/mem` when present.
+- **SGLang benchmark image** — `gfx942` uses
+  `lmsysorg/sglang:v0.5.12-rocm720-mi30x`; `gfx950` uses
+  `lmsysorg/sglang:v0.5.12-rocm720-mi35x`. The runner selects from
+  `target_gpu_model` for benchmark runs and from the visible host GPU for shell
+  and smoke commands.
 - **Git**
-- At least one supported agent CLI and the matching API key (see
+- At least one supported agent CLI already installed and logged in on the host. The
+  Docker runner currently treats Codex, Claude Code, and Cursor Agent as first-class
+  supported CLIs. See
   [Configure agents and models](../how-to/agents.md))
 
-## Recommended: `make setup`
+## Recommended: Docker runner
 
-From the repository root, the `Makefile` detects your ROCm version, creates a
-`.venv` virtual environment with the matching ROCm PyTorch build, and installs
-all dependencies.
+From the repository root, use the Docker-first Makefile targets. The runner does
+not copy credentials into an image; it bind-mounts the existing host login state.
 
 ```bash
 git clone https://github.com/AMD-AGI/AgentKernelArena.git
 cd AgentKernelArena
 
-# Full environment setup (venv + deps; includes FlyDSL by default)
+# Verify the container runtime and GPU.
+make docker-smoke
+
+# Verify Codex, Claude Code, and Cursor Agent login reuse.
+make docker-check-agents
+```
+
+Start an interactive shell in the same environment:
+
+```bash
+make docker-shell
+```
+
+Run an evaluation:
+
+```bash
+make docker-run CONFIG=config.yaml
+make docker-run CONFIG=config.yaml RUN_ARGS="--run-suffix cursor_docker"
+```
+
+## Legacy venv installation
+
+The older `.venv` workflow remains available for local development. From the
+repository root, the `Makefile` detects your ROCm version, creates a virtual
+environment, and installs dependencies:
+
+```bash
 make setup
-
-# Or set up without FlyDSL support
-make setup WITH_FLYDSL=0
-```
-
-Activate the environment:
-
-```bash
 make act
-# or
-source .venv/bin/activate
 ```
-
-`make setup` will fail with `Could not detect ROCm installation` if no
-`/opt/rocm-*` directory is found. Install ROCm first, then re-run.
-
-### FlyDSL tasks
-
-The `flydsl2flydsl` task category requires [FlyDSL](https://github.com/ROCm/FlyDSL).
-It is installed by default with `make setup`. To install or verify it on its own:
-
-```bash
-make setup-flydsl     # install FlyDSL into the venv and verify
-make verify-flydsl    # verify FlyDSL import and ROCm PyTorch GPU access
-```
-
-## Manual installation
 
 If you prefer not to use the `Makefile`:
 
@@ -112,7 +115,7 @@ Run a single quick task to confirm the framework, GPU, and agent CLI all work
 together. Edit `config.yaml` to select one agent and one task, then run:
 
 ```bash
-python main.py
+make docker-run CONFIG=config.yaml
 ```
 
 A successful run creates a timestamped workspace directory

@@ -15,13 +15,14 @@ from agents.task_validator.validation_prompt import build_validation_prompt
 def _launch_claude_code(prompt: str, workspace: str, timeout_seconds: int, logger: logging.Logger) -> str:
     """Launch Claude Code CLI with the validation prompt."""
     AGENT = "claude"
+    # --dangerously-skip-permissions is exactly equivalent to
+    # `--permission-mode bypassPermissions`, so we only pass the latter.
     OPTIONS = (
         "--print "
         "--verbose "
         "--output-format stream-json "
         "--include-partial-messages "
-        "--permission-mode bypassPermissions "
-        "--dangerously-skip-permissions"
+        "--permission-mode bypassPermissions"
     )
 
     if not shutil.which(AGENT):
@@ -30,7 +31,9 @@ def _launch_claude_code(prompt: str, workspace: str, timeout_seconds: int, logge
         )
 
     quoted_prompt = shlex.quote(prompt)
-    cmd = f"IS_SANDBOX=1 {AGENT} {OPTIONS} {quoted_prompt}"
+    # CLAUDE_CODE_DISABLE_AUTO_MEMORY=1 turns off auto-memory (ON by default in
+    # CLI >=2.1.59) so headless validation never reads/writes learned memory.
+    cmd = f"IS_SANDBOX=1 CLAUDE_CODE_DISABLE_AUTO_MEMORY=1 {AGENT} {OPTIONS} {quoted_prompt}"
 
     logger.info(f"Running command: {cmd[:200]}...")
 
@@ -132,6 +135,9 @@ def _launch_codex(prompt: str, workspace: str, timeout_seconds: int, logger: log
         "--json",
         "--dangerously-bypass-approvals-and-sandbox",
         "--skip-git-repo-check",
+        # Disable cross-session "Memories" (off by default, pinned for safety).
+        "-c",
+        "features.memories=false",
         "--cd",
         workspace,
         prompt,
@@ -154,6 +160,9 @@ def _launch_codex(prompt: str, workspace: str, timeout_seconds: int, logger: log
     stderr_lines: list[str] = []
 
     def _format_codex_event(raw_line: str) -> str:
+        """Format Codex JSONL events. Modern `codex exec --json` uses an
+        item-based envelope ({"type":"item.completed","item":{"type":
+        "agent_message","text":...}}); older flat/`msg` shapes are fallbacks."""
         try:
             data = json.loads(raw_line)
         except json.JSONDecodeError:
@@ -163,6 +172,55 @@ def _launch_codex(prompt: str, workspace: str, timeout_seconds: int, logger: log
             return raw_line
 
         ev_type = data.get("type", "")
+
+        # Current item-based envelope.
+        if ev_type in {"item.started", "item.completed", "item.updated"}:
+            item = data.get("item") or {}
+            if isinstance(item, dict):
+                item_type = item.get("type", "")
+                if item_type == "agent_message":
+                    text = item.get("text")
+                    if isinstance(text, str) and text.strip():
+                        return f"assistant: {text.strip()}"
+                elif item_type == "reasoning":
+                    text = item.get("text")
+                    if isinstance(text, str) and text.strip():
+                        return f"reasoning: {text.strip()}"
+                elif item_type == "command_execution":
+                    command = item.get("command", "")
+                    status = item.get("status", "")
+                    exit_code = item.get("exit_code")
+                    tail = f" exit={exit_code}" if exit_code is not None else ""
+                    return f"command[{status}] {command}{tail}".strip()
+                elif item_type == "mcp_tool_call":
+                    return f"mcp_tool[{item.get('status', '')}] {item.get('server', '')}.{item.get('tool', '')}".strip()
+                elif item_type == "file_change":
+                    return f"file_change[{item.get('status', '')}]".strip()
+                elif item_type == "error":
+                    return f"error: {item.get('message', raw_line)}"
+            return raw_line
+
+        if ev_type == "turn.completed":
+            usage = data.get("usage")
+            if isinstance(usage, dict):
+                return f"turn.completed usage in={usage.get('input_tokens')} out={usage.get('output_tokens')}"
+            return raw_line
+
+        if ev_type in {"turn.failed", "error"}:
+            err = data.get("error") or data.get("message")
+            if isinstance(err, dict):
+                err = err.get("message", err)
+            return f"{ev_type}: {err}" if err else raw_line
+
+        if ev_type in {"thread.started", "turn.started"}:
+            return raw_line
+
+        # Legacy fallbacks (older Codex binaries).
+        msg = data.get("msg")
+        if isinstance(msg, dict) and msg.get("type") in {"agent_message", "assistant_message"}:
+            text = msg.get("message") or msg.get("text")
+            if isinstance(text, str) and text.strip():
+                return f"assistant: {text.strip()}"
         if ev_type in {"assistant_message", "assistant"}:
             msg = data.get("message", {})
             if isinstance(msg, dict):
@@ -172,10 +230,6 @@ def _launch_codex(prompt: str, workspace: str, timeout_seconds: int, logger: log
             text = data.get("text")
             if isinstance(text, str) and text.strip():
                 return f"assistant: {text.strip()}"
-        if ev_type in {"tool_call", "tool_result"}:
-            return raw_line
-        if ev_type in {"error", "warning"}:
-            return raw_line
         if "text" in data and isinstance(data["text"], str) and data["text"].strip():
             return data["text"].strip()
         return raw_line

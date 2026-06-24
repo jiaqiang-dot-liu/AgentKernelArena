@@ -29,26 +29,26 @@ static inline int read_env_int(const char* name, int def) {
     return (val > 0) ? val : def;
 }
 
-// ---------- NaN-preserving ReLU ----------
+// ---------- Exact GELU activation ----------
+// gelu(x) = 0.5 * x * (1 + erf(x / sqrt(2)))  -- matches torch.nn.functional.gelu
+// (approximate='none'). erf naturally propagates NaN, so no special NaN handling needed.
+__device__ __forceinline__ float  gelu_act(float v)  { return 0.5f * v * (1.0f + erff(v * 0.7071067811865475244f)); }
+__device__ __forceinline__ double gelu_act(double v) { return 0.5  * v * (1.0  + erf (v * 0.7071067811865475244)); }
+
 template <typename T>
-__device__ __forceinline__ T relu_nan_select(T v) {
-    T z = static_cast<T>(0);
-    T m = v > z ? v : z; // clamp with zero (does not propagate NaN)
-    bool isn = !(v == v); // true if NaN
-    return isn ? v : m;   // propagate NaN
-}
+__device__ __forceinline__ T gelu_scalar(T v) { return gelu_act(v); }
 
 // Vector lane helpers
-__device__ __forceinline__ void relu_apply_vec(float4 &v) {
-    v.x = relu_nan_select<float>(v.x);
-    v.y = relu_nan_select<float>(v.y);
-    v.z = relu_nan_select<float>(v.z);
-    v.w = relu_nan_select<float>(v.w);
+__device__ __forceinline__ void gelu_apply_vec(float4 &v) {
+    v.x = gelu_act(v.x);
+    v.y = gelu_act(v.y);
+    v.z = gelu_act(v.z);
+    v.w = gelu_act(v.w);
 }
 
-__device__ __forceinline__ void relu_apply_vec(double2 &v) {
-    v.x = relu_nan_select<double>(v.x);
-    v.y = relu_nan_select<double>(v.y);
+__device__ __forceinline__ void gelu_apply_vec(double2 &v) {
+    v.x = gelu_act(v.x);
+    v.y = gelu_act(v.y);
 }
 
 // ---------- Scalar kernel ----------
@@ -57,9 +57,9 @@ __global__ void relu_inplace_scalar_kernel_nan(scalar_t* __restrict__ data, int6
     int64_t idx = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
     int64_t stride = static_cast<int64_t>(blockDim.x) * gridDim.x;
     for (int64_t i = idx; i < N; i += stride * 2) {
-        if (i < N) data[i] = relu_nan_select<scalar_t>(data[i]);
+        if (i < N) data[i] = gelu_scalar<scalar_t>(data[i]);
         int64_t j = i + stride;
-        if (j < N) data[j] = relu_nan_select<scalar_t>(data[j]);
+        if (j < N) data[j] = gelu_scalar<scalar_t>(data[j]);
     }
 }
 
@@ -83,7 +83,7 @@ __global__ void relu_inplace_fused_vec_kernel(T* __restrict__ data,
 
     // 1) Prologue [0, prefix_elems)
     for (int64_t i = tid; i < prefix_elems; i += stride) {
-        data[i] = relu_nan_select<T>(data[i]);
+        data[i] = gelu_scalar<T>(data[i]);
     }
 
     // 2) Vectorized bulk over vecCount VecT packets starting at data + prefix_elems
@@ -94,7 +94,7 @@ __global__ void relu_inplace_fused_vec_kernel(T* __restrict__ data,
             int64_t q = p + k;
             if (q < vecCount) {
                 VecT vv = vptr[q];
-                relu_apply_vec(vv);
+                gelu_apply_vec(vv);
                 vptr[q] = vv;
             }
         }
@@ -102,7 +102,7 @@ __global__ void relu_inplace_fused_vec_kernel(T* __restrict__ data,
 
     // 3) Epilogue [processed, N)
     for (int64_t i = processed + tid; i < N; i += stride) {
-        data[i] = relu_nan_select<T>(data[i]);
+        data[i] = gelu_scalar<T>(data[i]);
     }
 }
 
@@ -239,6 +239,6 @@ torch::Tensor forward(torch::Tensor x) {
 }
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
-    m.def("forward", &forward, "In-place ReLU forward (HIP, fused, NaN-preserving, vectorized, tuned)");
+    m.def("forward", &forward, "In-place exact GELU forward (HIP, fused, vectorized, tuned)");
 }
 

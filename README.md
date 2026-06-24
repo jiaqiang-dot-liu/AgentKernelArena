@@ -12,12 +12,12 @@ This demo is provided only to illustrate the results and should not be treated a
 
 ## Overview & Features
 
-AgentKernelArena provides an end-to-end, siloed benchmarking environment where LLM-powered agents (Cursor Agent, Claude Code, Codex, SWE-agent, GEAK, and custom agents) are evaluated side-by-side on the same kernel tasks using objective and reproducible metrics.
+AgentKernelArena provides an end-to-end, siloed benchmarking environment where LLM-powered agents (Cursor Agent, Claude Code, Codex, and custom agents) are evaluated side-by-side on the same kernel tasks using objective and reproducible metrics.
 
 AgentKernelArena enables systematic evaluation of AI agents on GPU kernel optimization tasks by combining:
-- **Multi-Agent Arena**: Cursor, Claude Code, SWE-agent, OpenEvolve (GEAK), single LLM calls (Codex/others), and custom agents
-- **Multi-Model Support**: OpenAI (GPT-5), Anthropic Claude (Opus 4.5, Sonnet 4.5), and other models via OpenRouter or vLLM
-- **Task Categories**: HIP (ROCm examples, rocPRIM, customer HIP), Triton (TritonBench, ROCmBench), and Torch2HIP conversions
+- **Multi-Agent Arena**: Cursor, Claude Code, Codex, and custom agents
+- **Multi-Model Support**: OpenAI (GPT-5), Anthropic Claude (Opus and Sonnet families), and other models via OpenRouter or vLLM
+- **Task Categories**: HIP (ROCm examples, rocPRIM, customer HIP), Triton (vLLM-style local harnesses and ROCmBench), and Torch2HIP conversions
 - **Real Metrics**: Automated evaluation of compilation success, correctness, and real GPU performance speedups
 - **Designed for Fair Comparison**: Standardized tasks, environments, prompts, and scoring for leaderboard-style evaluation
 - **A/B Testing for Agent Tools**: Compare whether a new MCP server, skill, prompt, or agent-side tool actually improves outcomes by running the same task set with and without it and comparing standardized scores
@@ -42,8 +42,6 @@ AgentKernelArena is actively under development. Upcoming releases will publish d
 | Cursor Agent  | xx       | xx          | xx          | xx    |
 | Claude Code   | xx       | xx          | xx          | xx    |
 | OpenAI Codex  | xx       | xx          | xx          | xx    |
-| SWE-agent     | xx       | xx          | xx          | xx    |
-| GEAK          | xx       | xx          | xx          | xx    |
 
 
 ## Architecture
@@ -67,12 +65,7 @@ AgentKernelArena/
 │   ├── cursor/                  # Cursor agent integration
 │   ├── claude_code/             # Claude Code agent integration
 │   ├── codex/                   # Codex CLI agent integration
-│   ├── SWE_agent/               # SWE-agent integration
-│   ├── openevolve/              # OpenEvolve (GEAK) integration
-│   ├── geak_optimagentv2/        # GEAK OptimAgent v2 integration
-│   ├── geak_hip/                 # GEAK HIP integration
-│   ├── geak_ourllm_kernel2kernel/ # GEAK OurLLM kernel-to-kernel integration
-│   ├── single_llm_call/         # Single LLM call implementation
+│   ├── task_validator/          # Task quality validator
 │   └── __init__.py              # Agent registry
 └── tasks/                       # Task definitions
     ├── rocm-examples/           # ROCm example kernels
@@ -98,10 +91,10 @@ AgentKernelArena/
 
 ### Prerequisites
 
-- Python 3.12+
-- ROCm toolkit (for HIP kernels): `hipcc`, `rocprof-compute`
-- Triton (for Triton kernels)
+- Docker
+- The SGLang Docker image for your GPU arch (`gfx942` uses `lmsysorg/sglang:v0.5.12-rocm720-mi30x`; `gfx950` uses `lmsysorg/sglang:v0.5.12-rocm720-mi35x`)
 - Git
+- Host-installed agent CLIs for the agents you plan to evaluate
 
 ### Setup
 
@@ -110,14 +103,6 @@ AgentKernelArena/
 git clone <repository-url>
 cd AgentKernelArena
 
-# Install dependencies
-pip install -r requirements.txt
-
-# Set up API keys (choose one or more)
-export OPENAI_API_KEY="your_openai_key"
-export ANTHROPIC_API_KEY="your_anthropic_key"
-export OPENROUTER_API_KEY="your_openrouter_key"
-
 # Install agent CLIs (examples)
 # For Claude Code:
 npm install -g @anthropic-ai/claude-code
@@ -125,6 +110,9 @@ npm install -g @anthropic-ai/claude-code
 # For Codex CLI: install per the official Codex CLI instructions,
 # then ensure `codex` is available in PATH.
 
+# Verify Docker can see the GPU/runtime and reuse agent login state.
+make docker-smoke
+make docker-check-agents
 ```
 
 ## Usage
@@ -136,7 +124,7 @@ npm install -g @anthropic-ai/claude-code
 ```yaml
 # Select agent type
 agent:
-  template: claude_code  # Options: cursor, claude_code, codex, swe_agent, single_llm_call, openevolve, geak_optimagentv2, geak_hip, geak_ourllm_kernel2kernel
+  template: claude_code  # Options: cursor, claude_code, codex, task_validator
   max_iterations: 5
 
 # Specify tasks to run
@@ -154,7 +142,7 @@ workspace_directory_prefix: workspace
 2. **Run evaluation**:
 
 ```bash
-python main.py
+make docker-run CONFIG=config.yaml
 ```
 
 
@@ -167,7 +155,9 @@ tasks:
   - rocm-examples/*           # All ROCm examples
   - rocprim/*                 # All rocPRIM tasks
   - customer_hip/mmcv/*       # All MMCV HIP kernels
-  - triton/tritonbench/*      # All Triton benchmarks
+  - triton2triton/vllm/*      # vLLM-style Triton kernel tasks
+  - triton2triton/rocmbench/* # ROCmBench Triton tasks
+  - instruction2triton/rocmbench/* # Instruction-to-Triton ROCmBench tasks
   - torch2hip/*               # All Torch2HIP conversion tasks
 ```
 

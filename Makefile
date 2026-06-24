@@ -6,21 +6,23 @@ PYTHON_VERSION := 3.12
 VENV_DIR := .venv
 REQUIREMENTS := requirements.txt
 
-# Detect ROCm version (supports 7.1, 7.0, 6.4)
-ROCM_VERSION := $(shell \
-	if [ -d /opt/rocm-7.1.0 ] || [ -d /opt/rocm-7.1 ]; then echo "7.1"; \
-	elif [ -d /opt/rocm-7.0.0 ] || [ -d /opt/rocm-7.0 ]; then echo "7.0"; \
-	elif [ -d /opt/rocm-6.4.1 ] || [ -d /opt/rocm-6.4.0 ] || [ -d /opt/rocm-6.4 ]; then echo "6.4"; \
-	else echo "unknown"; fi)
+# Detect ROCm version (supports 7.1, 7.0, 6.4, including patch releases)
 ROCM_PATH_DETECTED := $(shell \
-	if [ -d /opt/rocm-7.1.0 ]; then echo "/opt/rocm-7.1.0"; \
-	elif [ -d /opt/rocm-7.1 ]; then echo "/opt/rocm-7.1"; \
-	elif [ -d /opt/rocm-7.0.0 ]; then echo "/opt/rocm-7.0.0"; \
-	elif [ -d /opt/rocm-7.0 ]; then echo "/opt/rocm-7.0"; \
-	elif [ -d /opt/rocm-6.4.1 ]; then echo "/opt/rocm-6.4.1"; \
-	elif [ -d /opt/rocm-6.4.0 ]; then echo "/opt/rocm-6.4.0"; \
-	elif [ -d /opt/rocm-6.4 ]; then echo "/opt/rocm-6.4"; \
-	else echo "/opt/rocm"; fi)
+	for d in /opt/rocm-7.1.* /opt/rocm-7.1 /opt/rocm-7.0.* /opt/rocm-7.0 /opt/rocm-6.4.* /opt/rocm-6.4 /opt/rocm; do \
+		if [ -d "$$d" ]; then readlink -f "$$d"; exit 0; fi; \
+	done; \
+	echo "/opt/rocm")
+ROCM_VERSION := $(shell \
+	rocm_path="$(ROCM_PATH_DETECTED)"; \
+	if [ -f "$$rocm_path/.info/version" ]; then \
+		version=$$(sed -n '1p' "$$rocm_path/.info/version"); \
+	else \
+		version=$$(basename "$$rocm_path" | sed -n 's/^rocm-\([0-9]\+\.[0-9]\+\).*/\1/p'); \
+	fi; \
+	if printf '%s\n' "$$version" | grep -q '^7\.1'; then echo "7.1"; \
+	elif printf '%s\n' "$$version" | grep -q '^7\.0'; then echo "7.0"; \
+	elif printf '%s\n' "$$version" | grep -q '^6\.4'; then echo "6.4"; \
+	else echo "unknown"; fi)
 
 # ROCm environment variables
 export ROCM_PATH := $(ROCM_PATH_DETECTED)
@@ -29,16 +31,24 @@ export MAX_JOBS := 8
 export HIP_FORCE_DEV_KERNARG := 1
 export HSA_NO_SCRATCH_RECLAIM := 1
 
-.PHONY: help setup setup-venv setup-flydsl verify-flydsl clean cleanup-venv cleanup-works install-cursor-agent act vllm
+.PHONY: help setup setup-venv setup-flydsl verify-flydsl clean cleanup-venv cleanup-works install-cursor-agent act vllm docker-shell docker-check-agents docker-run docker-smoke
 
 help:
 	@echo "AgentKernelArena Evaluation Framework - Makefile Commands"
 	@echo "======================================================"
-	@echo "make setup  - Complete environment setup (venv + deps, includes FlyDSL by default)"
+	@echo "Docker-first workflow:"
+	@echo "make docker-shell        - Enter the benchmark Docker image with repo and agent auth mounted"
+	@echo "make docker-check-agents - Verify Codex, Claude Code, and Cursor Agent login reuse in Docker"
+	@echo "make docker-smoke        - Verify Docker Python, ROCm tools, imports, and GPU access"
+	@echo "make docker-run CONFIG=config.yaml RUN_ARGS=\"--run-suffix test\" - Run benchmark in Docker"
+	@echo "                         Images: gfx942->mi30x, gfx950->mi35x; override with AKA_DOCKER_IMAGE=..."
+	@echo ""
+	@echo "Legacy venv workflow:"
+	@echo "make setup              - Complete environment setup (venv + deps, includes FlyDSL by default)"
 	@echo "make setup WITH_FLYDSL=0 - Setup without FlyDSL"
-	@echo "make setup-flydsl - Install and verify FlyDSL dependency for flydsl2flydsl tasks"
-	@echo "make verify-flydsl - Verify FlyDSL import and ROCm PyTorch GPU availability"
-	@echo "make clean  - Remove virtual environment"
+	@echo "make setup-flydsl       - Install and verify FlyDSL dependency for flydsl2flydsl tasks"
+	@echo "make verify-flydsl      - Verify FlyDSL import and ROCm PyTorch GPU availability"
+	@echo "make clean              - Remove virtual environment"
 
 WITH_FLYDSL ?= 1
 
@@ -72,10 +82,7 @@ setup-venv:
 	@echo "Installing Python dependencies..."
 	@if [ ! -f $(REQUIREMENTS) ]; then \
 		echo "Creating requirements.txt..."; \
-		echo "# Core ML libraries" > $(REQUIREMENTS); \
-		echo "torch" >> $(REQUIREMENTS); \
-		echo "" >> $(REQUIREMENTS); \
-		echo "# Build tools" >> $(REQUIREMENTS); \
+		echo "# Build tools" > $(REQUIREMENTS); \
 		echo "ninja" >> $(REQUIREMENTS); \
 		echo "" >> $(REQUIREMENTS); \
 		echo "# LLM service dependencies" >> $(REQUIREMENTS); \
@@ -120,6 +127,22 @@ install-cursor-agent:
 ACTIVATE_VENV_CMD = exec bash -c "source .venv/bin/activate && exec bash"
 act:
 	$(ACTIVATE_VENV_CMD) 
+
+DOCKER_RUNNER := scripts/docker_benchmark.sh
+CONFIG ?= config.yaml
+RUN_ARGS ?=
+
+docker-shell:
+	@$(DOCKER_RUNNER) shell
+
+docker-check-agents:
+	@$(DOCKER_RUNNER) check-agents
+
+docker-smoke:
+	@$(DOCKER_RUNNER) smoke
+
+docker-run:
+	@$(DOCKER_RUNNER) run --config_name $(CONFIG) $(RUN_ARGS)
 
 
 # Run vLLM server with latest ROCm 6.4.1 and vLLM 0.10.1

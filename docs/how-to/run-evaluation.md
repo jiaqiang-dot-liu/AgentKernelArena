@@ -41,21 +41,31 @@ set of `config.yaml` fields.
 ## 2. Run
 
 ```bash
-python main.py
+make docker-run CONFIG=config.yaml
 ```
 
 Use a non-default config file to keep multiple task sets side-by-side:
 
 ```bash
-python main.py --config_name config_triton.yaml
+make docker-run CONFIG=config_triton.yaml
 ```
 
 Add a suffix to label a run directory (useful for A/B testing):
 
 ```bash
-python main.py --run-suffix cursor_with_mcp
+make docker-run CONFIG=config.yaml RUN_ARGS="--run-suffix cursor_with_mcp"
 # → workspace_MI300_cursor/run_20260617_101500_cursor_with_mcp
 ```
+
+For debugging, enter the exact Docker runtime used by the benchmark:
+
+```bash
+make docker-shell
+```
+
+The Docker runner currently supports Codex, Claude Code, and Cursor Agent login
+reuse from the host. It preflights the selected config before starting the
+benchmark run.
 
 ## 3. What happens during a run
 

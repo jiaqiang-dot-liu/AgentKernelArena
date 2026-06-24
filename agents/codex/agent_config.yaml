@@ -1,5 +1,9 @@
 max_iterations: 3
 timeout_seconds: 3600
-python_path: /root/AgentKernelArena/.venv/bin/python
+python_path: null
 # Optional: set explicitly so logs show the exact model used.
-model: gpt-5.3-codex
+# (gpt-5.3-codex is deprecated; current valid ids: gpt-5.5 / gpt-5.4 / gpt-5.4-mini)
+model: gpt-5.5
+# Reasoning effort maxed out. Passed as `-c model_reasoning_effort=...`.
+# Valid: minimal | low | medium | high | xhigh  (xhigh is the maximum).
+effort: xhigh

@@ -31,8 +31,6 @@ tested environment before publication.
 | Cursor Agent CLI | TODO (verify) | Installed via `make install-cursor-agent`. |
 | Claude Code | TODO (verify) | `npm install -g @anthropic-ai/claude-code`. |
 | Codex CLI | TODO (verify) | Installed per the official Codex CLI instructions. |
-| SWE-agent | TODO (verify) | |
-| OpenEvolve (GEAK) | TODO (verify) | |
 
 ## Model providers
 

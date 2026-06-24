@@ -1,6 +1,7 @@
 max_iterations: 3
 timeout_seconds: 3600
-python_path: /root/AgentKernelArena/.venv/bin/python3
+python_path: null
 # Optional: set explicit Cursor model so logs record exact runtime settings.
-model: composer-2
-# Note: Cursor Agent CLI does not expose a separate `effort` flag; "thinking" is typically encoded in the model choice.
+model: composer-2.5
+# Note: Cursor Agent CLI has NO reasoning-effort dial (no --effort flag, no config key).
+# Reasoning depth is inherent to the model; composer-2.5 is the current max-capability model.

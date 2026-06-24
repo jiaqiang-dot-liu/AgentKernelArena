@@ -30,8 +30,7 @@ timestamped workspace, then evaluates the result through a common pipeline:
 Key features
 ============
 
-* **Multi-agent arena**: Cursor, Claude Code, Codex, SWE-agent, OpenEvolve
-  (GEAK), GEAK HIP, single-LLM-call, and custom agents.
+* **Multi-agent arena**: Cursor, Claude Code, Codex, and custom agents.
 * **Multi-model support**: OpenAI, Anthropic, and other models via OpenRouter or
   a local vLLM server.
 * **Task categories**: HIP (``hip2hip``), CUDA-to-HIP (``cuda2hip``), Triton

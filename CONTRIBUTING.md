@@ -7,7 +7,7 @@ Thanks for your interest in AgentKernelArena! This guide explains how to contrib
 - Read `README.md` to understand the project scope — a standardized arena for evaluating LLM coding agents on GPU kernel optimization tasks.
 - Skim `config.yaml` to understand how agents, tasks, and LLM parameters are configured.
 - Ensure you have a supported GPU environment (AMD GPU with ROCm 6.4+ / 7.0+ / 7.1+ — the Makefile auto-detects).
-- Confirm you have access to at least one supported agent (Cursor Agent, Claude Code, Codex, SWE-agent, GEAK, or single-LLM-call) and any required API keys.
+- Confirm you have access to at least one supported agent (Cursor Agent, Claude Code, or Codex) and any required API keys.
 
 ## Development Setup
 

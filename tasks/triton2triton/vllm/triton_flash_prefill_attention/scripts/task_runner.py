@@ -23,6 +23,134 @@ TEST_SHAPES = [
 ]
 WARMUP_ITERATIONS = 10
 BENCHMARK_ITERATIONS = 100
+
+
+def _measure_cuda_event_fallback(fn, repetition):
+    import time
+    import torch
+
+    repetition = max(1, int(repetition))
+    if not torch.cuda.is_available():
+        times_ms = []
+        for _ in range(repetition):
+            start = time.perf_counter()
+            fn()
+            end = time.perf_counter()
+            times_ms.append((end - start) * 1000.0)
+        return times_ms
+
+    times_ms = []
+    for _ in range(repetition):
+        torch.cuda.synchronize()
+        start_event = torch.cuda.Event(enable_timing=True)
+        end_event = torch.cuda.Event(enable_timing=True)
+        start_event.record()
+        fn()
+        end_event.record()
+        torch.cuda.synchronize()
+        times_ms.append(start_event.elapsed_time(end_event))
+    return times_ms
+
+
+def _benchmark_cuda_graph_or_events(
+    fn,
+    warmup=10,
+    repetition=100,
+    target_ms=20.0,
+    n_retries=5,
+    estimate_reps=5,
+    max_graph_repeats=1000,
+    use_cuda_graph=True,
+    fallback_reason=None,
+):
+    import torch
+
+    for _ in range(max(0, int(warmup))):
+        fn()
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
+
+    max_graph_repeats = max(1, int(max_graph_repeats))
+    metadata = {
+        "benchmark_target_ms": float(target_ms),
+        "benchmark_retries": int(n_retries),
+        "benchmark_max_repeats": int(max_graph_repeats),
+    }
+
+    if not torch.cuda.is_available():
+        times = _measure_cuda_event_fallback(fn, repetition)
+        metadata.update({
+            "benchmark_method": "cpu_timer_fallback",
+            "benchmark_effective_repeats": int(repetition),
+            "benchmark_fallback_reason": fallback_reason or "cuda_unavailable",
+        })
+        return sum(times) / len(times), metadata
+
+    if not use_cuda_graph:
+        times = _measure_cuda_event_fallback(fn, repetition)
+        metadata.update({
+            "benchmark_method": "cuda_event_fallback",
+            "benchmark_effective_repeats": int(repetition),
+            "benchmark_fallback_reason": fallback_reason or "cuda_graph_disabled",
+        })
+        return sum(times) / len(times), metadata
+
+    try:
+        stream = torch.cuda.Stream()
+        stream.wait_stream(torch.cuda.current_stream())
+        with torch.cuda.stream(stream):
+            estimate_reps = max(1, int(estimate_reps))
+            estimate_graph = torch.cuda.CUDAGraph()
+            with torch.cuda.graph(estimate_graph):
+                for _ in range(estimate_reps):
+                    fn()
+            torch.cuda.synchronize()
+
+            start_event = torch.cuda.Event(enable_timing=True)
+            end_event = torch.cuda.Event(enable_timing=True)
+            start_event.record(stream)
+            estimate_graph.replay()
+            end_event.record(stream)
+            torch.cuda.synchronize()
+
+            estimate_ms = start_event.elapsed_time(end_event) / estimate_reps
+            if estimate_ms == 0:
+                n_repeat = max_graph_repeats
+            else:
+                n_repeat = min(max_graph_repeats, max(1, int(float(target_ms) / estimate_ms)))
+
+            graph = torch.cuda.CUDAGraph()
+            with torch.cuda.graph(graph):
+                for _ in range(n_repeat):
+                    fn()
+            torch.cuda.synchronize()
+
+            retry_times = []
+            for _ in range(max(1, int(n_retries))):
+                start_event = torch.cuda.Event(enable_timing=True)
+                end_event = torch.cuda.Event(enable_timing=True)
+                start_event.record(stream)
+                graph.replay()
+                end_event.record(stream)
+                torch.cuda.synchronize()
+                retry_times.append(start_event.elapsed_time(end_event) / n_repeat)
+
+        retry_times = sorted(retry_times)
+        metadata.update({
+            "benchmark_method": "cuda_graph",
+            "benchmark_effective_repeats": int(n_repeat),
+        })
+        return retry_times[len(retry_times) // 2], metadata
+    except Exception as exc:
+        torch.cuda.synchronize()
+        times = _measure_cuda_event_fallback(fn, repetition)
+        metadata.update({
+            "benchmark_method": "cuda_event_fallback",
+            "benchmark_effective_repeats": int(repetition),
+            "benchmark_fallback_reason": f"cuda_graph_failed: {type(exc).__name__}: {str(exc)[:160]}",
+        })
+        return sum(times) / len(times), metadata
+
 def load_module():
     """Dynamically load the source module."""
     spec = importlib.util.spec_from_file_location("triton_kernel", SOURCE_FILE)
@@ -168,33 +296,21 @@ def run_performance():
                 b_start_loc[j] = j * seq_len
 
             # Warmup
-            for _ in range(WARMUP_ITERATIONS):
+            def _bench_fn():
                 mod.context_attention_fwd(
                     q, k, v, o, b_start_loc, b_seq_len,
                     max_input_len=seq_len, is_causal=True,
                 )
-            torch.cuda.synchronize()
-
-            # Benchmark
-            n_iter = BENCHMARK_ITERATIONS
-            start_events = [torch.cuda.Event(enable_timing=True) for _ in range(n_iter)]
-            end_events = [torch.cuda.Event(enable_timing=True) for _ in range(n_iter)]
-
-            for j in range(n_iter):
-                start_events[j].record()
-                mod.context_attention_fwd(
-                    q, k, v, o, b_start_loc, b_seq_len,
-                    max_input_len=seq_len, is_causal=True,
-                )
-                end_events[j].record()
-
-            torch.cuda.synchronize()
-            times = [s.elapsed_time(e) for s, e in zip(start_events, end_events)]
-            elapsed_ms = sum(times) / len(times)
+            elapsed_ms, benchmark_metadata = _benchmark_cuda_graph_or_events(
+                _bench_fn,
+                warmup=WARMUP_ITERATIONS,
+                repetition=BENCHMARK_ITERATIONS,
+            )
 
             test_cases.append({
                 "test_case_id": f"perf{test_idx + 1}",
                 "execution_time_ms": elapsed_ms,
+                **benchmark_metadata,
                 "params": {
                     "batch_size": bs,
                     "seq_len": seq_len,

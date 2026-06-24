@@ -65,4 +65,4 @@ def get_inputs():
 
 
 def get_init_inputs():
-    return [[], {'hidden': 4, 'vocab_size': 4}]
+    return [[], {'hidden': 512, 'vocab_size': 4096}]
