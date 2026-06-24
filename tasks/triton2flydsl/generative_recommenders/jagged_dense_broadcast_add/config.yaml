@@ -1,0 +1,71 @@
+task_type: triton2flydsl
+source_file_path:
+  - jagged_dense_broadcast_add.py
+harness_path: test_kernel_harness.py
+compile_command:
+  - python3 test_kernel_harness.py --compile
+correctness_command:
+  - python3 test_kernel_harness.py --correctness
+performance_command:
+  - python3 test_kernel_harness.py --full-benchmark
+target_kernel_functions:
+  - triton_jagged_dense_broadcast_add
+  - jagged_dense_broadcast_add_kernel
+source_origin:
+  repo: Meta generative-recommenders
+  commit: 456ff31a76d7a96aa18f0723436897150adb8734
+  path:
+    - generative_recommenders/ops/triton/triton_jagged.py
+  url: https://github.com/meta-recsys/generative-recommenders/blob/main/generative_recommenders/ops/triton/triton_jagged.py
+  note: >-
+    Standalone, FORWARD-only extraction of Meta generative-recommenders' jagged +
+    dense broadcast add (the additive sibling of the existing
+    jagged_dense_bmm_broadcast_add task, same source file). Only the portable
+    `@triton.jit jagged_dense_broadcast_add_kernel` and a host forward wrapper are
+    ported, computing Out = Jagged + Dense where Jagged is [sum_B(N_i), D] indexed
+    per batch via seq_offsets [B+1], Dense is the per-batch broadcast [B, D], and
+    Out is [sum_B(N_i), D]. The generative_recommenders.common deps (triton_autotune,
+    autotune_max_seq_len, switch_to_contiguous_if_needed) are inlined. The autograd
+    backward (jagged_reduce_sum + _JaggedDenseBroadcastAddFunction.backward) is
+    dropped -- this extraction is forward-only.
+prompt:
+  source_code: null
+  instructions: |
+    Translate the Triton jagged + dense broadcast-add kernel into an equivalent
+    FlyDSL kernel for AMD GPUs, preserving the public entry signature and
+    numerical correctness.
+
+    The source (`jagged_dense_broadcast_add.py`) is a STANDALONE, FORWARD-only
+    extraction from Meta generative-recommenders
+    (generative_recommenders/ops/triton/triton_jagged.py) depending only on
+    `triton` and `torch`. It adds a per-batch dense bias to a jagged tensor:
+      - `jagged_dense_broadcast_add_kernel`: for each (batch b, BLOCK_N rows of the
+        segment) tile it loads the segment rows via `seq_offsets`, adds the
+        broadcast Dense[b] row across feature dim D in BLOCK_D chunks, and stores
+        the masked tile to Out. Tiles with start_n >= seq_len early-exit.
+    The host wrapper `triton_jagged_dense_broadcast_add(max_seq_len, seq_offsets,
+    jagged, dense)` makes the operands contiguous, allocates the output, builds the
+    2D launch grid (B, cdiv(max_seq_len, BLOCK_N)), and launches the kernel.
+
+    Key features of the op:
+    - Jagged operand: `Jagged` is [sum_B(N_i), D], indexed per batch via the
+      `seq_offsets` [B + 1] prefix-sum; `Dense` is [B, D]; `Out` is [sum_B(N_i), D].
+    - BLOCK_D = next_power_of_2(D) when D < 64 else 64; D is looped in BLOCK_D steps.
+    - FORWARD-only: the autograd backward (jagged_reduce_sum) is dropped.
+
+    Your FlyDSL implementation MUST:
+    - Expose an entry point with the same signature as
+      `triton_jagged_dense_broadcast_add(max_seq_len, seq_offsets, jagged, dense)`.
+    - Match the Triton kernel (the reference; forward-only). The harness runs the
+      Triton forward on all TEST_SHAPES (ragged segment lengths, D<64 / D==64 / D>64)
+      and checks finite output and closeness to an inline torch reference.
+    - Be written in FlyDSL targeting AMD Instinct -- do NOT re-tune the Triton
+      kernel and do NOT rewrite it in HIP/CUDA.
+
+    Validation:
+    - python3 test_kernel_harness.py --compile        must PASS.
+    - python3 test_kernel_harness.py --correctness    must PASS (all shapes).
+    - python3 test_kernel_harness.py --full-benchmark must run and write the report.
+  task_type: null
+  cheatsheet: null
+task_result_template: null

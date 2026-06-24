@@ -1,0 +1,65 @@
+task_type: triton2flydsl
+source_file_path:
+  - swiglu.py
+harness_path: test_kernel_harness.py
+compile_command:
+  - python3 test_kernel_harness.py --compile
+correctness_command:
+  - python3 test_kernel_harness.py --correctness
+performance_command:
+  - python3 test_kernel_harness.py --full-benchmark
+target_kernel_functions:
+  - triton_swiglu_fwd
+  - _swiglu_fwd_kernel
+source_origin:
+  repo: Meta generative-recommenders
+  commit: 456ff31a76d7a96aa18f0723436897150adb8734
+  path:
+    - generative_recommenders/ops/triton/triton_swiglu.py
+  url: https://github.com/meta-recsys/generative-recommenders/blob/main/generative_recommenders/ops/triton/triton_swiglu.py
+  note: >-
+    Standalone, FORWARD-only extraction of Meta generative-recommenders' fused
+    SwiGLU forward. Only the portable (non-TLX, SM80+/CDNA) kernel is ported:
+    `_swiglu_fwd_kernel` + the host wrapper `triton_swiglu_fwd`, computing
+    out = silu(x @ w_gate^T) * (x @ w_up^T) with x loaded once and reused for both
+    GEMMs, activation in fp32 registers. The upstream Blackwell (SM100+) TLX/TMA
+    warp-specialized persistent path (`_swiglu_fwd_tma_ws_persistent`, needing
+    `triton.language.extra.tlx` + `triton.tools.tensor_descriptor`) and the
+    `triton_swiglu` dispatcher are dropped; on AMD/CDNA is_sm100_plus() is False so
+    the portable path is the one that runs. The
+    generative_recommenders.common.triton_autotune dep is inlined.
+prompt:
+  source_code: null
+  instructions: |
+    Translate the Triton fused SwiGLU forward kernel into an equivalent FlyDSL
+    kernel for AMD GPUs, preserving the public entry signature and numerical
+    correctness.
+
+    The source (`swiglu.py`) is a STANDALONE, FORWARD-only extraction from Meta
+    generative-recommenders (generative_recommenders/ops/triton/triton_swiglu.py)
+    depending only on `triton` and `torch`. It computes a fused gated FFN
+    activation:
+      out = silu(x @ w_gate^T) * (x @ w_up^T)
+    where x is [M, K], w_gate and w_up are [N, K] (nn.Linear layout), and out is
+    [M, N]. The kernel `_swiglu_fwd_kernel` computes one [BLOCK_M, BLOCK_N] output
+    tile per program, sharing a single x tile load across both GEMMs (the fusion
+    benefit), accumulating in fp32, and applying silu(gate)*up in registers before
+    storing. The host wrapper `triton_swiglu_fwd(x, w_gate, w_up)` transposes the
+    weights to [K, N], allocates the output, and launches a grouped 1D grid.
+
+    Your FlyDSL implementation MUST:
+    - Expose an entry point with the same signature as
+      `triton_swiglu_fwd(x, w_gate, w_up)`.
+    - Match the Triton kernel (the reference; forward-only). The harness runs the
+      Triton forward on all TEST_SHAPES and checks finite output and closeness to
+      an inline fp32 torch reference at the bf16 GEMM tolerance.
+    - Be written in FlyDSL targeting AMD Instinct -- do NOT re-tune the Triton
+      kernel and do NOT rewrite it in HIP/CUDA.
+
+    Validation:
+    - python3 test_kernel_harness.py --compile        must PASS.
+    - python3 test_kernel_harness.py --correctness    must PASS (all shapes).
+    - python3 test_kernel_harness.py --full-benchmark must run and write the report.
+  task_type: null
+  cheatsheet: null
+task_result_template: null
