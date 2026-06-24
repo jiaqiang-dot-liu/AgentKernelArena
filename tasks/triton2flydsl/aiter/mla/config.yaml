@@ -1,0 +1,73 @@
+source_file_path:
+  - mla.py
+
+target_kernel_functions:
+  - mla_decode_fwd
+  - mla_prefill_fwd
+  - _mla_decode_fwd_kernel
+  - _mla_prefill_fwd_kernel
+  - _mla_decode_fwd_reduce_kernel
+
+compile_command:
+  - python3 test_kernel_harness.py --compile
+
+correctness_command:
+  - python3 test_kernel_harness.py --correctness
+
+performance_command:
+  - python3 test_kernel_harness.py --full-benchmark
+
+task_type: triton2flydsl
+
+task_result_template: null
+
+prompt:
+  source_code: null
+  instructions: |
+    Translate the Triton Multi-head Latent Attention (MLA) decode/"absorb"
+    kernels into an equivalent FlyDSL kernel for AMD GPUs, preserving the public
+    entry signature and numerical correctness.
+
+    The source (`source/mla.py`) is a STANDALONE extraction from AITER (originally
+    vLLM-derived). It depends only on `triton` and `torch`. It implements the
+    DeepSeek-style MLA forward pass over a paged latent KV cache, with three
+    Triton kernels:
+      - `_mla_prefill_fwd_kernel`      : single-pass prefill attention
+      - `_mla_decode_fwd_kernel`       : split-KV / segmented decode attention
+        (writes per-segment partial max / expsum / output)
+      - `_mla_decode_fwd_reduce_kernel`: combines the decode segment partials into
+        the final output
+    The host wrappers `mla_prefill_fwd(...)` and `mla_decode_fwd(...)` select the
+    config and launch the kernels.
+
+    Key features of the op (MLA "absorb" form):
+    - The query head dim is split into a compressed latent part and a RoPE part:
+      `qk_head_dim = kv_lora_rank + qk_rope_head_dim`.
+    - Paged latent KV buffer shaped
+      [num_blocks, block_size, num_kv_heads, kv_lora_rank + qk_rope_head_dim],
+      indexed by a 2D block table [num_seqs, max_num_blocks_per_seq].
+    - The KEY is the full latent buffer K = [c_kv | k_pe]
+      (kv_lora_rank + qk_rope_head_dim); the VALUE is just the latent part
+      V = c_kv (the first kv_lora_rank columns). The output head dim is
+      therefore kv_lora_rank.
+    - Logits S = scale * (Q_lora . K_lora + Q_rope . K_rope) = scale * (Q . K).
+    - Causal masking: key ki is visible to a query token at within-sequence
+      position p iff ki <= context_len + p, where context_len = seq_len_k -
+      num_tokens_per_seq.
+    - GQA grouping (num_query_heads / num_kv_heads; MLA typically uses 1 kv head).
+    - Online-softmax accumulation done in the exp2 (base-2) domain; the decode
+      path splits each sequence into NUM_SEGMENTS_PER_SEQ segments and the reduce
+      kernel recombines them.
+
+    Your FlyDSL implementation MUST:
+    - Expose an entry point with the same signature as `mla_decode_fwd(...)`.
+    - Produce outputs matching the Triton kernel within
+      atol=1e-2, rtol=1e-2 for bfloat16 across all TEST_SHAPES in the runner.
+    - Be written in FlyDSL (FlyDSL Python DSL) targeting AMD Instinct (gfx950) —
+      do NOT simply re-tune the Triton kernel and do NOT rewrite it in HIP/CUDA.
+
+    Validation:
+    - `python3 scripts/task_runner.py compile`     must PASS.
+    - `python3 scripts/task_runner.py correctness` must PASS (all shapes).
+    - `python3 scripts/task_runner.py performance` must run and write the report.
+  cheatsheet: null

@@ -1,0 +1,70 @@
+task_type: triton2flydsl
+source_file_path:
+  - ff_a16w16.py
+harness_path: test_kernel_harness.py
+compile_command:
+  - python3 test_kernel_harness.py --compile
+correctness_command:
+  - python3 test_kernel_harness.py --correctness
+performance_command:
+  - python3 test_kernel_harness.py --full-benchmark
+target_kernel_functions:
+  - ff_a16w16_nogate
+  - gemm_a16w16
+  - _gemm_a16_w16_kernel
+source_origin:
+  repo: AITER (local)
+  commit: e773193041689602e5431e110ef39db0390e7015
+  path:
+    - aiter/ops/triton/gemm/feed_forward/ff_a16w16.py
+    - aiter/ops/triton/_triton_kernels/gemm/basic/gemm_a16w16.py
+    - aiter/ops/triton/_triton_kernels/activation.py
+  note: >-
+    Standalone extraction of AITER's 16-bit ungated feed-forward block
+    (ff_a16w16_nogate), which composes two gemm_a16w16 matmuls with an activation on
+    the up-projection: intermediate = act(X @ W_up^T); Y = intermediate @ W_down^T,
+    fp32 accumulation, bf16/fp16 output. The basic a16w16 device kernel
+    (_gemm_a16_w16_kernel, non-split-K NUM_KSPLIT==1 path), the XCD-remap / grouped
+    pid helpers (remap_xcd, pid_grid), the constexpr-aware kernel-naming helper, and
+    the elementwise activation helpers (silu/silu_exp2/gelu/gelu_tanh/relu plus
+    _get_activation_from_str) are inlined; the gluon/gfx1250 backend, the split-K
+    reduce kernel, and the on-disk tuned-config lookup are dropped (a static bf16 tile
+    config is used), so the module depends only on triton + torch. The harness runs
+    the Triton FFN over real FFN shapes x {gelu_tanh, silu_exp2, relu, None} and
+    validates finiteness plus closeness to the fp32 torch reference at the upstream FFN
+    tolerance (atol=5e-2, rtol=5e-2); the flydsl-vs-triton comparison is added when the
+    FlyDSL target lands. The fused-gated path (gemm_a16w16_gated) is a separate
+    extraction.
+prompt:
+  source_code: null
+  instructions: |
+    Translate the Triton 16-bit ungated feed-forward block into an equivalent FlyDSL
+    kernel (or kernels) for AMD GPUs (gfx942/gfx950), preserving the public entry
+    signature and numerical correctness.
+
+    The source (`ff_a16w16.py`) is a STANDALONE extraction from AITER. It depends
+    only on `triton` and `torch`. It implements:
+      - `_gemm_a16_w16_kernel` : tiled 16-bit matmul C = A @ B with fp32
+        accumulation, an optional elementwise activation applied to the accumulator,
+        a grouped + XCD-balanced pid remap, and EVEN_K/EVEN_MN heuristics.
+      - `gemm_a16w16(x, w, ..., activation=None)` : transposes w, picks a tile config,
+        and launches the matmul.
+      - `ff_a16w16_nogate(x, w_up, w_down, ..., activation=None)` : computes
+        intermediate = act(X @ W_up^T) then Y = intermediate @ W_down^T.
+
+    Your FlyDSL implementation MUST:
+    - Expose an entry point with the same signature as
+      `ff_a16w16_nogate(x, w_up, w_down, dtype=torch.bfloat16, ..., activation=None)`.
+    - Match the Triton kernel (the reference). The harness runs the Triton FFN on all
+      TEST_SHAPES x activations and checks finiteness + closeness to the fp32 torch
+      reference.
+    - Be written in FlyDSL targeting AMD Instinct -- do NOT simply re-tune the Triton
+      kernel and do NOT rewrite it in HIP/CUDA.
+
+    Validation:
+    - `python3 test_kernel_harness.py --compile`        must PASS.
+    - `python3 test_kernel_harness.py --correctness`    must PASS (all shapes).
+    - `python3 test_kernel_harness.py --full-benchmark` must run and write the report.
+  task_type: null
+  cheatsheet: null
+task_result_template: null

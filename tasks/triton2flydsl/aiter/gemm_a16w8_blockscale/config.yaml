@@ -1,0 +1,69 @@
+task_type: triton2flydsl
+source_file_path:
+  - gemm_a16w8_blockscale.py
+harness_path: test_kernel_harness.py
+compile_command:
+  - python3 test_kernel_harness.py --compile
+correctness_command:
+  - python3 test_kernel_harness.py --correctness
+performance_command:
+  - python3 test_kernel_harness.py --full-benchmark
+target_kernel_functions:
+  - gemm_a16w8_blockscale
+  - _gemm_a16w8_blockscale_kernel
+source_origin:
+  repo: AITER (local)
+  commit: e773193041689602e5431e110ef39db0390e7015
+  path:
+    - aiter/ops/triton/gemm/basic/gemm_a16w8_blockscale.py
+    - aiter/ops/triton/_triton_kernels/gemm/basic/gemm_a16w8_blockscale.py
+  note: >-
+    Standalone extraction of AITER's a16w8 block-scaled GEMM Triton kernel
+    (gemm_a16w8_blockscale -> _gemm_a16w8_blockscale_kernel, non-prequant path),
+    Y = X @ W^T with 16-bit activations X [M, K] and 8-bit weights W [N, K]
+    (transposed to [K, N]), a 128x128 block W_scale applied inside the K loop (W upcast
+    to the activation dtype, scaled, fp32-accumulated), bf16 output. The preshuffle
+    kernel/launcher, the split-K reduce kernel, and the PREQUANT (fused activation
+    fp8-quant) branch are dropped; only the non-split-K (NUM_KSPLIT == 1), non-prequant
+    triton path is kept with a static tile config (BLOCK_SIZE_K == GROUP_K == 128 as
+    the kernel requires). The pid helper (pid_grid) and the constexpr-aware
+    kernel-naming helper are inlined, so the module depends only on triton + torch.
+    This kernel uses tl.dot (not tl.dot_scaled), so it runs on gfx942 and gfx950. fp8
+    weight dtype is arch-specific (gfx942 = e4m3fnuz, gfx950 = e4m3fn): the harness
+    builds weights + reference with the arch-matched type. The harness runs the Triton
+    kernel over real GEMM shapes (N,K multiples of 128) and validates finiteness plus
+    closeness to the fp32 dequant torch reference at the upstream tolerance
+    (atol=0.1, rtol=0.1); the flydsl-vs-triton comparison is added when the FlyDSL
+    target lands.
+prompt:
+  source_code: null
+  instructions: |
+    Translate the Triton a16w8 block-scaled GEMM kernel into an equivalent FlyDSL
+    kernel for AMD GPUs (gfx942/gfx950), preserving the public entry signature and
+    numerical correctness.
+
+    The source (`gemm_a16w8_blockscale.py`) is a STANDALONE extraction from AITER. It
+    depends only on `triton` and `torch`. It implements:
+      - `_gemm_a16w8_blockscale_kernel` : tiled matmul C = A @ B (B is W transposed to
+        [K, N]) where A is 16-bit and B is 8-bit; a 128x128 block b_scale is loaded per
+        K step and the upcast B is scaled before fp32 accumulation. GROUP_K must equal
+        BLOCK_SIZE_K (== 128). Only the NUM_KSPLIT == 1, non-prequant path is exercised.
+      - `gemm_a16w8_blockscale(x, w, w_scale, dtype=torch.bfloat16, ...)` : transposes
+        w and w_scale, derives GROUP_K/GROUP_N, picks a tile config, and launches.
+
+    Your FlyDSL implementation MUST:
+    - Expose an entry point with the same signature as
+      `gemm_a16w8_blockscale(x, w, w_scale, ...)` computing the block-scaled Y = X @ W^T.
+    - Match the Triton kernel (the reference). The harness runs the Triton kernel on
+      all TEST_SHAPES and checks finiteness + closeness to the fp32 dequant torch
+      reference (arch-matched fp8 e4m3 weight).
+    - Be written in FlyDSL targeting AMD Instinct -- do NOT simply re-tune the Triton
+      kernel and do NOT rewrite it in HIP/CUDA.
+
+    Validation:
+    - `python3 test_kernel_harness.py --compile`        must PASS.
+    - `python3 test_kernel_harness.py --correctness`    must PASS (all shapes).
+    - `python3 test_kernel_harness.py --full-benchmark` must run and write the report.
+  task_type: null
+  cheatsheet: null
+task_result_template: null

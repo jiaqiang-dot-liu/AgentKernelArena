@@ -1,0 +1,67 @@
+task_type: triton2flydsl
+source_file_path:
+  - batched_gemm_a8w8.py
+harness_path: test_kernel_harness.py
+compile_command:
+  - python3 test_kernel_harness.py --compile
+correctness_command:
+  - python3 test_kernel_harness.py --correctness
+performance_command:
+  - python3 test_kernel_harness.py --full-benchmark
+target_kernel_functions:
+  - batched_gemm_a8w8
+  - _batched_gemm_a8w8_kernel
+source_origin:
+  repo: AITER (local)
+  commit: e773193041689602e5431e110ef39db0390e7015
+  path:
+    - aiter/ops/triton/gemm/batched/batched_gemm_a8w8.py
+    - aiter/ops/triton/_triton_kernels/gemm/batched/batched_gemm_a8w8.py
+  note: >-
+    Standalone extraction of AITER's batched 8-bit (int8/fp8) scaled GEMM Triton
+    kernel (batched_gemm_a8w8 -> _batched_gemm_a8w8_kernel),
+    Y[i] = (X[i] @ W[i]^T) * (x_scale[i] * w_scale[i]) (+ bias[i]) over a batch,
+    with per-row x_scale [B,M,1] and per-column w_scale [B,1,N], int32/fp32
+    accumulation, an optional per-batch bias, a 2D (batch, grouped-MN) grid, and
+    bf16/fp16 output. The constexpr-aware kernel-naming helper (make_kernel_repr) is
+    inlined and the on-disk tuned-config lookup (get_gemm_config("BATCHED_GEMM-A8W8",
+    ...)) is replaced by a static 8-bit tile config, so the module depends only on
+    triton + torch (this kernel has no split-K; the batch is the outer grid axis). The
+    harness mirrors the upstream op_test exactly (int8 inputs, fp32 per-row/per-column
+    scales) over real batched GEMM shapes (B=16) and validates finiteness plus
+    closeness to the fp32 dequant torch reference at the upstream tolerance (atol=0.01,
+    rtol=1e-2); the flydsl-vs-triton comparison is added when the FlyDSL target lands.
+prompt:
+  source_code: null
+  instructions: |
+    Translate the Triton batched 8-bit (int8/fp8) scaled GEMM kernel into an
+    equivalent FlyDSL kernel for AMD GPUs (gfx942/gfx950), preserving the public
+    entry signature and numerical correctness.
+
+    The source (`batched_gemm_a8w8.py`) is a STANDALONE extraction from AITER. It
+    depends only on `triton` and `torch`. It implements:
+      - `_batched_gemm_a8w8_kernel` : tiled batched 8-bit matmul C[i] = A[i] @ B[i]
+        (B[i] is W[i] transposed to [K, N]) with int32/fp32 accumulation, per-row
+        a_scale and per-column b_scale applied after the K loop, an optional per-batch
+        bias, a 2D (batch, grouped-MN) grid, and EVEN_K heuristics for masked vs
+        unmasked loads.
+      - `batched_gemm_a8w8(XQ, WQ, x_scale, w_scale, bias=None, ...)` : transposes
+        WQ, picks a tile config, allocates the output, and launches.
+
+    Your FlyDSL implementation MUST:
+    - Expose an entry point with the same signature as
+      `batched_gemm_a8w8(XQ, WQ, x_scale, w_scale, bias=None, ...)` computing
+      Y[i] = (X[i] @ W[i]^T) * (x_scale[i] * w_scale[i]) (+ bias[i]).
+    - Match the Triton kernel (the reference). The harness runs the Triton kernel on
+      all TEST_SHAPES and checks finiteness + closeness to the fp32 dequant torch
+      reference.
+    - Be written in FlyDSL targeting AMD Instinct -- do NOT simply re-tune the Triton
+      kernel and do NOT rewrite it in HIP/CUDA.
+
+    Validation:
+    - `python3 test_kernel_harness.py --compile`        must PASS.
+    - `python3 test_kernel_harness.py --correctness`    must PASS (all shapes).
+    - `python3 test_kernel_harness.py --full-benchmark` must run and write the report.
+  task_type: null
+  cheatsheet: null
+task_result_template: null

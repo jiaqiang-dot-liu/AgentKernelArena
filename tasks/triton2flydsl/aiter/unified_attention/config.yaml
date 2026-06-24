@@ -1,0 +1,66 @@
+source_file_path:
+  - unified_attention.py
+
+target_kernel_functions:
+  - unified_attention
+  - kernel_unified_attention_2d
+  - kernel_unified_attention_3d
+  - reduce_segments
+
+compile_command:
+  - python3 test_kernel_harness.py --compile
+
+correctness_command:
+  - python3 test_kernel_harness.py --correctness
+
+performance_command:
+  - python3 test_kernel_harness.py --full-benchmark
+
+task_type: triton2flydsl
+
+task_result_template: null
+
+prompt:
+  source_code: null
+  instructions: |
+    Translate the Triton paged "unified attention" kernel into an equivalent
+    FlyDSL kernel for AMD GPUs, preserving the public entry signature and
+    numerical correctness.
+
+    The source (`source/unified_attention.py`) is a STANDALONE extraction from
+    AITER (originally vLLM-derived). It depends only on `triton` and `torch`.
+    It implements paged attention with a 2D block-table KV cache and a flash /
+    online-softmax formulation, with three Triton kernels:
+      - `kernel_unified_attention_2d`  : single-pass paged attention (short
+        sequences, decode, or sliding-window)
+      - `kernel_unified_attention_3d`  : split-KV / segmented attention for long
+        contexts (writes per-segment partial max/expsum/output)
+      - `reduce_segments`              : combines the 3D segment partials into the
+        final output
+    The host wrapper `unified_attention(...)` selects 2D vs 3D and launches the
+    kernels.
+
+    Key features of the op:
+    - Paged KV cache: key_cache / value_cache shaped
+      [num_blocks, block_size, num_kv_heads, head_size], indexed by a 2D block
+      table [num_seqs, max_num_blocks_per_seq].
+    - Variable-length packed queries via cu_seqlens_q; per-sequence K length via
+      seqused_k.
+    - Causal masking (causal is always True) with optional sliding window
+      (window_size; SLIDING_WINDOW = 1 + window_size[0]).
+    - Optional tanh softcap on logits (applied before masking).
+    - GQA support (num_query_heads / num_kv_heads grouping).
+    - Online-softmax accumulation done in the exp2 (base-2) domain.
+
+    Your FlyDSL implementation MUST:
+    - Expose an entry point with the same signature as `unified_attention(...)`.
+    - Produce outputs matching the Triton kernel within
+      atol=1e-2, rtol=1e-2 for bfloat16 across all TEST_SHAPES in the runner.
+    - Be written in FlyDSL (FlyDSL Python DSL) targeting AMD Instinct (gfx950) —
+      do NOT simply re-tune the Triton kernel and do NOT rewrite it in HIP/CUDA.
+
+    Validation:
+    - `python3 scripts/task_runner.py compile`     must PASS.
+    - `python3 scripts/task_runner.py correctness` must PASS (all shapes).
+    - `python3 scripts/task_runner.py performance` must run and write the report.
+  cheatsheet: null

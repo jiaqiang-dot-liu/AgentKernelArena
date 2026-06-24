@@ -1,0 +1,69 @@
+task_type: triton2flydsl
+source_file_path:
+  - gemm_a8w8.py
+harness_path: test_kernel_harness.py
+compile_command:
+  - python3 test_kernel_harness.py --compile
+correctness_command:
+  - python3 test_kernel_harness.py --correctness
+performance_command:
+  - python3 test_kernel_harness.py --full-benchmark
+target_kernel_functions:
+  - gemm_a8w8
+  - _gemm_a8w8_kernel
+source_origin:
+  repo: AITER (local)
+  commit: e773193041689602e5431e110ef39db0390e7015
+  path:
+    - aiter/ops/triton/gemm/basic/gemm_a8w8.py
+    - aiter/ops/triton/_triton_kernels/gemm/basic/gemm_a8w8.py
+  note: >-
+    Standalone extraction of AITER's 8-bit scaled GEMM Triton kernel (gemm_a8w8
+    -> _gemm_a8w8_kernel), Y = (X @ W^T) * (x_scale * w_scale) (+ bias) with
+    per-row x_scale [M,1] and per-column w_scale [1,N], int32/fp32 accumulation,
+    and an XCD-balanced + grouped pid remap. Only the non-split-K (NUM_KSPLIT ==
+    1) triton path is kept (the gluon backend and the split-K reduce pass are
+    dropped); the on-disk tuned-config lookup is replaced by a static 8-bit tile
+    config, and remap_xcd / pid_grid / make_kernel_repr are inlined, so the module
+    depends only on triton + torch. fp8 is arch-specific (gfx942 = e4m3fnuz,
+    gfx950 = e4m3fn): the harness quantizes inputs and builds its reference with
+    the arch-matched fp8 e4m3 dtype (mirroring utils.types.get_fp8_dtypes). The
+    harness runs the Triton kernel over real fp8 GEMM shapes (Llama-3 70B QKV,
+    square decode/prefill) and validates finiteness plus closeness to the fp32
+    dequant torch reference at the upstream fp8 tolerance (atol=0.02, rtol=1e-2);
+    the flydsl-vs-triton comparison is added when the FlyDSL target lands.
+prompt:
+  source_code: null
+  instructions: |
+    Translate the Triton 8-bit (fp8/int8) scaled GEMM kernel into an equivalent
+    FlyDSL kernel for AMD GPUs (gfx942/gfx950), preserving the public entry
+    signature and numerical correctness.
+
+    The source (`gemm_a8w8.py`) is a STANDALONE extraction from AITER. It depends
+    only on `triton` and `torch`. It implements:
+      - `_gemm_a8w8_kernel` : tiled 8-bit matmul C = A @ B (B is W transposed to
+        [K, N]) with int32/fp32 accumulation, per-row a_scale and per-column
+        b_scale applied after the K loop, optional bias, grouped pid ordering +
+        XCD-balanced pid remap for L2 reuse, EVEN_K heuristics for masked vs
+        unmasked loads. Only the NUM_KSPLIT == 1 path is exercised.
+      - `gemm_a8w8(x, w, x_scale, w_scale, bias=None, dtype=torch.bfloat16, ...)`
+        : transposes w, picks a tile config, allocates the output, and launches.
+
+    Your FlyDSL implementation MUST:
+    - Expose an entry point with the same signature as
+      `gemm_a8w8(x, w, x_scale, w_scale, bias=None, ...)` computing
+      Y = (X @ W^T) * (x_scale * w_scale) (+ bias).
+    - Match the Triton kernel (the reference). The harness runs the Triton kernel
+      on all TEST_SHAPES and checks finiteness + closeness to the fp32 dequant
+      torch reference (arch-matched fp8 e4m3); the flydsl-vs-triton comparison is
+      added when the FlyDSL target lands.
+    - Be written in FlyDSL targeting AMD Instinct -- do NOT simply re-tune the
+      Triton kernel and do NOT rewrite it in HIP/CUDA.
+
+    Validation:
+    - `python3 test_kernel_harness.py --compile`        must PASS.
+    - `python3 test_kernel_harness.py --correctness`    must PASS (all shapes).
+    - `python3 test_kernel_harness.py --full-benchmark` must run and write the report.
+  task_type: null
+  cheatsheet: null
+task_result_template: null

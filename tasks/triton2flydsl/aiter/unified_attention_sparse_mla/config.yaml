@@ -1,0 +1,62 @@
+source_file_path:
+  - unified_attention_sparse_mla.py
+
+target_kernel_functions:
+  - unified_attention_sparse_mla
+  - _kernel_unified_attention_sparse_mla_2d
+
+compile_command:
+  - python3 test_kernel_harness.py --compile
+
+correctness_command:
+  - python3 test_kernel_harness.py --correctness
+
+performance_command:
+  - python3 test_kernel_harness.py --full-benchmark
+
+task_type: triton2flydsl
+
+task_result_template: null
+
+prompt:
+  source_code: null
+  instructions: |
+    Translate the Triton sparse Multi-head Latent Attention (sparse-MLA) kernel
+    into an equivalent FlyDSL kernel for AMD GPUs, preserving the public entry
+    signature and numerical correctness.
+
+    The source (`source/unified_attention_sparse_mla.py`) is a STANDALONE
+    extraction from AITER (originally vLLM-derived). It depends only on `triton`
+    and `torch`. It implements DeepSeek-style sparse latent attention with a
+    single Triton kernel:
+      - `_kernel_unified_attention_sparse_mla_2d` : per-query top-k sparse
+        attention over a paged latent KV cache (online softmax).
+    The host wrapper `unified_attention_sparse_mla(...)` launches the kernel.
+
+    Key features of the op:
+    - Each query token attends ONLY to a per-token top-k set of KV positions
+      given by `topk_indices` [num_tokens, TOP_K]. These index the flat KV cache
+      directly: position p -> block (p // BLOCK_SIZE), slot (p % BLOCK_SIZE).
+      Entries equal to -1 are invalid and masked out. There is NO causal mask.
+    - Latent KV buffer shaped [num_blocks, block_size, 1, kv_lora_rank +
+      rope_rank]. The KEY is the full latent [c_kv | k_pe]; the VALUE is the
+      latent part c_kv (first kv_lora_rank columns). Output head dim is
+      kv_lora_rank.
+    - Logits S = scale * (Q_rope . K_rope + Q_lora . K_lora) = scale * (Q . K).
+    - A single KV head; GQA grouping num_queries_per_kv = num_query_heads.
+      num_query_heads must be a multiple of BLOCK_M (16).
+    - Online-softmax accumulation in the natural-exp domain.
+
+    Your FlyDSL implementation MUST:
+    - Expose an entry point with the same signature as
+      `unified_attention_sparse_mla(...)`.
+    - Produce outputs matching the Triton kernel within
+      atol=1e-2, rtol=1e-2 for bfloat16 across all TEST_SHAPES in the runner.
+    - Be written in FlyDSL (FlyDSL Python DSL) targeting AMD Instinct (gfx950) —
+      do NOT simply re-tune the Triton kernel and do NOT rewrite it in HIP/CUDA.
+
+    Validation:
+    - `python3 scripts/task_runner.py compile`     must PASS.
+    - `python3 scripts/task_runner.py correctness` must PASS (all shapes).
+    - `python3 scripts/task_runner.py performance` must run and write the report.
+  cheatsheet: null

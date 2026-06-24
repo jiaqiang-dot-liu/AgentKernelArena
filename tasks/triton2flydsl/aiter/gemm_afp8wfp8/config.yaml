@@ -1,0 +1,73 @@
+task_type: triton2flydsl
+supported_archs:
+  - gfx950
+source_file_path:
+  - gemm_afp8wfp8.py
+harness_path: test_kernel_harness.py
+compile_command:
+  - python3 test_kernel_harness.py --compile
+correctness_command:
+  - python3 test_kernel_harness.py --correctness
+performance_command:
+  - python3 test_kernel_harness.py --full-benchmark
+target_kernel_functions:
+  - gemm_afp8wfp8
+  - _gemm_afp8wfp8_kernel
+source_origin:
+  repo: AITER (local)
+  commit: e773193041689602e5431e110ef39db0390e7015
+  path:
+    - aiter/ops/triton/gemm/basic/gemm_afp8wfp8.py
+    - aiter/ops/triton/_triton_kernels/gemm/basic/gemm_afp8wfp8.py
+  note: >-
+    Standalone extraction of AITER's MXFP8-activation x FP8-weight scaled GEMM Triton
+    kernel (gemm_afp8wfp8 -> _gemm_afp8wfp8_kernel), Y = X @ W^T with 1x32 e8m0
+    activation scales [M, K//32] and 128x128 e8m0 weight block scales [N//128, K//128],
+    fp32 accumulation via tl.dot_scaled (format "e4m3"), bf16/fp16 output. The
+    preshuffle kernel/launcher and the split-K reduce kernel are dropped; only the
+    non-split-K (NUM_KSPLIT == 1) triton path is kept with a static tile config
+    (BLOCK_SIZE_K == 128 so the 128x128 W-scale layout is addressed). The pid helpers
+    (remap_xcd, pid_grid) and the constexpr-aware kernel-naming helper are inlined, so
+    the module depends only on triton + torch. GFX950-ONLY: tl.dot_scaled is a CDNA4
+    scaled-MFMA op that does not exist on CDNA3 (gfx942) — it fails to compile there
+    ("Unsupported DotScaleOp"). The task is tagged supported_archs: [gfx950] and the
+    harness arch-guard prints SKIPPED / exits 0 on gfx942. On a gfx950 node the harness
+    runs the Triton kernel over real fp8 GEMM shapes and validates finiteness plus
+    closeness to the fp32 dequant torch reference at the upstream MXFP8 tolerance
+    (atol=0.03, rtol=1e-2); the flydsl-vs-triton comparison is added when the FlyDSL
+    target lands.
+prompt:
+  source_code: null
+  instructions: |
+    Translate the Triton MXFP8-activation x FP8-weight scaled GEMM kernel into an
+    equivalent FlyDSL kernel for AMD GPUs (gfx950 / CDNA4), preserving the public
+    entry signature and numerical correctness.
+
+    The source (`gemm_afp8wfp8.py`) is a STANDALONE extraction from AITER. It depends
+    only on `triton` and `torch`. It implements:
+      - `_gemm_afp8wfp8_kernel` : tiled MX scaled matmul C = A @ B (B is W transposed
+        to [K, N]) with 1x32 e8m0 a-scales, 128x128 e8m0 b-scales broadcast inside the
+        kernel, fp32 accumulation via tl.dot_scaled("e4m3"), a grouped + XCD-balanced
+        pid remap, and EVEN_K heuristics. Only the NUM_KSPLIT == 1 path is exercised.
+      - `gemm_afp8wfp8(x, w, x_scales, w_scales, dtype=torch.bfloat16, ...)` : transposes
+        w, views fp8 operands as uint8, picks a tile config, allocates the output, and
+        launches.
+
+    Your FlyDSL implementation MUST:
+    - Expose an entry point with the same signature as
+      `gemm_afp8wfp8(x, w, x_scales, w_scales, ...)` computing the MX-scaled
+      Y = X @ W^T.
+    - Match the Triton kernel (the reference). The harness runs the Triton kernel on
+      all TEST_SHAPES and checks finiteness + closeness to the fp32 dequant torch
+      reference. This task is gfx950-only (CDNA4 scaled-MFMA); on gfx942 the harness
+      skips.
+    - Be written in FlyDSL targeting AMD Instinct -- do NOT simply re-tune the Triton
+      kernel and do NOT rewrite it in HIP/CUDA.
+
+    Validation (on a gfx950 node):
+    - `python3 test_kernel_harness.py --compile`        must PASS.
+    - `python3 test_kernel_harness.py --correctness`    must PASS (all shapes).
+    - `python3 test_kernel_harness.py --full-benchmark` must run and write the report.
+  task_type: null
+  cheatsheet: null
+task_result_template: null

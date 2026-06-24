@@ -1,0 +1,64 @@
+task_type: triton2flydsl
+source_file_path:
+  - fused_silu_mul.py
+harness_path: test_kernel_harness.py
+compile_command:
+  - python3 test_kernel_harness.py --compile
+correctness_command:
+  - python3 test_kernel_harness.py --correctness
+performance_command:
+  - python3 test_kernel_harness.py --full-benchmark
+target_kernel_functions:
+  - fused_silu_mul
+  - fused_silu_mul_kernel
+source_origin:
+  repo: AITER (local)
+  commit: e773193041689602e5431e110ef39db0390e7015
+  path:
+    - aiter/ops/triton/activation.py
+    - aiter/ops/triton/_triton_kernels/activation.py
+  note: >-
+    Standalone extraction of AITER's fused SiLU-and-mul Triton kernel
+    (fused_silu_mul -> fused_silu_mul_kernel / _silu_exp2). For a last dim of
+    2*d, the first d lanes are passed through SiLU (exp2 form) in fp32 and
+    multiplied by the second d lanes, written in the input dtype. The mxfp4 /
+    fp8-group quant kernels and their _mxfp4_quant_op / _fp8_quant_op imports and
+    the AiterTritonLogger are dropped, so the module depends only on triton +
+    torch. The host-side ROCm tile heuristics (_pick_block_n/_pick_block_m/
+    _pick_num_warps, tuned for GLM-4.7/Kimi-K2.5 TP4 MoE locals) are kept
+    verbatim. The harness runs the Triton kernel over real MoE silu-mul shapes
+    and validates finiteness plus closeness to the fp32 silu_exp2 torch reference
+    at the upstream tolerance (atol=1e-2, rtol=1e-2); the flydsl-vs-triton
+    comparison is added when the FlyDSL target lands.
+prompt:
+  source_code: null
+  instructions: |
+    Translate the Triton fused SiLU-and-mul kernel into an equivalent FlyDSL
+    kernel for AMD GPUs (gfx942/gfx950), preserving the public entry signature and
+    numerical correctness.
+
+    The source (`fused_silu_mul.py`) is a STANDALONE extraction from AITER. It
+    depends only on `triton` and `torch`. It implements:
+      - `_silu_exp2` : SiLU written in exp2 form, x / (1 + exp2(-x * log2(e))).
+      - `fused_silu_mul_kernel` : a 2D-tiled (BLOCK_M rows x BLOCK_N cols) kernel
+        that, for a last dim of 2*d, applies SiLU to the first d lanes in fp32
+        and multiplies by the second d lanes, writing the input dtype.
+      - `fused_silu_mul(x, out=None)` : picks the ROCm tile heuristics and
+        launches the kernel; output last dim is d = x.size(-1) // 2.
+
+    Your FlyDSL implementation MUST:
+    - Expose an entry point with the same signature as `fused_silu_mul(x, out=None)`.
+    - Match the Triton kernel (the reference). The harness runs the Triton kernel
+      on all TEST_SHAPES and checks finiteness + closeness to the fp32 silu_exp2
+      torch reference; the flydsl-vs-triton comparison is added when the FlyDSL
+      target lands.
+    - Be written in FlyDSL targeting AMD Instinct -- do NOT simply re-tune the
+      Triton kernel and do NOT rewrite it in HIP/CUDA.
+
+    Validation:
+    - `python3 test_kernel_harness.py --compile`        must PASS.
+    - `python3 test_kernel_harness.py --correctness`    must PASS (all shapes).
+    - `python3 test_kernel_harness.py --full-benchmark` must run and write the report.
+  task_type: null
+  cheatsheet: null
+task_result_template: null

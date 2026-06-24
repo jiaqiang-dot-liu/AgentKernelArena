@@ -1,0 +1,79 @@
+source_file_path:
+  - fav3_sage_mxfp4.py
+
+target_kernel_functions:
+  - fav3_sage_mxfp4_wrapper
+  - sage_fwd_mxfp4
+  - sage_quant_mxfp4
+
+compile_command:
+  - python3 test_kernel_harness.py --compile
+
+correctness_command:
+  - python3 test_kernel_harness.py --correctness
+
+performance_command:
+  - python3 test_kernel_harness.py --full-benchmark
+
+task_type: triton2flydsl
+
+supported_archs:
+  - gfx950  # MXFP4 scaled-dot (tl.dot_scaled) needs CDNA4 scaled-MFMA; not runnable on gfx942/CDNA3
+
+task_result_template: null
+
+prompt:
+  source_code: null
+  instructions: |
+    Translate the Triton MXFP4 SageAttention v2 kernel (Hadamard-rotated FP4 Q/K
+    with per-32 microscale + FP8 V flash attention) into an equivalent FlyDSL
+    kernel for AMD GPUs (gfx950 / MI350-class), preserving the public entry
+    signature and numerical correctness.
+
+    The source (`source/fav3_sage_mxfp4.py`) is a STANDALONE extraction from
+    AITER. It depends only on `triton` and `torch`. It implements the MXFP4
+    SageAttention v2 forward path in two stages:
+      - `sage_quant_mxfp4(...)` (driven by the host wrapper): applies a
+        block-diagonal Hadamard rotation to Q and K, folds sm_scale/ln2 into Q,
+        smooths K (subtract the per-head sequence mean), then microscale-quantizes
+        Q and K to MXFP4 — e2m1 FP4 values packed two-per-byte (uint8) with one
+        e8m0 (uint8) scale per 32-channel group along the head dim
+        (`downcast_to_mxfp`). V is quantized per channel to FP8.
+      - `sage_fwd_mxfp4` : flash-attention forward over the quantized operands.
+        The QK product is an MXFP4 scaled dot (`tl.dot_scaled(q, q_descale,
+        "e2m1", k, k_descale, "e2m1")`) feeding a base-2 online softmax (exp2);
+        the PV product casts the softmax probabilities to FP8 before the V matmul.
+        Causal masking, GQA/MQA, and head-dim padding are supported. Bias
+        (Q-smoothing delta_s), block-sparse, varlen, and LSE branches are present
+        but unused by the default entry point.
+    The host wrapper `fav3_sage_mxfp4_wrapper(q, k, v, causal, ...)` accepts
+    high-precision (BF16/FP16/FP32) Q/K/V, quantizes internally, runs
+    `sage_fwd_mxfp4`, and returns a BF16 output.
+
+    Key features of the op:
+    - Layout `bshd` ([batch, seqlen, heads, head_dim]); square self-attention
+      (seqlen_q == seqlen_k) with optional causal masking.
+    - MXFP4 (microscaling FP4) quantization of Q/K: e2m1 elements with an e8m0
+      power-of-two scale per 32-element group along the contraction (head) dim,
+      computed AFTER a block-diagonal Hadamard rotation and (for K) SageAttention
+      K-smoothing. V is FP8 with per-channel descale.
+    - Online-softmax accumulation done in the exp2 (base-2) domain (sm_scale was
+      pre-multiplied by 1/ln(2)); the PV matmul operates on FP8-cast probabilities
+      and FP8 V.
+    - GQA support (num_query_heads / num_kv_heads grouping) and head-dim padding
+      to the next power of two.
+
+    Your FlyDSL implementation MUST:
+    - Expose an entry point with the same signature as
+      `fav3_sage_mxfp4_wrapper(...)`.
+    - Match the Triton kernel (the reference). The harness runs the Triton kernel
+      on all TEST_SHAPES and asserts finite output; the flydsl-vs-triton
+      comparison is added when the FlyDSL target lands.
+    - Be written in FlyDSL (FlyDSL Python DSL) targeting AMD Instinct (gfx950) —
+      do NOT simply re-tune the Triton kernel and do NOT rewrite it in HIP/CUDA.
+
+    Validation:
+    - `python3 scripts/task_runner.py compile`     must PASS.
+    - `python3 scripts/task_runner.py correctness` must PASS (all shapes).
+    - `python3 scripts/task_runner.py performance` must run and write the report.
+  cheatsheet: null

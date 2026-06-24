@@ -1,0 +1,68 @@
+task_type: triton2flydsl
+source_file_path:
+  - fused_clamp_act_mul.py
+harness_path: test_kernel_harness.py
+compile_command:
+  - python3 test_kernel_harness.py --compile
+correctness_command:
+  - python3 test_kernel_harness.py --correctness
+performance_command:
+  - python3 test_kernel_harness.py --full-benchmark
+target_kernel_functions:
+  - fused_clamp_act_mul
+  - _fused_clamp_silu_mul_kernel
+source_origin:
+  repo: AITER (local)
+  commit: e773193041689602e5431e110ef39db0390e7015
+  path:
+    - aiter/ops/triton/fusions/fused_clamp_act_mul.py
+    - aiter/ops/triton/_triton_kernels/fusions/fused_clamp_act_mul.py
+  note: >-
+    Standalone extraction of AITER's fused clamped-SwiGLU Triton kernel
+    (fused_clamp_act_mul -> _fused_clamp_silu_mul_kernel), the non-quant GPT-OSS /
+    DeepSeek-V4-style FFN path: inp is [M, 2*N] (gate | up); for swiglu_limit > 0
+    the gate is min-clamped and up is symmetric-clamped to the limit, then
+    out = act(gate) * up with optional per-row/per-element weights, fp32 compute,
+    output in inp.dtype. The optional FP8 group-quant / ue8m0 (MXFP8) output
+    branches and their _fp8_quant_op import and the AiterTritonLogger are dropped;
+    the _apply_activation_from_str activation helpers and the make_kernel_repr
+    naming helper are inlined, so the module depends only on triton + torch. The
+    harness runs the Triton kernel over real GPT-OSS FFN widths x clamp/weight
+    configs and validates finiteness plus closeness to the F.silu torch reference
+    at the upstream tolerance (atol=1e-2, rtol=1e-2); the flydsl-vs-triton
+    comparison is added when the FlyDSL target lands.
+prompt:
+  source_code: null
+  instructions: |
+    Translate the Triton fused clamped-SwiGLU act-mul kernel into an equivalent
+    FlyDSL kernel for AMD GPUs (gfx942/gfx950), preserving the public entry
+    signature and numerical correctness.
+
+    The source (`fused_clamp_act_mul.py`) is a STANDALONE extraction from AITER.
+    It depends only on `triton` and `torch`. It implements:
+      - `_fused_clamp_silu_mul_kernel` : one program per row; loads gate and up
+        from the [M, 2*N] input, optionally clamps (gate = min(gate, limit),
+        up = clamp(up, -limit, limit)) when swiglu_limit > 0, applies the
+        activation to the gate in fp32, multiplies by up and optional weights,
+        and stores the [M, N] output in the input dtype.
+      - `fused_clamp_act_mul(inp, out=None, swiglu_limit=0, activation="silu",
+        weights=None)` : sets BLOCK_SIZE_N / num_warps and launches the kernel.
+
+    Your FlyDSL implementation MUST:
+    - Expose an entry point with the same signature as
+      `fused_clamp_act_mul(inp, out=None, swiglu_limit=0, activation="silu",
+      weights=None)`.
+    - Match the Triton kernel (the reference). The harness runs the Triton kernel
+      on all TEST_SHAPES x configs and checks finiteness + closeness to the F.silu
+      torch reference; the flydsl-vs-triton comparison is added when the FlyDSL
+      target lands.
+    - Be written in FlyDSL targeting AMD Instinct -- do NOT simply re-tune the
+      Triton kernel and do NOT rewrite it in HIP/CUDA.
+
+    Validation:
+    - `python3 test_kernel_harness.py --compile`        must PASS.
+    - `python3 test_kernel_harness.py --correctness`    must PASS (all shapes).
+    - `python3 test_kernel_harness.py --full-benchmark` must run and write the report.
+  task_type: null
+  cheatsheet: null
+task_result_template: null

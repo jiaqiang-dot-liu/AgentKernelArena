@@ -1,0 +1,64 @@
+task_type: triton2flydsl
+source_file_path:
+  - rmsnorm.py
+harness_path: test_kernel_harness.py
+compile_command:
+  - python3 test_kernel_harness.py --compile
+correctness_command:
+  - python3 test_kernel_harness.py --correctness
+performance_command:
+  - python3 test_kernel_harness.py --full-benchmark
+target_kernel_functions:
+  - rms_norm
+  - _rms_norm_kernel
+  - _rmsnorm_kernel_large_m_small_n
+source_origin:
+  repo: AITER (local)
+  commit: e773193041689602e5431e110ef39db0390e7015
+  path:
+    - aiter/ops/triton/normalization/rmsnorm.py
+    - aiter/ops/triton/_triton_kernels/normalization/rmsnorm.py
+  note: >-
+    Standalone extraction of AITER's RMSNorm forward Triton kernel (rms_norm ->
+    _rms_norm_kernel / _rmsnorm_kernel_large_m_small_n). The quant / fused-add /
+    backward paths are dropped and get_num_sms is inlined, so the module depends
+    only on triton + torch. The harness runs the Triton kernel over real shapes
+    (wide-row blocked path + tall/narrow large_m_small_n path) and validates
+    finiteness plus closeness to the fp32-reduce torch reference at the bf16/fp16
+    tolerance (1e-2); the flydsl-vs-triton comparison is added when the FlyDSL
+    target lands.
+prompt:
+  source_code: null
+  instructions: |
+    Translate the Triton RMSNorm forward kernel into an equivalent FlyDSL kernel
+    for AMD GPUs (gfx942/gfx950), preserving the public entry signature and
+    numerical correctness.
+
+    The source (`rmsnorm.py`) is a STANDALONE extraction from AITER. It depends
+    only on `triton` and `torch`. It implements:
+      - `_rms_norm_kernel` : per row computes rsqrt(mean(x^2) + eps) in fp32, then
+        scales by that norm factor and the weight g, writing the result in the
+        input dtype. A persistent (USE_BLOCKED) variant streams wide rows in
+        BLOCK_SIZE column chunks.
+      - `_rmsnorm_kernel_large_m_small_n` : a tiled variant for the tall/narrow
+        regime (M > 8192, N <= 2048).
+      - `rms_norm(input, weight, epsilon)` : dispatches between the two kernels
+        and returns the normalized output.
+
+    Your FlyDSL implementation MUST:
+    - Expose an entry point with the same signature as `rms_norm(input, weight,
+      epsilon)`.
+    - Match the Triton kernel (the reference). The harness runs the Triton kernel
+      on all TEST_SHAPES and checks finiteness + closeness to the fp32-reduce
+      torch reference; the flydsl-vs-triton comparison is added when the FlyDSL
+      target lands.
+    - Be written in FlyDSL targeting AMD Instinct -- do NOT simply re-tune the
+      Triton kernel and do NOT rewrite it in HIP/CUDA.
+
+    Validation:
+    - `python3 test_kernel_harness.py --compile`        must PASS.
+    - `python3 test_kernel_harness.py --correctness`    must PASS (all shapes).
+    - `python3 test_kernel_harness.py --full-benchmark` must run and write the report.
+  task_type: null
+  cheatsheet: null
+task_result_template: null

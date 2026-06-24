@@ -1,0 +1,60 @@
+task_type: triton2flydsl
+source_file_path:
+  - moe_routing_sigmoid_top1.py
+harness_path: test_kernel_harness.py
+compile_command:
+  - python3 test_kernel_harness.py --compile
+correctness_command:
+  - python3 test_kernel_harness.py --correctness
+performance_command:
+  - python3 test_kernel_harness.py --full-benchmark
+target_kernel_functions:
+  - routing_sigmoid_top1
+  - _routing_sigmoid_top1_kernel
+source_origin:
+  repo: AITER (local)
+  path: aiter/ops/triton/moe/moe_routing_sigmoid_top1_fused.py
+  note: >-
+    Standalone extraction of AITER's fused sigmoid top-1 MoE router. Depends only
+    on triton/torch; arch detection, the make_kernel_repr naming helper, and the
+    gfx950/gfx942 tuning table (originally loaded from JSON by _get_config) are
+    inlined.
+prompt:
+  source_code: null
+  instructions: |
+    Translate the Triton fused sigmoid top-1 MoE routing kernel into an
+    equivalent FlyDSL kernel for AMD GPUs (gfx950), preserving the public entry
+    signature and numerical correctness.
+
+    The source (`moe_routing_sigmoid_top1.py`) is a STANDALONE extraction from
+    AITER. It depends only on `triton` and `torch`. It implements top-1 expert
+    routing:
+      - `_routing_sigmoid_top1_kernel` : one block of BLOCK_M tokens computes
+        scores = sigmoid(x @ w) over all N experts (BLOCK_N = N), then selects
+        the argmax expert id (tie-break left) and its sigmoid score as the
+        routing weight. With FUSED_SHARED_EXPERTS an extra always-selected
+        expert (id == N, weight 1.0) is appended.
+    The host wrapper `routing_sigmoid_top1(x, w, topk, fused_shared_experts)`
+    picks the tile config and launches the kernel, returning
+    `(topk_ids, topk_weights)`.
+
+    Key features:
+    - x is [M, K] activations (fp16); w is [K, N] router weights (fp16),
+      N = number of experts and is a power of two (BLOCK_N == N).
+    - The matmul accumulates in fp32; sigmoid is applied to the fp32 scores.
+    - topk must be 1; outputs are [M, topk] (or [M, topk + 1] with a shared expert).
+
+    Your FlyDSL implementation MUST:
+    - Expose an entry point with the same signature as `routing_sigmoid_top1`.
+    - Produce `topk_ids` that match the Triton kernel EXACTLY and
+      `topk_weights` within atol=1e-2, rtol=1e-2 across all TEST_SHAPES.
+    - Be written in FlyDSL targeting AMD Instinct (gfx950) -- do NOT simply
+      re-tune the Triton kernel and do NOT rewrite it in HIP/CUDA.
+
+    Validation:
+    - `python3 test_kernel_harness.py --compile`        must PASS.
+    - `python3 test_kernel_harness.py --correctness`    must PASS (all shapes).
+    - `python3 test_kernel_harness.py --full-benchmark` must run and write the report.
+  task_type: null
+  cheatsheet: null
+task_result_template: null

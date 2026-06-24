@@ -1,0 +1,71 @@
+task_type: triton2flydsl
+source_file_path:
+  - rope_fwd.py
+harness_path: test_kernel_harness.py
+compile_command:
+  - python3 test_kernel_harness.py --compile
+correctness_command:
+  - python3 test_kernel_harness.py --correctness
+performance_command:
+  - python3 test_kernel_harness.py --full-benchmark
+target_kernel_functions:
+  - rope_fwd
+  - _rope_kernel_sbhd_fwd
+  - _get_neox_rotated_x
+  - _get_gptj_rotated_x
+source_origin:
+  repo: AITER (local)
+  commit: e773193041689602e5431e110ef39db0390e7015
+  path:
+    - aiter/ops/triton/rope/rope.py
+    - aiter/ops/triton/_triton_kernels/rope/rope.py
+  note: >-
+    Standalone extraction of AITER's RoPE forward (sbhd) Triton kernel (rope_fwd
+    -> _rope_fwd -> _rope_kernel_sbhd_fwd) plus the rotate helpers
+    _get_neox_rotated_x / _get_gptj_rotated_x. Rotary position embedding over
+    [S, B, H, D]: cos/sin(freqs) are computed in fp32, the rotary half of the
+    head dim is rotated (NEOX or GPTJ rotate_style) with reuse_freqs_front_part
+    and an optional NOPE (non-rotary) split (nope_first), and the output is the
+    input dtype. The thd / cached / 2d / 3d / 2c-gqa kernels, all backward
+    kernels, and the autograd wrappers are dropped, so the module depends only on
+    triton + torch. The harness runs the Triton kernel over the upstream
+    sbhd-fwd grid (B in {1,32}, S in {1,32}, H=8, D=64, NEOX/GPTJ, nope/nope_first
+    and reuse_freqs_front_part) and validates finiteness plus closeness to the
+    torch reference (ref_rope_sbhd_fwd) at the upstream tolerance (atol=1e-1,
+    rtol=1e-1); the flydsl-vs-triton comparison is added when the FlyDSL target
+    lands.
+prompt:
+  source_code: null
+  instructions: |
+    Translate the Triton RoPE forward (sbhd) kernel into an equivalent FlyDSL
+    kernel for AMD GPUs (gfx942/gfx950), preserving the public entry signature and
+    numerical correctness.
+
+    The source (`rope_fwd.py`) is a STANDALONE extraction from AITER. It depends
+    only on `triton` and `torch`. It implements:
+      - `_get_neox_rotated_x` / `_get_gptj_rotated_x` : the rotate-half helpers for
+        the NEOX (contiguous halves) and GPTJ (interleaved) rotate styles.
+      - `_rope_kernel_sbhd_fwd` : one program per (batch, head, S-tile); loads
+        freqs, computes cos/sin in fp32, rotates the rotary part of the head dim
+        and writes out = x*cos + rotate(x)*sin, honoring reuse_freqs_front_part
+        and the optional NOPE pass-through split (nope_first).
+      - `rope_fwd(x, freqs, rotate_style, reuse_freqs_front_part, nope_first, ...)`
+        : infers HAVE_NOPE / BLOCK_D from the freqs width and launches the kernel.
+
+    Your FlyDSL implementation MUST:
+    - Expose an entry point with the same signature as `rope_fwd(x, freqs,
+      rotate_style, reuse_freqs_front_part, nope_first, transpose_output=False)`.
+    - Match the Triton kernel (the reference). The harness runs the Triton kernel
+      on all TEST_SHAPES x configs and checks finiteness + closeness to the
+      ref_rope_sbhd_fwd torch reference; the flydsl-vs-triton comparison is added
+      when the FlyDSL target lands.
+    - Be written in FlyDSL targeting AMD Instinct -- do NOT simply re-tune the
+      Triton kernel and do NOT rewrite it in HIP/CUDA.
+
+    Validation:
+    - `python3 test_kernel_harness.py --compile`        must PASS.
+    - `python3 test_kernel_harness.py --correctness`    must PASS (all shapes).
+    - `python3 test_kernel_harness.py --full-benchmark` must run and write the report.
+  task_type: null
+  cheatsheet: null
+task_result_template: null

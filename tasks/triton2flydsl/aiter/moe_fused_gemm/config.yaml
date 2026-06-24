@@ -1,0 +1,70 @@
+task_type: triton2flydsl
+source_file_path:
+  - moe_fused_gemm.py
+harness_path: test_kernel_harness.py
+compile_command:
+  - python3 test_kernel_harness.py --compile
+correctness_command:
+  - python3 test_kernel_harness.py --correctness
+performance_command:
+  - python3 test_kernel_harness.py --full-benchmark
+target_kernel_functions:
+  - fused_moe
+  - _fused_moe_kernel
+  - moe_align_block_size
+source_origin:
+  repo: AITER (local)
+  path: aiter/ops/triton/moe/moe_op.py
+  note: >-
+    Standalone extraction of AITER's (vLLM-derived) fused MoE GEMM. Only the
+    non-persistent, non-GPTQ/AWQ `_fused_moe_kernel` is ported (covers bf16/fp16
+    plus per-tensor/block-wise fp8 w8a8 and int8 w8a16). pid_grid, remap_xcd,
+    _write_zeros_to_output, make_kernel_repr and get_num_xcds are inlined, and
+    moe_align_block_size inlines AITER's 4-stage Triton counting-sort kernels.
+prompt:
+  source_code: null
+  instructions: |
+    Translate the Triton fused Mixture-of-Experts (MoE) GEMM kernel into an
+    equivalent FlyDSL kernel for AMD GPUs (gfx950), preserving the public entry
+    signature and numerical correctness.
+
+    The source (`moe_fused_gemm.py`) is a STANDALONE extraction from AITER
+    (originally vLLM-derived). It depends only on `triton` and `torch`. It
+    implements the grouped, token-routed GEMM at the heart of a fused MoE layer:
+      - `_fused_moe_kernel` : for each (block of BLOCK_SIZE_M sorted tokens,
+        BLOCK_SIZE_N output cols) tile, loads the expert weight selected for that
+        block (via `expert_ids`), multiplies the gathered token activations by
+        that expert's weight matrix with fp32 accumulation, optionally scales by
+        the routing weight, and stores to C[M, top_k, N]. Padding blocks
+        (expert_id == -1) write zeros. XCD-balanced pid remap + grouped pid order
+        promote L2 reuse.
+    Host helpers (also in the source):
+      - `moe_align_block_size(topk_ids, block_size, num_experts)` sorts tokens by
+        expert and pads each expert run to a multiple of block_size, producing
+        `(sorted_token_ids, expert_ids, num_tokens_post_pad)`.
+      - `fused_moe(A, B, C, ...)` launches the kernel.
+
+    Key features:
+    - A is [num_tokens, K] activations; B is stacked experts [E, N, K];
+      C is [num_tokens, top_k, N]. `sorted_token_ids` holds flattened gate
+      indices (token*top_k + k); `offs_token // top_k` recovers the token row.
+    - Computation: C[token, k, :] = (A[token] @ B[expert].T) [* routed_weight].
+    - The default test path is bf16 in / fp32 accumulate / bf16 out
+      (use_fp8_w8a8 = use_int8_w8a16 = False).
+
+    Your FlyDSL implementation MUST:
+    - Expose an entry point with the same signature as `fused_moe` (the routing
+      sort uses the inlined Triton `moe_align_block_size`).
+    - Match the Triton kernel (the reference). The harness runs the Triton kernel
+      on all TEST_SHAPES and asserts finite output; the flydsl-vs-triton
+      comparison is added when the FlyDSL target lands.
+    - Be written in FlyDSL targeting AMD Instinct (gfx950) -- do NOT simply
+      re-tune the Triton kernel and do NOT rewrite it in HIP/CUDA.
+
+    Validation:
+    - `python3 test_kernel_harness.py --compile`        must PASS.
+    - `python3 test_kernel_harness.py --correctness`    must PASS (all shapes).
+    - `python3 test_kernel_harness.py --full-benchmark` must run and write the report.
+  task_type: null
+  cheatsheet: null
+task_result_template: null
