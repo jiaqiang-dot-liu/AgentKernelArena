@@ -1,0 +1,64 @@
+task_type: triton2flydsl
+source_file_path:
+  - merge_state.py
+harness_path: test_kernel_harness.py
+compile_command:
+  - python3 test_kernel_harness.py --compile
+correctness_command:
+  - python3 test_kernel_harness.py --correctness
+performance_command:
+  - python3 test_kernel_harness.py --full-benchmark
+target_kernel_functions:
+  - merge_state_triton
+  - merge_state_kernel
+source_origin:
+  repo: sglang
+  commit: 9bb9d17e1ab26d50b91e5672b7ffcac800faafc7
+  path: python/sglang/srt/layers/attention/triton_ops/merge_state.py
+  url: https://github.com/sgl-project/sglang/blob/9bb9d17e1ab26d50b91e5672b7ffcac800faafc7/python/sglang/srt/layers/attention/triton_ops/merge_state.py
+  note: >-
+    Standalone extraction of sglang's attention-state merge Triton kernel
+    (merge_state_triton -> merge_state_kernel). Recombines two partial
+    flash-attention results computed over disjoint KV ranges (a prefix chunk
+    v_a/s_a and a suffix chunk v_b/s_b) into one attention output v_merged plus a
+    merged log-sum-exp s_merged, using the numerically stable softmax merge
+    m=max(s_a,s_b); denom=exp(s_a-m)+exp(s_b-m); v=v_a*exp(s_a-m)/denom +
+    v_b*exp(s_b-m)/denom; s=log(denom)+m. This is the combine step of chunked /
+    split-KV flash-decoding. The kernel is already free of sglang/fla deps and is
+    copied verbatim; head_size is padded to the next power of two with a load/store
+    mask (exercised by a 192 head-size case). Depends only on `triton` and `torch`.
+prompt:
+  source_code: null
+  instructions: |
+    Translate the Triton attention-state merge kernel into an equivalent FlyDSL
+    kernel for AMD GPUs (gfx942/gfx950), preserving the public entry signature and
+    numerical correctness.
+
+    The source (`merge_state.py`) is a STANDALONE extraction from sglang
+    (python/sglang/srt/layers/attention/triton_ops/merge_state.py). It depends
+    only on `triton` and `torch`. It merges two partial flash-attention results,
+    each given as an output tensor v [num_tokens, num_heads, head_size] and a
+    log-sum-exp s [num_tokens, num_heads], into a single attention output and LSE
+    using the numerically stable softmax recombination:
+      m = max(s_a, s_b)
+      denom = exp(s_a - m) + exp(s_b - m)
+      v_merged = v_a * exp(s_a - m)/denom + v_b * exp(s_b - m)/denom
+      s_merged = log(denom) + m
+    fp32 accumulation; output keeps the input v dtype (bf16/fp16/fp32).
+
+    Your FlyDSL implementation MUST:
+    - Expose an entry point with the same signature as
+      `merge_state_triton(prefix_output, prefix_lse, suffix_output, suffix_lse,
+      output=None, output_lse=None)` returning (output, output_lse).
+    - Match the torch fp32 reference within atol=1e-2, rtol=1e-2 for the merged
+      output (bf16/fp16) and atol=1e-3 for the merged LSE.
+    - Be written in FlyDSL targeting AMD Instinct -- do NOT simply re-tune the
+      Triton kernel and do NOT rewrite it in HIP/CUDA.
+
+    Validation:
+    - `python3 test_kernel_harness.py --compile`        must PASS.
+    - `python3 test_kernel_harness.py --correctness`    must PASS (all shapes).
+    - `python3 test_kernel_harness.py --full-benchmark` must run and write the report.
+  task_type: null
+  cheatsheet: null
+task_result_template: null

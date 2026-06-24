@@ -1,0 +1,66 @@
+task_type: triton2flydsl
+source_file_path:
+  - ssd_chunk_state.py
+harness_path: test_kernel_harness.py
+compile_command:
+  - python3 test_kernel_harness.py --compile
+correctness_command:
+  - python3 test_kernel_harness.py --correctness
+performance_command:
+  - python3 test_kernel_harness.py --full-benchmark
+target_kernel_functions:
+  - _chunk_state_fwd
+  - _chunk_state_fwd_kernel
+source_origin:
+  repo: sglang
+  commit: 9bb9d17e1ab26d50b91e5672b7ffcac800faafc7
+  path: python/sglang/srt/layers/attention/mamba/ops/ssd_chunk_state.py
+  url: https://github.com/sgl-project/sglang/blob/9bb9d17e1ab26d50b91e5672b7ffcac800faafc7/python/sglang/srt/layers/attention/mamba/ops/ssd_chunk_state.py
+  note: >-
+    Standalone extraction of the Mamba2 SSD chunk-state forward Triton kernel
+    (_chunk_state_fwd -> _chunk_state_fwd_kernel). For each batch/chunk/head it
+    accumulates the decayed, dt-weighted outer product of x and B over the chunk
+    window: states[b,c,h,p,n] = sum_l x[b,c*cs+l,h,p] *
+    exp(dA_cumsum[b,h,c,cs-1]-dA_cumsum[b,h,c,l]) * dt[b,h,c,l] * B[b,c*cs+l,g,n],
+    with g = h // (nheads/ngroups), fp32 accumulation, states default fp32. dt and
+    dA_cumsum (the discretization step and its in-chunk cumulative sum) are produced
+    upstream by _chunk_cumsum_fwd; the harness synthesizes them directly (dt positive,
+    dA_cumsum = cumsum of dt*A with A<0 per head) and validates against a faithful
+    torch chunk-state reference. Only the dense (non-varlen) path is extracted; the
+    _chunk_cumsum_fwd stage (needs mamba_ssm.softplus) and chunk_state_varlen are
+    separate stages not included here. Gates on the convention's bf16 dual band
+    (isclose 1e-2 over >=99.9% OR normalized worst-element <=1e-2). Depends only on
+    `triton` and `torch`.
+prompt:
+  source_code: null
+  instructions: |
+    Translate the Mamba2 SSD chunk-state forward Triton kernel into an equivalent
+    FlyDSL kernel for AMD GPUs (gfx942/gfx950), preserving the public entry
+    signature and numerical correctness.
+
+    The source (`ssd_chunk_state.py`) is a STANDALONE extraction from sglang
+    (python/sglang/srt/layers/attention/mamba/ops/ssd_chunk_state.py). It depends
+    only on `triton` and `torch`. It computes the per-chunk SSM state:
+      states[b,c,h,p,n] = sum_l x[b, c*cs+l, h, p]
+                          * exp(dA_cumsum[b,h,c,cs-1] - dA_cumsum[b,h,c,l]) * dt[b,h,c,l]
+                          * B[b, c*cs+l, g, n]     (g = h // (nheads/ngroups))
+    with fp32 accumulation. x is [b, seqlen, nheads, headdim], B is
+    [b, seqlen, ngroups, dstate], dt and dA_cumsum are [b, nheads, nchunks, chunk_size],
+    output states [b, nchunks, nheads, headdim, dstate].
+
+    Your FlyDSL implementation MUST:
+    - Expose an entry point with the same signature as
+      `_chunk_state_fwd(B, x, dt, dA_cumsum, seq_idx=None, states=None,
+      states_in_fp32=True)` returning states.
+    - Match a torch fp32 chunk-state reference within the bf16 dual band
+      (isclose 1e-2 over >=99.9% of elements OR normalized worst-element <=1e-2).
+    - Be written in FlyDSL targeting AMD Instinct -- do NOT simply re-tune the
+      Triton kernel and do NOT rewrite it in HIP/CUDA.
+
+    Validation:
+    - `python3 test_kernel_harness.py --compile`        must PASS.
+    - `python3 test_kernel_harness.py --correctness`    must PASS (all shapes).
+    - `python3 test_kernel_harness.py --full-benchmark` must run and write the report.
+  task_type: null
+  cheatsheet: null
+task_result_template: null

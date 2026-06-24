@@ -1,0 +1,62 @@
+task_type: triton2flydsl
+source_file_path:
+  - fused_dual_residual_rmsnorm.py
+harness_path: test_kernel_harness.py
+compile_command:
+  - python3 test_kernel_harness.py --compile
+correctness_command:
+  - python3 test_kernel_harness.py --correctness
+performance_command:
+  - python3 test_kernel_harness.py --full-benchmark
+target_kernel_functions:
+  - fused_dual_residual_rmsnorm
+  - fused_dual_residual_rmsnorm_kernel
+source_origin:
+  repo: sglang
+  commit: 9bb9d17e1ab26d50b91e5672b7ffcac800faafc7
+  path: python/sglang/srt/layers/elementwise.py
+  url: https://github.com/sgl-project/sglang/blob/9bb9d17e1ab26d50b91e5672b7ffcac800faafc7/python/sglang/srt/layers/elementwise.py
+  note: >-
+    Standalone extraction of sglang's fused dual-residual RMSNorm Triton kernel
+    (fused_dual_residual_rmsnorm -> fused_dual_residual_rmsnorm_kernel). Per row it
+    computes mid = residual + RMSNorm1(x)*weight1 then output = RMSNorm2(mid)*weight2,
+    returning (output, mid) -- the back-to-back-RMSNorm-around-a-residual sub-block.
+    RMS is computed in fp32 over the hidden dim; the first norm result is cast to the
+    residual dtype before the add (so `mid` becomes the new residual), and the final
+    result is cast to the output dtype. The triton.autotune variant, the
+    `FusedDualResidualRMSNorm` nn wrapper, and the softcap/silu/gelu/gate kernels in
+    the same module are dropped; `_is_hip` is inlined to True (AMD Instinct max-warps
+    cap). Only the @triton.jit kernel + its deterministic-config host launcher are
+    kept. Depends only on `triton` and `torch`.
+prompt:
+  source_code: null
+  instructions: |
+    Translate the Triton fused dual-residual RMSNorm kernel into an equivalent
+    FlyDSL kernel for AMD GPUs (gfx942/gfx950), preserving the public entry
+    signature and numerical correctness.
+
+    The source (`fused_dual_residual_rmsnorm.py`) is a STANDALONE extraction from
+    sglang (python/sglang/srt/layers/elementwise.py). It depends only on `triton`
+    and `torch`. Per row of a [batch, hidden] input it computes:
+      mid    = residual + RMSNorm1(x) * weight1
+      output = RMSNorm2(mid) * weight2
+    where RMSNorm(v) = v / sqrt(mean(v^2) + eps), accumulated in fp32. The first
+    norm result is cast to the residual dtype before the add (mid is the new
+    residual); the final result is cast to the output dtype. Returns (output, mid).
+
+    Your FlyDSL implementation MUST:
+    - Expose an entry point with the same signature as
+      `fused_dual_residual_rmsnorm(x, residual, weight1, weight2, eps)` returning
+      (output, mid).
+    - Match the torch fp32 reference within atol=1e-2, rtol=1e-2 (bf16/fp16) for
+      both output and mid.
+    - Be written in FlyDSL targeting AMD Instinct -- do NOT simply re-tune the
+      Triton kernel and do NOT rewrite it in HIP/CUDA.
+
+    Validation:
+    - `python3 test_kernel_harness.py --compile`        must PASS.
+    - `python3 test_kernel_harness.py --correctness`    must PASS (all shapes).
+    - `python3 test_kernel_harness.py --full-benchmark` must run and write the report.
+  task_type: null
+  cheatsheet: null
+task_result_template: null

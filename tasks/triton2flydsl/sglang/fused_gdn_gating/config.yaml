@@ -1,0 +1,58 @@
+task_type: triton2flydsl
+source_file_path:
+  - fused_gdn_gating.py
+harness_path: test_kernel_harness.py
+compile_command:
+  - python3 test_kernel_harness.py --compile
+correctness_command:
+  - python3 test_kernel_harness.py --correctness
+performance_command:
+  - python3 test_kernel_harness.py --full-benchmark
+target_kernel_functions:
+  - fused_gdn_gating
+  - fused_gdn_gating_kernel
+source_origin:
+  repo: sglang
+  commit: 9bb9d17e1ab26d50b91e5672b7ffcac800faafc7
+  path: python/sglang/srt/layers/attention/fla/fused_gdn_gating.py
+  url: https://github.com/sgl-project/sglang/blob/9bb9d17e1ab26d50b91e5672b7ffcac800faafc7/python/sglang/srt/layers/attention/fla/fused_gdn_gating.py
+  note: >-
+    Standalone extraction of sglang's fused Gated Delta Net (GDN) input-gating
+    kernel (fused_gdn_gating + fused_gdn_gating_kernel). Computes the per-head
+    forget gate g = -exp(A_log) * softplus_beta(a + dt_bias) (fp32) and write
+    strength beta_output = sigmoid(b) for the GDN recurrence on the decode path
+    (seq_len == 1) of the Qwen3-Next / Kimi-Linear serving stack. The source is
+    already triton+torch only; nothing was inlined or dropped.
+prompt:
+  source_code: null
+  instructions: |
+    Translate the Triton fused GDN input-gating kernel into an equivalent FlyDSL
+    kernel for AMD GPUs (gfx950), preserving the public entry signature and
+    numerical correctness.
+
+    The source (`fused_gdn_gating.py`) is a STANDALONE extraction from sglang
+    (python/sglang/srt/layers/attention/fla/fused_gdn_gating.py). It depends only
+    on `triton` and `torch`. For projection outputs a, b [batch, num_heads] and
+    parameters A_log, dt_bias [num_heads] (seq_len == 1 decode path):
+      x           = a + dt_bias
+      softplus_x  = (1/beta)*log(1+exp(beta*x)) if beta*x <= threshold else x
+      g           = -exp(A_log) * softplus_x          # fp32 output
+      beta_output = sigmoid(b)                         # stored at b's dtype
+    fp32 accumulation throughout; the grid blocks heads in groups of 8.
+
+    Your FlyDSL implementation MUST:
+    - Expose an entry point with the same signature as
+      `fused_gdn_gating(A_log, a, b, dt_bias, beta=1.0, threshold=20.0)`
+      returning (g, beta_output) of shape [1, batch, num_heads].
+    - Match the torch fp32 reference (g: atol=1e-3, rtol=1e-3; beta_output at
+      bf16 tolerance atol=2e-2, rtol=1e-2).
+    - Be written in FlyDSL (FlyDSL Python DSL) targeting AMD Instinct (gfx950) --
+      do NOT simply re-tune the Triton kernel and do NOT rewrite it in HIP/CUDA.
+
+    Validation:
+    - `python3 test_kernel_harness.py --compile`        must PASS.
+    - `python3 test_kernel_harness.py --correctness`    must PASS (all shapes).
+    - `python3 test_kernel_harness.py --full-benchmark` must run and write the report.
+  task_type: null
+  cheatsheet: null
+task_result_template: null

@@ -1,0 +1,64 @@
+task_type: triton2flydsl
+source_file_path:
+  - chunk_local_cumsum.py
+harness_path: test_kernel_harness.py
+compile_command:
+  - python3 test_kernel_harness.py --compile
+correctness_command:
+  - python3 test_kernel_harness.py --correctness
+performance_command:
+  - python3 test_kernel_harness.py --full-benchmark
+target_kernel_functions:
+  - chunk_local_cumsum
+  - chunk_local_cumsum_scalar_kernel
+  - chunk_local_cumsum_vector_kernel
+source_origin:
+  repo: sglang
+  commit: 9bb9d17e1ab26d50b91e5672b7ffcac800faafc7
+  path: python/sglang/srt/layers/attention/fla/cumsum.py
+  url: https://github.com/sgl-project/sglang/blob/9bb9d17e1ab26d50b91e5672b7ffcac800faafc7/python/sglang/srt/layers/attention/fla/cumsum.py
+  note: >-
+    Standalone extraction of sglang's GDN chunk-local cumulative-sum kernels
+    (chunk_local_cumsum dispatcher + the scalar 3D and vector 4D @triton.jit
+    kernels). In the Gated Delta Net chunk-prefill pipeline the scalar path turns
+    the per-token log-space forget gate g [B, T, H] into the per-chunk cumulative
+    gate consumed by the kkt / state / output kernels; the vector path is the
+    generic FLA cumsum-within-chunk. `prepare_chunk_indices` is inlined, the
+    `fla.utils.input_guard` decorator is dropped, and the vector kernel's
+    `@triton.autotune` (over BS/warps/stages, gated on check_shared_mem) is
+    replaced with a deterministic fixed host launch config. Both IS_VARLEN and
+    regular branches are kept; the harness exercises the regular path. Depends
+    only on `triton` and `torch`.
+prompt:
+  source_code: null
+  instructions: |
+    Translate the Triton GDN chunk-local cumulative-sum kernels into equivalent
+    FlyDSL kernels for AMD GPUs (gfx950), preserving the public entry signature
+    and numerical correctness.
+
+    The source (`chunk_local_cumsum.py`) is a STANDALONE extraction from sglang
+    (python/sglang/srt/layers/attention/fla/cumsum.py). It depends only on
+    `triton` and `torch`. It computes a cumulative sum restricted to each
+    `chunk_size`-sized window along the time axis:
+      - scalar kernel: input g [B, T, H] (the GDN gate), tl.cumsum per chunk.
+      - vector kernel: input g [B, T, H, S], lower-triangular matmul per chunk
+        (equivalent to g.view(B, H, NT, BT, -1).cumsum(-2)).
+      REVERSE => inclusive suffix sum within the chunk; HAS_SCALE => * scale.
+    fp32 accumulation; output defaults to fp32.
+
+    Your FlyDSL implementation MUST:
+    - Expose an entry point with the same signature as
+      `chunk_local_cumsum(g, chunk_size, reverse=False, scale=None,
+      cu_seqlens=None, head_first=False, output_dtype=torch.float,
+      chunk_indices=None)`, dispatching scalar (3D) vs vector (4D) by ndim.
+    - Match the torch fp32 reference within atol=1e-3, rtol=1e-3.
+    - Be written in FlyDSL (FlyDSL Python DSL) targeting AMD Instinct (gfx950) --
+      do NOT simply re-tune the Triton kernel and do NOT rewrite it in HIP/CUDA.
+
+    Validation:
+    - `python3 test_kernel_harness.py --compile`        must PASS.
+    - `python3 test_kernel_harness.py --correctness`    must PASS (all shapes).
+    - `python3 test_kernel_harness.py --full-benchmark` must run and write the report.
+  task_type: null
+  cheatsheet: null
+task_result_template: null

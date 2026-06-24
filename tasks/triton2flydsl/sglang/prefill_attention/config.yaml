@@ -1,0 +1,63 @@
+task_type: triton2flydsl
+source_file_path:
+  - prefill_attention.py
+harness_path: test_kernel_harness.py
+compile_command:
+  - python3 test_kernel_harness.py --compile
+correctness_command:
+  - python3 test_kernel_harness.py --correctness
+performance_command:
+  - python3 test_kernel_harness.py --full-benchmark
+target_kernel_functions:
+  - context_attention_fwd
+  - _fwd_kernel
+source_origin:
+  repo: sglang
+  commit: 9bb9d17e1ab26d50b91e5672b7ffcac800faafc7
+  path: python/sglang/srt/layers/attention/triton_ops/prefill_attention.py
+  url: https://github.com/sgl-project/sglang/blob/9bb9d17e1ab26d50b91e5672b7ffcac800faafc7/python/sglang/srt/layers/attention/triton_ops/prefill_attention.py
+  note: >-
+    Standalone extraction of sglang's RadixAttention native Triton prefill kernel
+    (context_attention_fwd -> _fwd_kernel). Varlen (ragged-batch) flash attention
+    over packed q/k/v [total_tokens, head, head_dim] with per-batch offsets
+    (b_start_loc) and lengths (b_seq_len), online-softmax accumulation in fp32,
+    optional causal masking, and grouped-query attention
+    (kv_group_num = num_q_heads // num_kv_heads); page size = 1. The is_cuda/is_hip
+    backend probes are inlined (gfx942/gfx950 => _is_hip True, _is_cuda False);
+    CUDA_CAPABILITY is still queried from torch to pick BLOCK (128 on CDNA). The
+    kernel is otherwise verbatim. The harness builds a faithful inline torch
+    masked-softmax SDPA reference (fp32, GQA expansion, causal/bidirectional) and
+    gates on the convention's bf16 normalized worst-element band. Depends only on
+    `triton` and `torch`.
+prompt:
+  source_code: null
+  instructions: |
+    Translate the Triton prefill (context) attention kernel into an equivalent
+    FlyDSL kernel for AMD GPUs (gfx942/gfx950), preserving the public entry
+    signature and numerical correctness.
+
+    The source (`prefill_attention.py`) is a STANDALONE extraction from sglang
+    (python/sglang/srt/layers/attention/triton_ops/prefill_attention.py). It
+    depends only on `triton` and `torch`. It computes varlen flash-attention
+    prefill: q, k, v are packed [total_tokens, head, head_dim] with per-batch
+    offsets b_start_loc and lengths b_seq_len; for each batch and head it runs
+    online-softmax attention (fp32 accumulation) with optional causal masking and
+    grouped-query attention (kv head = q head // (num_q_heads // num_kv_heads)),
+    writing o [total_tokens, head, head_dim]. sm_scale defaults to 1/sqrt(head_dim).
+
+    Your FlyDSL implementation MUST:
+    - Expose an entry point with the same signature as
+      `context_attention_fwd(q, k, v, o, b_start_loc, b_seq_len, max_input_len,
+      is_causal=True, sm_scale=None)` writing the result into o.
+    - Match a torch fp32 masked-softmax SDPA reference (GQA-expanded, causal or
+      bidirectional) within the bf16 normalized worst-element band (1.5e-2).
+    - Be written in FlyDSL targeting AMD Instinct -- do NOT simply re-tune the
+      Triton kernel and do NOT rewrite it in HIP/CUDA.
+
+    Validation:
+    - `python3 test_kernel_harness.py --compile`        must PASS.
+    - `python3 test_kernel_harness.py --correctness`    must PASS (all shapes).
+    - `python3 test_kernel_harness.py --full-benchmark` must run and write the report.
+  task_type: null
+  cheatsheet: null
+task_result_template: null

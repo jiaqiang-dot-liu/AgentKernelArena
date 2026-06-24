@@ -1,0 +1,61 @@
+task_type: triton2flydsl
+source_file_path:
+  - wy_fast.py
+harness_path: test_kernel_harness.py
+compile_command:
+  - python3 test_kernel_harness.py --compile
+correctness_command:
+  - python3 test_kernel_harness.py --correctness
+performance_command:
+  - python3 test_kernel_harness.py --full-benchmark
+target_kernel_functions:
+  - recompute_w_u_fwd
+  - recompute_w_u_fwd_kernel
+source_origin:
+  repo: sglang
+  commit: 9bb9d17e1ab26d50b91e5672b7ffcac800faafc7
+  path: python/sglang/srt/layers/attention/fla/wy_fast.py
+  url: https://github.com/sgl-project/sglang/blob/9bb9d17e1ab26d50b91e5672b7ffcac800faafc7/python/sglang/srt/layers/attention/fla/wy_fast.py
+  note: >-
+    Standalone, forward-only extraction of sglang's GDN WY-representation
+    recompute kernel (recompute_w_u_fwd + recompute_w_u_fwd_kernel, alias
+    fwd_recompute_w_u). Given the solved intra-chunk inverse
+    A = (I + tril(beta*K K^T))^{-1}, it recomputes w = A @ (k*beta*exp(g)) and
+    u = A @ (v*beta) per chunk for the Gated Delta Net chunk-prefill pipeline
+    (Qwen3-Next / Kimi-Linear). `prepare_chunk_indices` is inlined and the
+    commented-out autotune config list is dropped. A / k / v / gated operands are
+    bf16 with fp32-accumulated matmuls. Both IS_VARLEN and regular branches are
+    kept; the harness exercises the regular path. Depends only on `triton` and
+    `torch`.
+prompt:
+  source_code: null
+  instructions: |
+    Translate the Triton GDN WY-representation recompute kernel into an equivalent
+    FlyDSL kernel for AMD GPUs (gfx950), preserving the public entry signature and
+    numerical correctness.
+
+    The source (`wy_fast.py`) is a STANDALONE extraction from sglang
+    (python/sglang/srt/layers/attention/fla/wy_fast.py). It depends only on
+    `triton` and `torch`. Given A = (I + tril(beta*K K^T))^{-1} of shape
+    [B, T, H, BT], per chunk (size BT) and head h (qk-head hg = h // (H // Hg)):
+      u = A @ (v * beta[:,None])
+      w = A @ (k * beta[:,None] * exp(g)[:,None])
+    A / k / v and the gated operands are bf16; the matmuls accumulate in fp32.
+    Outputs: w [B, T, H, K], u [B, T, H, V].
+
+    Your FlyDSL implementation MUST:
+    - Expose an entry point with the same signature as
+      `recompute_w_u_fwd(k, v, beta, g_cumsum, A, cu_seqlens, chunk_indices=None)`
+      returning (w, u).
+    - Match the torch fp32 reference within bf16 tolerance (<=2% mismatched elems
+      at atol=3e-2, rtol=1e-2) for both w and u.
+    - Be written in FlyDSL (FlyDSL Python DSL) targeting AMD Instinct (gfx950) --
+      do NOT simply re-tune the Triton kernel and do NOT rewrite it in HIP/CUDA.
+
+    Validation:
+    - `python3 test_kernel_harness.py --compile`        must PASS.
+    - `python3 test_kernel_harness.py --correctness`    must PASS (all shapes).
+    - `python3 test_kernel_harness.py --full-benchmark` must run and write the report.
+  task_type: null
+  cheatsheet: null
+task_result_template: null
