@@ -1,0 +1,58 @@
+task_type: triton2flydsl
+source_file_path:
+  - gdn_l2norm_fwd.py
+harness_path: test_kernel_harness.py
+compile_command:
+  - python3 test_kernel_harness.py --compile
+correctness_command:
+  - python3 test_kernel_harness.py --correctness
+performance_command:
+  - python3 test_kernel_harness.py --full-benchmark
+target_kernel_functions:
+  - l2norm_fwd
+  - l2norm_fwd_kernel
+  - l2norm_fwd_kernel1
+source_origin:
+  repo: sglang
+  path: python/sglang/srt/layers/attention/fla/l2norm.py
+  url: https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/layers/attention/fla/l2norm.py
+  note: >-
+    Standalone, forward-only extraction of sglang's L2-norm forward kernel
+    (l2norm_fwd + its two @triton.jit kernels). Used in the Gated Delta Net (GDN)
+    chunk-prefill pipeline to L2-normalize q/k (use_qk_l2norm_in_kernel) on the
+    Qwen3.5-35B-A3B serving path (l2norm_fwd_kernel, ~3.7% of GDN prefill GPU
+    time). The `fla.utils.input_guard` decorator and the autograd Function /
+    nn.Module wrappers are dropped (l2norm_fwd itself does not use them). Depends
+    only on `triton` and `torch`.
+prompt:
+  source_code: null
+  instructions: |
+    Translate the Triton L2-norm forward kernel into an equivalent FlyDSL kernel
+    for AMD GPUs (gfx950), preserving the public entry signature and numerical
+    correctness.
+
+    The source (`gdn_l2norm_fwd.py`) is a STANDALONE extraction from sglang
+    (python/sglang/srt/layers/attention/fla/l2norm.py). It depends only on
+    `triton` and `torch`. It normalizes the LAST dim of x (pure L2 norm, no mean
+    subtraction):
+        y = x / sqrt(sum(x*x, dim=-1) + eps)
+    The host wrapper flattens x to [T, D], picks one of two kernels:
+      - l2norm_fwd_kernel  (D <= 512): block-ptr over [BT, BD] row tiles.
+      - l2norm_fwd_kernel1 (D  > 512): one program per row.
+    and reshapes the output back to x's original shape. fp32 accumulation; the
+    output keeps x's dtype (bf16 in GDN).
+
+    Your FlyDSL implementation MUST:
+    - Expose an entry point with the same signature as
+      `l2norm_fwd(x, eps=1e-6, output_dtype=None)` returning y of x's shape.
+    - Match the torch fp32 reference within bf16 tolerance (atol=2e-2, rtol=1e-2).
+    - Be written in FlyDSL (FlyDSL Python DSL) targeting AMD Instinct (gfx950) --
+      do NOT simply re-tune the Triton kernel and do NOT rewrite it in HIP/CUDA.
+
+    Validation:
+    - `python3 test_kernel_harness.py --compile`        must PASS.
+    - `python3 test_kernel_harness.py --correctness`    must PASS (all shapes).
+    - `python3 test_kernel_harness.py --full-benchmark` must run and write the report.
+  task_type: null
+  cheatsheet: null
+task_result_template: null
