@@ -1,4 +1,6 @@
 # Copyright(C) [2026] Advanced Micro Devices, Inc. All rights reserved.
+import os
+import sys
 import yaml
 from pathlib import Path
 
@@ -104,7 +106,11 @@ def build_validation_prompt(task_config_dir: str, workspace: str, eval_config: d
     compile_cmds = task_config.get('compile_command', [])
     correctness_cmds = task_config.get('correctness_command', [])
     performance_cmds = task_config.get('performance_command', [])
-    python_path = eval_config.get('agent', {}).get('python_path', '/root/AgentKernelArena/.venv/bin/python3')
+    python_path = (
+        eval_config.get('agent', {}).get('python_path')
+        or os.environ.get('AGENT_KERNEL_ARENA_PYTHON')
+        or sys.executable
+    )
     compile_timeout = eval_config.get('agent', {}).get('compile_timeout', 300)
     correctness_timeout = eval_config.get('agent', {}).get('correctness_timeout', 300)
     performance_timeout = eval_config.get('agent', {}).get('performance_timeout', 300)
@@ -117,7 +123,11 @@ You are a **task validator**, not an optimizer. Your job is to validate that a G
 Your working directory is: `{workspace}`
 
 ## Task Configuration
-The task config.yaml is located at: `{task_config_dir}`
+The task's files have been COPIED into your working directory, so the config is at
+`config.yaml` (i.e. `{workspace}/config.yaml`) — read it there. NOTE: the original
+repository path `{task_config_dir}` does NOT exist inside your workspace; do not try
+to access it. Likewise, all source/eval files referenced below are workspace-local
+(e.g. `hip/...`, `pytorch_code_module/...`, `eval_tools/...`), not under `tasks/`.
 
 Its contents are:
 ```yaml
@@ -177,7 +187,14 @@ Use a timeout of {compile_timeout} seconds per command. Run the command EXACTLY 
 Capture stdout, stderr, and exit code.
 Also check if `build/compile_report.json` is generated and contains a valid status.
 If exit code is non-zero but `eval_result.yaml` clearly records `compiled: true`, treat compilation as PASS and document the wrapper/command inconsistency in details.
-Status: PASS if compilation evidence is successful (exit code 0 OR compile_report status ok OR eval_result compiled=true), FAIL otherwise, TIMEOUT if exceeded {compile_timeout}s.
+
+**IMPORTANT — generation-type tasks with an empty placeholder kernel (do NOT false-FAIL).**
+Some task types — notably `task_type: torch2hip` — intentionally ship the target kernel file EMPTY (0 bytes) and provide NO reference kernel (`*_ref.hip`). The empty file is a placeholder that the *optimization* agent is meant to fill in by generating the kernel from the provided PyTorch reference; `source_file_path` and `target_file_path` typically point to the same empty file. Before judging this check, inspect the size of the file(s) the compile command builds. If that file is empty / 0 bytes, then compilation cannot and is NOT expected to succeed on the as-shipped (unfilled) task — this is BY DESIGN, not a task defect (it would otherwise FAIL with "empty source file" or "missing PyInit_* export"). In that case:
+- Set `checks.compilation.status` to `SKIP` (NOT FAIL), and explain in `details` that the target is an intentionally-empty generation placeholder (e.g. a torch2hip task awaiting agent-generated kernel code).
+- Downstream `correctness` and `performance` are also `SKIP` for the same reason.
+Only mark compilation FAIL when a NON-empty kernel genuinely fails to compile (a real defect).
+
+Status: PASS if compilation evidence is successful (exit code 0 OR compile_report status ok OR eval_result compiled=true); SKIP if the target kernel file is an intentionally-empty generation placeholder (see above); FAIL if a non-empty kernel fails to compile; TIMEOUT if exceeded {compile_timeout}s.
 
 ### Check 5: Correctness
 Run the correctness command(s) from the workspace directory:
@@ -188,7 +205,7 @@ Use a timeout of {correctness_timeout} seconds per command. Run the command EXAC
 Capture stdout, stderr, and exit code.
 Check if `build/correctness_report.json` is generated.
 If exit code is non-zero but `eval_result.yaml` clearly records `correctness: true`, treat correctness as PASS and explain the inconsistency.
-Status: PASS if correctness evidence is successful (exit code 0 OR correctness_report status ok OR eval_result correctness=true), FAIL otherwise, TIMEOUT if exceeded {correctness_timeout}s, SKIP if compilation failed.
+Status: PASS if correctness evidence is successful (exit code 0 OR correctness_report status ok OR eval_result correctness=true), FAIL otherwise, TIMEOUT if exceeded {correctness_timeout}s, SKIP if compilation failed OR was skipped (e.g. empty generation-placeholder kernel).
 
 ### Check 6: Performance
 Run the performance command(s) from the workspace directory (if any):
@@ -208,7 +225,7 @@ Status:
 - WARN if performance evidence is successful but the methodology differs from 10 warmup / 100 measured average, or cannot be verified
 - FAIL if performance evidence is unsuccessful
 - TIMEOUT if exceeded {performance_timeout}s
-- SKIP if correctness failed or no performance command.
+- SKIP if correctness failed or was skipped (e.g. empty generation-placeholder kernel), or no performance command.
 
 ### Check 7: Correctness Implementation Review
 Read the correctness implementation code (usually in `scripts/task_runner.py` or a test file).

@@ -2,6 +2,8 @@
 import subprocess
 import shutil
 import logging
+import os
+import sys
 import threading
 import shlex
 import json
@@ -10,9 +12,17 @@ from typing import Any
 import yaml
 from agents import register_agent
 from agents.task_validator.validation_prompt import build_validation_prompt
+from src.runtime_env import PYTHON_ENV_VAR
 
 
-def _launch_claude_code(prompt: str, workspace: str, timeout_seconds: int, logger: logging.Logger) -> str:
+def _launch_claude_code(
+    prompt: str,
+    workspace: str,
+    timeout_seconds: int,
+    logger: logging.Logger,
+    model: str | None = None,
+    effort: str | None = None,
+) -> str:
     """Launch Claude Code CLI with the validation prompt."""
     AGENT = "claude"
     # --dangerously-skip-permissions is exactly equivalent to
@@ -30,11 +40,19 @@ def _launch_claude_code(prompt: str, workspace: str, timeout_seconds: int, logge
             f"Command '{AGENT}' not found. Please ensure Claude Code CLI is installed and in your PATH."
         )
 
+    dynamic_options = OPTIONS
+    if model:
+        dynamic_options += f" --model {shlex.quote(str(model))}"
+    if effort:
+        dynamic_options += f" --effort {shlex.quote(str(effort))}"
+
     quoted_prompt = shlex.quote(prompt)
     # CLAUDE_CODE_DISABLE_AUTO_MEMORY=1 turns off auto-memory (ON by default in
     # CLI >=2.1.59) so headless validation never reads/writes learned memory.
-    cmd = f"IS_SANDBOX=1 CLAUDE_CODE_DISABLE_AUTO_MEMORY=1 {AGENT} {OPTIONS} {quoted_prompt}"
+    cmd = f"IS_SANDBOX=1 CLAUDE_CODE_DISABLE_AUTO_MEMORY=1 {AGENT} {dynamic_options} {quoted_prompt}"
 
+    logger.info(f"Validator Claude Code model: {model if model else '<claude CLI default/config>'}")
+    logger.info(f"Validator Claude Code effort: {effort if effort else '<claude CLI default/config>'}")
     logger.info(f"Running command: {cmd[:200]}...")
 
     process = subprocess.Popen(
@@ -94,7 +112,10 @@ def _launch_claude_code(prompt: str, workspace: str, timeout_seconds: int, logge
     stderr_thread.start()
 
     try:
-        process.wait(timeout=timeout_seconds)
+        if timeout_seconds > 0:
+            process.wait(timeout=timeout_seconds)
+        else:
+            process.wait()
     except subprocess.TimeoutExpired:
         logger.warning(f"Validator timed out after {timeout_seconds}s; terminating process")
         process.terminate()
@@ -119,7 +140,14 @@ def _launch_claude_code(prompt: str, workspace: str, timeout_seconds: int, logge
     return output
 
 
-def _launch_codex(prompt: str, workspace: str, timeout_seconds: int, logger: logging.Logger) -> str:
+def _launch_codex(
+    prompt: str,
+    workspace: str,
+    timeout_seconds: int,
+    logger: logging.Logger,
+    model: str | None = None,
+    effort: str | None = None,
+) -> str:
     """Launch Codex CLI in non-interactive mode for task validation."""
     AGENT = "codex"
 
@@ -140,8 +168,15 @@ def _launch_codex(prompt: str, workspace: str, timeout_seconds: int, logger: log
         "features.memories=false",
         "--cd",
         workspace,
-        prompt,
     ]
+    if model:
+        cmd.extend(["--model", str(model)])
+    if effort:
+        cmd.extend(["-c", f'model_reasoning_effort="{effort}"'])
+    cmd.append(prompt)
+
+    logger.info(f"Validator Codex model: {model if model else '<codex CLI default/config>'}")
+    logger.info(f"Validator Codex effort: {effort if effort else '<codex config default>'}")
     logger.info(f"Running command: {' '.join(shlex.quote(p) for p in cmd[:8])} ...")
 
     process = subprocess.Popen(
@@ -314,12 +349,20 @@ def launch_agent(eval_config: dict[str, Any], task_config_dir: str, workspace: s
 
     backend = agent_config.get("backend", "claude_code")
     timeout_seconds = int(agent_config.get("timeout_seconds", 600))
-    python_path = agent_config.get("python_path")
+    configured_model = agent_config.get("model")
+    configured_effort = agent_config.get("effort")
+    # Resolve interpreter: explicit config -> framework-detected (set by main.py)
+    # -> this process's interpreter. Avoids hardcoding a path that may not exist
+    # inside the Docker container.
+    python_path = (
+        agent_config.get("python_path")
+        or os.environ.get(PYTHON_ENV_VAR)
+        or sys.executable
+    )
 
     # Inject agent_config values into eval_config for the prompt builder
     agent_section = eval_config.setdefault("agent", {})
-    if python_path:
-        agent_section["python_path"] = python_path
+    agent_section["python_path"] = python_path
     agent_section["compile_timeout"] = int(agent_config.get("compile_timeout", 300))
     agent_section["correctness_timeout"] = int(agent_config.get("correctness_timeout", 300))
     agent_section["performance_timeout"] = int(agent_config.get("performance_timeout", 300))
@@ -342,6 +385,8 @@ def launch_agent(eval_config: dict[str, Any], task_config_dir: str, workspace: s
         )
 
     logger.info(f"Task Validator: backend={backend}, timeout={timeout_seconds}s")
+    logger.info(f"Task Validator model: {configured_model if configured_model else '<backend default/config>'}")
+    logger.info(f"Task Validator effort: {configured_effort if configured_effort else '<backend default/config>'}")
     logger.info(f"Task config: {task_config_dir}")
     logger.info(f"Workspace: {workspace}")
 
@@ -351,9 +396,23 @@ def launch_agent(eval_config: dict[str, Any], task_config_dir: str, workspace: s
 
     # Launch the chosen backend
     if backend == "claude_code":
-        output = _launch_claude_code(prompt, workspace, timeout_seconds, logger)
+        output = _launch_claude_code(
+            prompt,
+            workspace,
+            timeout_seconds,
+            logger,
+            model=configured_model,
+            effort=configured_effort,
+        )
     elif backend == "codex":
-        output = _launch_codex(prompt, workspace, timeout_seconds, logger)
+        output = _launch_codex(
+            prompt,
+            workspace,
+            timeout_seconds,
+            logger,
+            model=configured_model,
+            effort=configured_effort,
+        )
     elif backend == "cursor":
         # Placeholder for Cursor backend
         raise NotImplementedError("Cursor backend not yet implemented for task_validator")
