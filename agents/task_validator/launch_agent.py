@@ -85,11 +85,22 @@ def _launch_claude_code(
                     try:
                         data = json.loads(raw_line)
                         event_type = data.get("type", "")
+                        subtype = data.get("subtype", "")
+                        # High-volume, low-signal events: per-token thinking counters
+                        # and status pings flood the log (~2/3 of all lines). Keep them
+                        # in output_list but do not log them.
+                        if event_type == "system" and subtype in ("thinking_tokens", "status"):
+                            continue
                         if event_type == "stream_event":
                             ev = data.get("event", {})
                             ev_type = ev.get("type", "")
-                            if ev_type in ("content_block_delta",):
-                                # Skip noisy partial deltas in log
+                            # Streaming envelope + partial deltas carry no standalone
+                            # signal (the full content arrives in the top-level
+                            # assistant/user events), so skip them in the log.
+                            if ev_type in (
+                                "content_block_start", "content_block_delta", "content_block_stop",
+                                "message_start", "message_delta", "message_stop",
+                            ):
                                 continue
                         log_func(f"{prefix} {raw_line[:200]}")
                     except (json.JSONDecodeError, AttributeError):
