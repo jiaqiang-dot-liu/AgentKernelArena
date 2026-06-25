@@ -528,6 +528,15 @@ def save_performance_results(
         # Only include params from metadata, exclude everything else
         if case.metadata and 'params' in case.metadata:
             case_dict['params'] = case.metadata['params']
+        # Persist the timing method (and any fallback reason) so that baseline vs
+        # optimized comparisons can detect mixed-method measurements. A baseline timed
+        # with cuda_graph (host-overhead-free) compared against an optimized kernel that
+        # fell back to cuda_event timing (per-launch + sync overhead) would otherwise
+        # fabricate a speedup/regression from the measurement-method delta alone.
+        if case.metadata:
+            for k in ('benchmark_method', 'benchmark_fallback_reason'):
+                if case.metadata.get(k) is not None:
+                    case_dict[k] = case.metadata[k]
         results['test_cases'].append(case_dict)
     
     output_file = workspace / filename
@@ -575,7 +584,23 @@ def load_performance_results(
         
         log.info(f"Loaded {len(test_cases)} test case(s) from {input_file}")
         return test_cases
-        
+
     except Exception as e:
         log.error(f"Failed to load performance results from {input_file}: {e}")
         return []
+
+
+def collect_benchmark_methods(test_cases: List[TestCaseResult]) -> List[str]:
+    """Return the sorted set of distinct `benchmark_method` values across test cases.
+
+    The method is read from each case's metadata (populated from the benchmark JSON
+    and persisted into baseline_perf.yaml / optimized_perf.yaml). An empty list means
+    no method was recorded (e.g. an older report or a non-rocmbench task).
+    """
+    methods = set()
+    for case in test_cases:
+        if case.metadata:
+            method = case.metadata.get('benchmark_method')
+            if method:
+                methods.add(str(method))
+    return sorted(methods)
