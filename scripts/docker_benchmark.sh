@@ -11,7 +11,11 @@ HOST_GID="$(id -g)"
 SELECTED_GPU_ARCH=""
 SELECTED_IMAGE=""
 
-container_path="/opt/node/bin:${HOST_HOME}/.local/bin:/usr/local/bin:/opt/venv/bin:/opt/rocm/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin"
+# /opt/venv/bin is placed before /usr/local/bin and /usr/bin so that a bare
+# `python3` / `pytest` resolves to the torch-enabled venv interpreter rather than
+# the system python (which lacks torch). Without this, repository tasks whose
+# commands call `python3 scripts/task_runner.py` fail with ModuleNotFoundError: torch.
+container_path="/opt/node/bin:${HOST_HOME}/.local/bin:/opt/venv/bin:/usr/local/bin:/opt/rocm/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 usage() {
     cat <<'EOF'
@@ -252,6 +256,9 @@ build_docker_args() {
         -e "MPLCONFIGDIR=/tmp/matplotlib"
         -e "TORCH_EXTENSIONS_DIR=/tmp/torch-extensions"
         -e "TRITON_CACHE_DIR=/tmp/triton-cache"
+        -e "MIOPEN_USER_DB_PATH=/tmp/miopen-cache"
+        -e "MIOPEN_CACHE_DIR=/tmp/miopen-cache"
+        -e "MIOPEN_CUSTOM_CACHE_DIR=/tmp/miopen-cache"
         -e "AGENT_KERNEL_ARENA_DOCKER=1"
         -e "AGENT_KERNEL_ARENA_WORKDIR=${CONTAINER_WORKDIR}"
         -e "AGENT_KERNEL_ARENA_GPU_ARCH=${SELECTED_GPU_ARCH}"
@@ -280,6 +287,13 @@ build_docker_args() {
     add_mount "$HOST_HOME/.local/share/cursor-agent" "$HOST_HOME/.local/share/cursor-agent" ro
     add_mount "$HOST_HOME/.cursor" "$HOST_HOME/.cursor"
     add_mount "$HOST_HOME/.config/cursor" "$HOST_HOME/.config/cursor"
+
+    # The base image lacks the GNU `time` binary and the container runs as a
+    # non-root user (so it cannot apt-install it). Bind-mount the host binary
+    # read-only so commands that invoke `/usr/bin/time` do not fail with 127.
+    if [[ -x /usr/bin/time ]]; then
+        add_mount /usr/bin/time /usr/bin/time ro
+    fi
 
     if [[ -e "$HOST_HOME/.gitconfig" ]]; then
         add_mount "$HOST_HOME/.gitconfig" "$HOST_HOME/.gitconfig" ro

@@ -159,15 +159,28 @@ Verify that config.yaml contains all required fields:
 - `target_kernel_functions` (list of strings)
 - `compile_command` (list of strings)
 - `correctness_command` (list of strings)
-- `task_type` (string, one of: hip2hip, cuda2hip, triton2triton, torch2hip, instruction2triton, rocprim)
+- `task_type` (string, one of: hip2hip, cuda2hip, triton2triton, torch2hip, instruction2triton, rocprim, flydsl2flydsl, repository)
 Also check that optional fields (`performance_command`, `prompt`) are well-formed if present.
-Status: PASS if all required fields exist and have correct types, FAIL otherwise.
+
+**IMPORTANT — `task_type: repository` schema differs.** Repository tasks clone a full upstream
+project and drive it through `scripts/task_runner.py` instead of shipping an isolated kernel file.
+For `task_type: repository`:
+- `repo_url` (string) is REQUIRED; `repository_language` (string) is expected.
+- `source_file_path` and `target_kernel_functions` are OPTIONAL (they are hints into the cloned
+  tree, not always present). Do NOT FAIL this check merely because they are absent for a repository
+  task. Optional `post_clone_install` / `post_clone_install_mode` may also be present.
+Status: PASS if all required fields for the task_type exist and have correct types, FAIL otherwise.
 
 ### Check 2: Source Files Exist
 For each file listed in `source_file_path`: {source_files}
 Check if the file exists in the workspace directory `{workspace}`.
 Look for the file directly and also under common subdirectories (source/, src/, scripts/).
-Status: PASS if all source files are found, FAIL if any are missing.
+For `task_type: repository`, the source files live inside the cloned upstream repository tree,
+whose top-level prefix may differ from the configured path (e.g. a repo `aiter` clones such that
+`aiter/ops/triton/x.py` actually resolves to `aiter/aiter/ops/triton/x.py`). Search RECURSIVELY
+under the workspace and match by the trailing path / basename; PASS if a matching file is found
+anywhere in the tree. If `source_file_path` is absent for a repository task, mark this check SKIP.
+Status: PASS if all source files are found, FAIL if any are missing (SKIP if not declared for a repository task).
 
 ### Check 3: Target Symbols Found
 For each function in `target_kernel_functions`: {target_kernels}
@@ -176,7 +189,9 @@ For CUDA/HIP: look for `__global__ void <name>` or similar kernel declarations.
 For Triton: look for `@triton.jit` decorated functions with the name.
 For Python: look for `def <name>`.
 Report the file and line number where each symbol is found.
-Status: PASS if all target symbols found, FAIL if any are missing.
+For `task_type: repository`, if `target_kernel_functions` is absent from config.yaml, mark this
+check SKIP (it is an optional hint for repository tasks, not a required declaration).
+Status: PASS if all target symbols found, FAIL if any are missing (SKIP if not declared for a repository task).
 
 ### Check 4: Compilation
 Run the compile command(s) from the workspace directory:
@@ -244,8 +259,14 @@ Examine all source files for external dependencies:
 - Check if any file paths reference locations outside the workspace (e.g., `/path/to/vllm/`, `../../external/`)
 - Check if scripts reference external repos or data that must be pre-downloaded
 Treat standard ROCm/PyTorch toolchain headers (e.g., `torch/extension.h`, `ATen/*`, `hip/hip_runtime.h`, `c10/*`) and common runtime packages (`torch`, `yaml`) as allowed environment dependencies, not self-contained failures.
+For `task_type: repository`, the task BY DESIGN clones a full upstream project and builds it with that
+project's own build system. Dependencies resolved by the project's build (e.g. CMake `FetchContent`/
+`download_project` for GoogleTest, Google Benchmark, rocm-cmake, rocRAND) and packages installed via the
+task's declared `post_clone_install` step are EXPECTED and allowed — do NOT FAIL self-contained merely
+because the upstream build fetches or installs its standard build/test dependencies. Only FAIL a
+repository task here if it references resources outside its own clone + declared install step.
 List all missing files/dependencies found.
-Status: PASS if fully self-contained, FAIL if external dependencies found.
+Status: PASS if fully self-contained (or, for repository tasks, dependencies are covered by the upstream build system and declared post_clone_install), FAIL if external dependencies found.
 
 ### Check 9: GPU Hang Check
 Based on checks 4-6, report whether any command appeared to hang:
@@ -258,6 +279,15 @@ Check if the task's compile/correctness/performance flow would produce output co
 The schema expects: task_name, best_optimized_source_file_path, best_optimized_kernel_functions, pass_compilation, compilation_error_message, pass_correctness, correctness_error_message, base_execution_time, best_optimized_execution_time, speedup_ratio, optimization_summary.
 Does the task's runner/script produce timing information? Does it output pass/fail status in a parseable way?
 If outputs are in `eval_result.yaml` with parseable keys (`compiled`, `correctness`, `speedup`, `ori_time`, `opt_time`) and/or `build/*.json` reports, consider this compatible via deterministic field mapping; do not require exact file name or exact schema shape.
+
+For `task_type: repository` (driven by `scripts/task_runner.py`), the standard outputs are
+`build/compile_report.json` (compile pass/fail), `build/correctness_report.json` (correctness pass/fail),
+and `build/performance_report.json` (per-case `execution_time_ms` for the optimized build). These, combined
+with `baseline_perf.yaml` (per-case baseline `execution_time_ms` produced by the harness), give a
+deterministic mapping: pass_compilation/pass_correctness from the JSON reports, best_optimized_execution_time
+from the performance report, base_execution_time from baseline_perf.yaml, and speedup_ratio = base/optimized.
+`eval_result.yaml` and the `task_result_template` field are NOT required for repository tasks — do not FAIL
+solely on their absence. Mark PASS when these reports are present (or would be produced by the runner).
 Status: PASS if fields can be mapped deterministically, FAIL only if essential pass/fail/timing signals are missing.
 
 ## Output Format
@@ -276,7 +306,10 @@ After completing ALL checks, create a file called `validation_report.yaml` in th
 ### Important Notes:
 - Run each command from within the workspace directory `{workspace}`
 - Capture the FIRST ~500 characters of stdout/stderr for snippets (don't include the full output)
-- Use `timeout` command or equivalent to enforce time limits
+- Use the `timeout` command to enforce time limits. Run each task command verbatim as configured.
+  Do NOT wrap commands with `/usr/bin/time` (the GNU time binary may be absent and would make the
+  command fail with exit code 127 / "No such file or directory"); if you need wall-clock timing, use
+  the bash builtin `time` instead.
 - If a command produces no output, note that in the snippet
 - Be thorough but objective - report what you find, don't try to fix issues
 - The validation_report.yaml MUST be valid YAML - use proper quoting for strings with special characters

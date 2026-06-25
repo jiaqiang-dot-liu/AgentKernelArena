@@ -29,26 +29,29 @@ static inline int read_env_int(const char* name, int def) {
     return (val > 0) ? val : def;
 }
 
-// ---------- NaN-preserving ReLU ----------
+// ---------- Exact GELU activation ----------
+// gelu(x) = 0.5 * x * (1 + erf(x / sqrt(2)))  -- matches torch.nn.functional.gelu
+// (approximate='none'). erf naturally propagates NaN, so no special NaN handling needed.
+// (Names retain the historical `relu_*` prefix so all existing call sites resolve.)
+__device__ __forceinline__ float  gelu_act(float v)  { return 0.5f * v * (1.0f + erff(v * 0.7071067811865475244f)); }
+__device__ __forceinline__ double gelu_act(double v) { return 0.5  * v * (1.0  + erf (v * 0.7071067811865475244)); }
+
 template <typename T>
 __device__ __forceinline__ T relu_nan_select(T v) {
-    T z = static_cast<T>(0);
-    T m = v > z ? v : z; // clamp with zero (does not propagate NaN)
-    bool isn = !(v == v); // true if NaN
-    return isn ? v : m;   // propagate NaN
+    return gelu_act(v);
 }
 
 // Vector lane helpers
 __device__ __forceinline__ void relu_apply_vec(float4 &v) {
-    v.x = relu_nan_select<float>(v.x);
-    v.y = relu_nan_select<float>(v.y);
-    v.z = relu_nan_select<float>(v.z);
-    v.w = relu_nan_select<float>(v.w);
+    v.x = gelu_act(v.x);
+    v.y = gelu_act(v.y);
+    v.z = gelu_act(v.z);
+    v.w = gelu_act(v.w);
 }
 
 __device__ __forceinline__ void relu_apply_vec(double2 &v) {
-    v.x = relu_nan_select<double>(v.x);
-    v.y = relu_nan_select<double>(v.y);
+    v.x = gelu_act(v.x);
+    v.y = gelu_act(v.y);
 }
 
 // ---------- Scalar kernel ----------
@@ -239,6 +242,6 @@ torch::Tensor forward(torch::Tensor x) {
 }
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
-    m.def("forward", &forward, "In-place ReLU forward (HIP, fused, NaN-preserving, vectorized, tuned)");
+    m.def("forward", &forward, "In-place exact GELU forward (HIP, fused, NaN-preserving, vectorized, tuned)");
 }
 
