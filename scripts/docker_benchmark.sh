@@ -267,11 +267,17 @@ build_docker_args() {
         -w "$CONTAINER_WORKDIR"
     )
 
-    local render_gid
-    render_gid="$(getent group render 2>/dev/null | cut -d: -f3 || true)"
-    if [[ -n "$render_gid" ]]; then
-        docker_args+=(--group-add "$render_gid")
-    fi
+    # GPU device nodes are group-owned (ROCm): /dev/dri/renderD* by `render` and
+    # /dev/kfd by `render` or `video` depending on the host's udev rules. Add the
+    # non-root container user to both supplementary groups so it can reach the ROCm
+    # compute device (otherwise torch.cuda is unavailable).
+    local gpu_grp gpu_gid
+    for gpu_grp in render video; do
+        gpu_gid="$(getent group "$gpu_grp" 2>/dev/null | cut -d: -f3 || true)"
+        if [[ -n "$gpu_gid" ]]; then
+            docker_args+=(--group-add "$gpu_gid")
+        fi
+    done
 
     add_device_if_present /dev/kfd
     add_device_if_present /dev/dri
