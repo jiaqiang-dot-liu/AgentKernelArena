@@ -32,8 +32,8 @@ stride = 1
 padding = 0
 
 def get_inputs():
-    # Depthwise conv2d; in_channels fixed, vary batch/spatial.
-    for b, h, w in [(8, 256, 256), (16, 128, 128), (4, 512, 512), (16, 256, 256)]:
+    # Depthwise conv2d; in_channels fixed, escalate batch/spatial.
+    for b, h, w in [(4, 128, 128), (8, 256, 256), (16, 256, 256), (8, 512, 512), (16, 512, 512)]:
         yield [torch.rand(b, in_channels, h, w)]
 
 

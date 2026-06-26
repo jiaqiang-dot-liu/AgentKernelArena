@@ -41,8 +41,9 @@ padding = 1
 dilation = 1
 
 def get_inputs():
-    # MaxPool2d is independent of channel count; vary batch/channels/spatial.
-    for b, c, h, w in [(16, 32, 256, 256), (32, 64, 128, 128), (8, 16, 512, 512), (32, 64, 256, 256)]:
+    # MaxPool2d is independent of channel count; escalate batch/channels/spatial.
+    for b, c, h, w in [(16, 32, 256, 256), (32, 64, 256, 256), (32, 64, 512, 512),
+                       (8, 16, 512, 512), (64, 64, 128, 128)]:
         yield [torch.rand(b, c, h, w)]
 
 

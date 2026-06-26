@@ -29,8 +29,8 @@ out_features = 4096
 scaling_factor = 0.5
 
 def get_inputs():
-    # in_features fixed, vary batch.
-    for b in [2048, 4096, 8192, 16384]:
+    # in_features fixed, escalate batch.
+    for b in [2048, 4096, 8192, 16384, 32768]:
         yield [torch.rand(b, in_features)]
 
 

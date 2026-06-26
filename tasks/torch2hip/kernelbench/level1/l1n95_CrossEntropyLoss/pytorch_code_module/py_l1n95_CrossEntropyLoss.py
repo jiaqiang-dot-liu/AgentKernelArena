@@ -21,9 +21,9 @@ input_shape = (num_classes,)
 dim = 1
 
 def get_inputs():
-    # CrossEntropy; num_classes fixed, vary batch.
-    for b in [4096, 8192, 16384, 32768]:
-        yield [torch.rand(b, num_classes), torch.randint(0, num_classes, (b,))]
+    # No init -> both batch and num_classes are free; escalate both (gpumode CE varies C).
+    for b, c in [(8192, 1024), (16384, 2048), (32768, 4096), (16384, 8192), (8192, 16384)]:
+        yield [torch.rand(b, c), torch.randint(0, c, (b,))]
 
 
 def get_init_inputs():

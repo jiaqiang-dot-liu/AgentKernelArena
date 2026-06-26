@@ -26,8 +26,8 @@ in_features = 8192
 out_features = 8192
 
 def get_inputs():
-    # in_features fixed, vary batch.
-    for b in [256, 512, 1024, 2048]:
+    # in_features fixed, escalate batch.
+    for b in [256, 512, 1024, 2048, 4096]:
         yield [torch.rand(b, in_features)]
 
 

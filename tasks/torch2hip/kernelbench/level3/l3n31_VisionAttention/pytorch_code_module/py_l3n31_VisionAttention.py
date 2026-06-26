@@ -35,8 +35,8 @@ image_height = 128
 image_width = 128
 
 def get_inputs():
-    # num_channels == embed_dim is fixed; vary batch and image size (sequence length).
-    for b, h, w in [(2, 64, 64), (4, 32, 32), (2, 128, 128), (8, 32, 32)]:
+    # num_channels == embed_dim is fixed; escalate batch and image size (sequence length).
+    for b, h, w in [(2, 32, 32), (4, 32, 32), (2, 64, 64), (8, 32, 32), (2, 128, 128)]:
         yield [torch.rand(b, num_channels, h, w)]
 
 

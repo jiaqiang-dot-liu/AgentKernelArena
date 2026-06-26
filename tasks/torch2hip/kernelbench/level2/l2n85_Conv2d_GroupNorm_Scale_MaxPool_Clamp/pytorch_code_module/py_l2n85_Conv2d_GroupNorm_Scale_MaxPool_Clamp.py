@@ -41,8 +41,8 @@ clamp_min = 0.0
 clamp_max = 1.0
 
 def get_inputs():
-    # in_channels fixed; scale_shape independent of spatial, vary batch/spatial.
-    for b, h, w in [(32, 64, 64), (64, 128, 128), (128, 32, 32), (16, 128, 128)]:
+    # in_channels fixed; scale_shape independent of spatial, escalate batch/spatial.
+    for b, h, w in [(16, 64, 64), (32, 128, 128), (64, 128, 128), (128, 128, 128), (64, 256, 256)]:
         yield [torch.rand(b, in_channels, h, w)]
 
 

@@ -24,8 +24,9 @@ dim2 = 4095
 reduce_dim = 1
 
 def get_inputs():
-    # Sum reduction over reduce_dim (fixed by get_init_inputs); vary shape.
-    for b, d1, d2 in [(64, 1024, 1023), (128, 2048, 2047), (32, 4096, 4095), (256, 512, 511)]:
+    # Sum reduction over reduce_dim (fixed by get_init_inputs); escalate shape.
+    for b, d1, d2 in [(32, 2048, 2047), (64, 2048, 2047), (128, 2048, 2047),
+                      (64, 4096, 4095), (128, 1024, 1023)]:
         yield [torch.rand(b, d1, d2)]
 
 

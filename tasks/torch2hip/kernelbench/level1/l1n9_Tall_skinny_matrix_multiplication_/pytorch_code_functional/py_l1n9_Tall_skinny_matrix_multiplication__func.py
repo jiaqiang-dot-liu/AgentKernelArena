@@ -21,8 +21,8 @@ M = 16384 * 2
 N = 16 * 2
 
 def get_inputs():
-    # Tall-skinny GEMM (M,N) @ (N,M) with M >> N.
-    for M, N in [(16384, 16), (32768, 32), (8192, 64), (65536, 16)]:
+    # Tall-skinny GEMM (M,N) @ (N,M) with M >> N; escalate M and N.
+    for M, N in [(8192, 16), (16384, 16), (32768, 32), (65536, 16), (32768, 64)]:
         yield [torch.rand(M, N), torch.rand(N, M)]
 
 

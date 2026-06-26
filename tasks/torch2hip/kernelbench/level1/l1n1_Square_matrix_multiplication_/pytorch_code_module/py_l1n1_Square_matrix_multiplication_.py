@@ -25,8 +25,8 @@ class Square_matrix_multiplication_(nn.Module):
 N = 2048 * 2
 
 def get_inputs():
-    # Square GEMM (A @ B); vary the single dimension N.
-    for n in [512, 1024, 2048, 4096]:
+    # Square GEMM (N,N) @ (N,N); escalate N (gpumode-style, perf scale).
+    for n in [1024, 2048, 3072, 4096, 6144]:
         yield [torch.rand(n, n), torch.rand(n, n)]
 
 

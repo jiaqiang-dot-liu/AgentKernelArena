@@ -27,8 +27,8 @@ out_features = 16384
 dropout_p = 0.2
 
 def get_inputs():
-    # in_features fixed, vary batch (dropout disabled in eval()).
-    for b in [32, 64, 128, 256]:
+    # in_features fixed, escalate batch (dropout disabled in eval()).
+    for b in [64, 128, 256, 512, 1024]:
         yield [torch.rand(b, in_features)]
 
 

@@ -34,8 +34,8 @@ dim1 = 256
 dim2 = 256
 
 def get_inputs():
-    # LayerNorm normalized_shape=(features,dim1,dim2) is fixed; vary batch only.
-    for b in [4, 8, 16, 32]:
+    # LayerNorm normalized_shape=(features,dim1,dim2) is fixed; escalate batch only.
+    for b in [4, 8, 16, 32, 64]:
         yield [torch.rand(b, features, dim1, dim2)]
 
 

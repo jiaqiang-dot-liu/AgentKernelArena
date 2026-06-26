@@ -33,8 +33,8 @@ kernel_size = 3
 scaling_factor = 2.0
 
 def get_inputs():
-    # in_channels fixed, vary batch/spatial.
-    for b, h, w in [(32, 64, 64), (64, 128, 128), (128, 32, 32), (16, 128, 128)]:
+    # in_channels fixed, escalate batch/spatial.
+    for b, h, w in [(32, 64, 64), (64, 64, 64), (128, 64, 64), (64, 128, 128), (128, 128, 128)]:
         yield [torch.rand(b, in_channels, h, w)]
 
 

@@ -28,8 +28,9 @@ k = 256 * 4
 n = 512 * 4
 
 def get_inputs():
-    # Batched GEMM (b,m,k) @ (b,k,n).
-    for b, m, k, n in [(16, 256, 512, 512), (32, 128, 256, 512), (64, 256, 256, 256), (128, 128, 256, 512)]:
+    # Batched GEMM (b,m,k) @ (b,k,n); escalate batch and inner dims.
+    for b, m, k, n in [(16, 128, 256, 256), (32, 256, 256, 512), (64, 256, 512, 512),
+                       (128, 256, 512, 1024), (128, 512, 512, 512)]:
         yield [torch.rand(b, m, k), torch.rand(b, k, n)]
 
 

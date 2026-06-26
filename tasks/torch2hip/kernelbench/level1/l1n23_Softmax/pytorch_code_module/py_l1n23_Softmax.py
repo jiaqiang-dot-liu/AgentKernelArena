@@ -25,8 +25,8 @@ batch_size = 4096
 dim = 393216
 
 def get_inputs():
-    # Row-wise softmax over dim=1.
-    for b, d in [(1024, 8192), (2048, 16384), (4096, 32768), (512, 65536)]:
+    # Row-wise softmax over dim=1 (model fixes dim=1 -> keep 2D); escalate sizes.
+    for b, d in [(512, 16384), (1024, 16384), (2048, 32768), (4096, 32768), (512, 131072)]:
         yield [torch.rand(b, d)]
 
 

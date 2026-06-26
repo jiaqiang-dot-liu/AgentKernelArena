@@ -27,8 +27,9 @@ K = 2949
 N = 5921
 
 def get_inputs():
-    # GEMM with irregular (non-power-of-two) shapes.
-    for M, K, N in [(4099, 1537, 2053), (2048, 3072, 1024), (6151, 2049, 4097), (8205, 2949, 5921)]:
+    # GEMM with irregular (non-power-of-two) shapes; escalate size.
+    for M, K, N in [(2048, 1537, 1024), (4099, 1537, 2053), (6151, 2049, 4097),
+                    (8205, 2949, 5921), (5921, 4096, 3072)]:
         yield [torch.rand(M, K), torch.rand(K, N)]
 
 

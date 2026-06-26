@@ -29,8 +29,8 @@ output_size = 8192
 divisor = 10.0
 
 def get_inputs():
-    # input_size fixed, vary batch.
-    for b in [256, 512, 1024, 2048]:
+    # input_size fixed, escalate batch.
+    for b in [256, 512, 1024, 2048, 4096]:
         yield [torch.rand(b, input_size)]
 
 

@@ -38,8 +38,8 @@ bias_shape = (out_channels, 1, 1)
 pool_kernel_size = 4
 
 def get_inputs():
-    # in_channels fixed; bias_shape independent of spatial, vary batch/spatial.
-    for b, h, w in [(32, 128, 128), (64, 256, 256), (128, 64, 64), (16, 256, 256)]:
+    # in_channels fixed; bias_shape independent of spatial, escalate batch/spatial.
+    for b, h, w in [(32, 128, 128), (64, 128, 128), (128, 128, 128), (64, 256, 256), (128, 256, 256)]:
         yield [torch.rand(b, in_channels, h, w)]
 
 

@@ -30,8 +30,8 @@ height, width = 128, 128
 kernel_size = 3
 
 def get_inputs():
-    # in_channels fixed, vary batch/spatial.
-    for b, h, w in [(16, 64, 64), (32, 128, 128), (64, 32, 32), (8, 128, 128)]:
+    # in_channels fixed, escalate batch/spatial.
+    for b, h, w in [(16, 64, 64), (32, 64, 64), (64, 64, 64), (32, 128, 128), (64, 128, 128)]:
         yield [torch.rand(b, in_channels, h, w)]
 
 

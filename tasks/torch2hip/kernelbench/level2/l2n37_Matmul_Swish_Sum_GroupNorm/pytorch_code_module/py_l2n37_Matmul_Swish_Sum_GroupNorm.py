@@ -32,8 +32,8 @@ num_groups = 64
 bias_shape = (out_features,)
 
 def get_inputs():
-    # in_features fixed, vary batch.
-    for b in [4096, 8192, 16384, 32768]:
+    # in_features fixed, escalate batch.
+    for b in [4096, 8192, 16384, 32768, 65536]:
         yield [torch.rand(b, in_features)]
 
 

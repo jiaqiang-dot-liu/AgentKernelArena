@@ -51,8 +51,8 @@ attn_pdrop = 0.0
 resid_pdrop = 0.0
 
 def get_inputs():
-    # n_embd fixed; seq_len <= max_seqlen (1024). Vary batch and seq_len.
-    for b, s in [(32, 256), (64, 512), (128, 128), (16, 1024)]:
+    # n_embd fixed; seq_len <= max_seqlen (1024). Escalate batch and seq_len.
+    for b, s in [(16, 256), (32, 256), (64, 512), (128, 512), (16, 1024)]:
         yield [torch.rand(b, s, n_embd)]
 
 

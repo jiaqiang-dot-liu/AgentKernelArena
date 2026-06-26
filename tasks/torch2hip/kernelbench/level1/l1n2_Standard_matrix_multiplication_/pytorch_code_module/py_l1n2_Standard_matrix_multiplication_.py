@@ -27,8 +27,9 @@ K = 4096 * 2
 N = 2048 * 2
 
 def get_inputs():
-    # Standard GEMM (M,K) @ (K,N); vary all three dims.
-    for M, K, N in [(512, 1024, 768), (1024, 2048, 1024), (2048, 4096, 2048), (1536, 1536, 1536)]:
+    # Standard GEMM (M,K) @ (K,N); escalate all three dims.
+    for M, K, N in [(512, 1024, 768), (1024, 2048, 1024), (2048, 2048, 2048),
+                    (2048, 4096, 2048), (4096, 4096, 4096)]:
         yield [torch.rand(M, K), torch.rand(K, N)]
 
 

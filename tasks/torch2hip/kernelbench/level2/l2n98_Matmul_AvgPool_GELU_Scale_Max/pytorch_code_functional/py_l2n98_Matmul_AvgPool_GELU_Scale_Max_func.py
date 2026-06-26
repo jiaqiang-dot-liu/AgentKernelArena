@@ -33,8 +33,8 @@ pool_kernel_size = 16
 scale_factor = 2.0
 
 def get_inputs():
-    # in_features fixed, vary batch.
-    for b in [256, 512, 1024, 2048]:
+    # in_features fixed, escalate batch.
+    for b in [256, 512, 1024, 2048, 4096]:
         yield [torch.rand(b, in_features)]
 
 

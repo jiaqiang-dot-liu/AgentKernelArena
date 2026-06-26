@@ -33,8 +33,9 @@ kernel_size = 3
 pool_kernel_size = 2
 
 def get_inputs():
-    # Conv3d pipeline; in_channels fixed, vary batch/depth/spatial.
-    for b, d, h, w in [(32, 16, 32, 32), (64, 8, 32, 32), (128, 16, 16, 16), (16, 16, 32, 32)]:
+    # Conv3d pipeline; in_channels fixed, escalate batch (depth/spatial held viable).
+    for b, d, h, w in [(16, 16, 32, 32), (32, 16, 32, 32), (64, 16, 32, 32),
+                       (128, 16, 32, 32), (64, 16, 16, 16)]:
         yield [torch.rand(b, in_channels, d, h, w)]
 
 

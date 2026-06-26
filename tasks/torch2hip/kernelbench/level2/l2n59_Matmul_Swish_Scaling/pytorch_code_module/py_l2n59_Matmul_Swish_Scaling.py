@@ -23,8 +23,8 @@ out_features = 32768
 scaling_factor = 2.0
 
 def get_inputs():
-    # in_features fixed, vary batch.
-    for b in [32, 64, 128, 256]:
+    # in_features fixed, escalate batch.
+    for b in [32, 64, 128, 256, 512]:
         yield [torch.rand(b, in_features)]
 
 

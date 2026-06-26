@@ -41,8 +41,8 @@ width = 1024
 height = 1024
 
 def get_inputs():
-    # Conv2d; in_channels fixed by get_init_inputs, vary batch/spatial.
-    for b, h, w in [(8, 256, 256), (16, 512, 512), (4, 1024, 1024), (16, 128, 128)]:
+    # Conv2d; in_channels fixed by get_init_inputs, escalate batch/spatial.
+    for b, h, w in [(4, 128, 128), (8, 256, 256), (16, 256, 256), (8, 512, 512), (16, 512, 512)]:
         yield [torch.rand(b, in_channels, h, w)]
 
 

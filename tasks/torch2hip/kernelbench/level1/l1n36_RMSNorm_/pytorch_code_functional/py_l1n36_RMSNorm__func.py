@@ -26,8 +26,9 @@ dim1 = 512
 dim2 = 512
 
 def get_inputs():
-    # RMSNorm; `features` is fixed by get_init_inputs, vary batch/spatial.
-    for b, d1, d2 in [(16, 256, 256), (32, 128, 128), (64, 256, 128), (112, 128, 128)]:
+    # RMSNorm; `features` is fixed by get_init_inputs, escalate batch/spatial.
+    for b, d1, d2 in [(16, 128, 128), (32, 128, 128), (64, 256, 256),
+                      (112, 256, 256), (32, 512, 512)]:
         yield [torch.rand(b, features, d1, d2)]
 
 

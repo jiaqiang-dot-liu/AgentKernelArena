@@ -26,8 +26,8 @@ M = 256 * 8 # 2048
 K = 131072 * 8 # 1048576
 
 def get_inputs():
-    # Matrix-vector (M,K) @ (K,1).
-    for M, K in [(1024, 262144), (2048, 524288), (512, 1048576), (4096, 131072)]:
+    # Matrix-vector (M,K) @ (K,1); escalate M and K.
+    for M, K in [(1024, 131072), (2048, 131072), (2048, 262144), (4096, 131072), (4096, 262144)]:
         yield [torch.rand(M, K), torch.rand(K, 1)]
 
 

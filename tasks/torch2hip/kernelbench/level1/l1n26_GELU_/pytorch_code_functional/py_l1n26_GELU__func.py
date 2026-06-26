@@ -21,9 +21,16 @@ batch_size = 4096
 dim = 393216
 
 def get_inputs():
-    # Element-wise GELU over varied 2D shapes.
-    for b, d in [(1024, 8192), (2048, 16384), (4096, 32768), (512, 65536)]:
-        yield [torch.rand(b, d)]
+    # Element-wise GELU across multiple ranks (gpumode activation template, perf scale).
+    configs = [
+        [16777216],            # 1D
+        [8192, 16384],         # 2D
+        [256, 1024, 1024],     # 3D
+        [32, 64, 512, 512],    # 4D (feature-map-like)
+        [4096, 32768],         # large 2D
+    ]
+    for shape in configs:
+        yield [torch.rand(shape)]
 
 
 def get_init_inputs():
