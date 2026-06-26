@@ -234,9 +234,24 @@ In addition, review the performance measurement implementation (typically `scrip
 - warmup iterations = 10
 - measured iterations = 100
 - reported runtime is an average across the measured iterations (and speedup is derived from those average runtimes)
-If performance execution succeeds but the methodology is different, missing, or cannot be verified from code, record a clear note in `checks.performance.analysis` and set `checks.performance.status` to `WARN` (not FAIL).
+
+Two timing implementations BOTH satisfy this methodology — treat either as PASS, do NOT WARN:
+1. **CUDA-event timing** — 10 warmup, then 100 measured iterations each timed with a CUDA-event
+   pair, averaged (e.g. hip2hip `eval_tools/cal_kernel_perf.py::cal_hip_latency`, or a
+   `cuda_event_fallback`/`cpu_timer_fallback` path).
+2. **CUDA-graph timing** — 10 warmup, then 100 timed graph-replay samples averaged, where each
+   replay runs an adaptively-chosen `n_repeat` kernels to amortize launch overhead
+   (`_benchmark_cuda_graph_or_events` / `_measure_times`; emits `benchmark_method: cuda_graph`
+   and `benchmark_samples: 100`). This is an ACCEPTED EQUIVALENT of "100 measured averaged" —
+   do NOT WARN merely because it uses CUDA graphs, an adaptive `n_repeat`, or records
+   `benchmark_method`. (Note: the `n_retries` parameter is legacy/unused; the sample count is
+   driven by `repetition`/`benchmark_samples`.)
+
+If performance execution succeeds but the methodology is genuinely different (e.g. warmup != 10, a
+sample count clearly != 100, or no averaging), or it cannot be verified from code, record a clear
+note in `checks.performance.analysis` and set `checks.performance.status` to `WARN` (not FAIL).
 Status:
-- PASS if performance evidence is successful (exit code 0 OR performance_report status ok OR eval_result timing fields present) AND the 10/100 average methodology is verified
+- PASS if performance evidence is successful (exit code 0 OR performance_report status ok OR eval_result timing fields present) AND the 10/100 average methodology (or an accepted CUDA-graph/CUDA-event equivalent above) is verified
 - WARN if performance evidence is successful but the methodology differs from 10 warmup / 100 measured average, or cannot be verified
 - FAIL if performance evidence is unsuccessful
 - TIMEOUT if exceeded {performance_timeout}s

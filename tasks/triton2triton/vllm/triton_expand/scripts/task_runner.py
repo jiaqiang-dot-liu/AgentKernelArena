@@ -36,6 +36,7 @@ WARMUP_ITERATIONS = 10
 BENCHMARK_ITERATIONS = 100
 
 
+# >>> AKA-GENERATED: shared CUDA-graph benchmark helpers — edit tools/perf/vllm_cuda_graph_block.py then run `make sync-perf-helpers` >>>
 def _measure_cuda_event_fallback(fn, repetition):
     import time
     import torch
@@ -146,12 +147,11 @@ def _benchmark_cuda_graph_or_events(
                 torch.cuda.synchronize()
                 retry_times.append(start_event.elapsed_time(end_event) / n_repeat)
 
-        retry_times = sorted(retry_times)
         metadata.update({
             "benchmark_method": "cuda_graph",
             "benchmark_effective_repeats": int(n_repeat),
         })
-        return retry_times[len(retry_times) // 2], metadata
+        return sum(retry_times) / len(retry_times), metadata
     except Exception as exc:
         torch.cuda.synchronize()
         times = _measure_cuda_event_fallback(fn, repetition)
@@ -161,6 +161,7 @@ def _benchmark_cuda_graph_or_events(
             "benchmark_fallback_reason": f"cuda_graph_failed: {type(exc).__name__}: {str(exc)[:160]}",
         })
         return sum(times) / len(times), metadata
+# <<< AKA-GENERATED <<<
 
 def run_correctness():
     import torch

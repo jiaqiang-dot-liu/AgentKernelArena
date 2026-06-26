@@ -31,7 +31,7 @@ export MAX_JOBS := 8
 export HIP_FORCE_DEV_KERNARG := 1
 export HSA_NO_SCRATCH_RECLAIM := 1
 
-.PHONY: help setup setup-venv setup-flydsl verify-flydsl clean cleanup-venv cleanup-works install-cursor-agent act vllm docker-shell docker-check-agents docker-run docker-smoke
+.PHONY: help setup setup-venv setup-flydsl verify-flydsl clean cleanup-venv cleanup-works install-cursor-agent act vllm docker-shell docker-check-agents docker-run docker-smoke sync-perf-helpers check-perf-helpers
 
 help:
 	@echo "AgentKernelArena Evaluation Framework - Makefile Commands"
@@ -143,6 +143,15 @@ docker-smoke:
 
 docker-run:
 	@$(DOCKER_RUNNER) run --config_name $(CONFIG) $(RUN_ARGS)
+
+# Propagate the canonical perf-benchmark helpers (tools/perf/) into every task copy.
+# Edit tools/perf/*, then run this.
+sync-perf-helpers:
+	@python3 tools/sync_perf_helpers.py
+
+# Verify all task perf-helper copies match the canonical source (CI-friendly).
+check-perf-helpers:
+	@python3 tools/sync_perf_helpers.py --check
 
 
 # Run vLLM server with latest ROCm 6.4.1 and vLLM 0.10.1
