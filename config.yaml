@@ -10,7 +10,7 @@
 # - claude_code
 # - task_validator
 agent:
-  template: claude_code 
+  template: cursor 
 
 # Task Selection
 # Specify task names to execute (use full path from tasks/ directory)
