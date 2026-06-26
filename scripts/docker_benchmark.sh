@@ -323,7 +323,9 @@ build_docker_args() {
     # Which agent CLIs to provision, and whether their absence is fatal.
     # Defaults (no caller override) are best-effort over all three — used by
     # interactive `shell`/`smoke` so any installed agent works.
-    local agents="${REQUIRED_AGENTS:-codex claude_code cursor}"
+# Use `-` (not `:-`) so an explicitly-empty REQUIRED_AGENTS means "no agents"
+# (e.g. setup-flydsl), while unset falls back to all three.
+    local agents="${REQUIRED_AGENTS-codex claude_code cursor}"
     local strict="${AGENTS_STRICT:-0}"
 
     [[ -n "$SELECTED_IMAGE" ]] || select_runtime_for_host
@@ -349,6 +351,7 @@ build_docker_args() {
         -e "MPLCONFIGDIR=/tmp/matplotlib"
         -e "TORCH_EXTENSIONS_DIR=/tmp/torch-extensions"
         -e "TRITON_CACHE_DIR=/tmp/triton-cache"
+        -e "PYTHONUSERBASE=${HOST_HOME}/.cache/aka-pyuserbase"
         -e "MIOPEN_USER_DB_PATH=/tmp/miopen-cache"
         -e "MIOPEN_CACHE_DIR=/tmp/miopen-cache"
         -e "MIOPEN_CUSTOM_CACHE_DIR=/tmp/miopen-cache"
@@ -377,6 +380,11 @@ build_docker_args() {
     add_device_if_present /dev/mem
 
     add_mount "$HOST_ROOT" "$CONTAINER_WORKDIR"
+    # Persistent pip user-base so `make docker-setup-flydsl` survives across runs
+    # (the base image ships no flydsl). PYTHONUSERBASE above points the container's
+    # python at this dir, so an installed flydsl is importable in every run.
+    mkdir -p "$HOST_HOME/.cache/aka-pyuserbase" 2>/dev/null || true
+    add_mount "$HOST_HOME/.cache/aka-pyuserbase" "$HOST_HOME/.cache/aka-pyuserbase"
     local _agent
     for _agent in $agents; do
         mount_agent "$_agent" "$strict"
@@ -551,6 +559,20 @@ print(f"config_ok={config_path}")
 PY
 }
 
+container_setup_flydsl() {
+    # If the image already provides FlyDSL, do nothing — installing a --user copy
+    # could shadow the image version with an incompatible one.
+    if python -c 'import flydsl' 2>/dev/null; then
+        python -c 'import flydsl; print("flydsl already provided by image: " + str(getattr(flydsl, "__version__", "unknown")) + "; nothing to install")'
+        return 0
+    fi
+    # Otherwise install into the persistent pip user-base (PYTHONUSERBASE), a
+    # host-mounted dir, so it survives the --rm container and is importable in later runs.
+    echo "flydsl not found in image; installing into persistent pip user-base..."
+    python -m pip install --user --upgrade flydsl
+    python -c 'import flydsl; print("flydsl=" + str(getattr(flydsl, "__version__", "unknown")) + " setup OK")'
+}
+
 case "${1:-}" in
     run)
         shift
@@ -592,6 +614,16 @@ case "${1:-}" in
         REQUIRED_AGENTS="${REQUIRED_AGENTS//,/ }"
         AGENTS_STRICT=0
         docker_exec 0 bash scripts/docker_benchmark.sh _container_smoke
+        ;;
+    setup-flydsl)
+        select_runtime_for_host
+        # FlyDSL install needs no agent CLIs.
+        REQUIRED_AGENTS=""
+        AGENTS_STRICT=0
+        docker_exec 0 bash scripts/docker_benchmark.sh _container_setup_flydsl
+        ;;
+    _container_setup_flydsl)
+        container_setup_flydsl
         ;;
     _container_smoke)
         container_smoke
