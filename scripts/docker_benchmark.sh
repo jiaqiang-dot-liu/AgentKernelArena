@@ -198,16 +198,115 @@ detect_node_prefix() {
 }
 
 docker_args=()
+declare -A _MOUNTED_TARGETS=()
 
 add_mount() {
     local source="$1"
     local target="$2"
     local mode="${3:-}"
+    # Skip duplicate targets (e.g. ~/.local/bin is shared by claude + cursor).
+    if [[ -n "${_MOUNTED_TARGETS[$target]:-}" ]]; then
+        return 0
+    fi
+    _MOUNTED_TARGETS[$target]=1
     if [[ -n "$mode" ]]; then
         docker_args+=(-v "${source}:${target}:${mode}")
     else
         docker_args+=(-v "${source}:${target}")
     fi
+}
+
+# Require a path only when strict; otherwise return non-zero so the caller can
+# skip an agent that is not installed (best-effort provisioning).
+need_path() {
+    local path="$1" label="$2" strict="${3:-1}"
+    if [[ -e "$path" ]]; then
+        return 0
+    fi
+    [[ "$strict" == "1" ]] && die "$label not found: $path"
+    return 1
+}
+
+# Parse the configured agent template from a run config (best-effort).
+read_agent_template() {
+    local config="$1"
+    [[ -f "$config" ]] || return 0
+    sed -nE 's/^[[:space:]]+template:[[:space:]]*["'"'"']?([A-Za-z0-9_]+).*/\1/p' "$config" | head -n 1
+}
+
+# task_validator delegates to a backend CLI; read which one.
+read_validator_backend() {
+    local cfg="$HOST_ROOT/agents/task_validator/agent_config.yaml"
+    [[ -f "$cfg" ]] || { printf 'claude_code\n'; return; }
+    sed -nE 's/^backend:[[:space:]]*["'"'"']?([A-Za-z0-9_]+).*/\1/p' "$cfg" | head -n 1
+}
+
+# Decide which agent CLIs to provision into the container.
+# AKA_AGENTS env (comma/space list) overrides; else derive from config's
+# agent.template (task_validator -> its backend); else all three.
+resolve_required_agents() {
+    local config="${1:-}"
+    if [[ -n "${AKA_AGENTS:-}" ]]; then
+        printf '%s\n' "${AKA_AGENTS//,/ }"
+        return
+    fi
+    local tmpl=""
+    [[ -n "$config" ]] && tmpl="$(read_agent_template "$config")"
+    if [[ -z "$tmpl" ]]; then
+        printf 'codex claude_code cursor\n'
+        return
+    fi
+    [[ "$tmpl" == "task_validator" ]] && tmpl="$(read_validator_backend)"
+    case "$tmpl" in
+        claude|claude_code) printf 'claude_code\n' ;;
+        cursor|cursor-agent) printf 'cursor\n' ;;
+        codex) printf 'codex\n' ;;
+        *) printf '%s\n' "$tmpl" ;;
+    esac
+}
+
+# Mount one agent's CLI install + auth dirs. $2=strict (1 require, 0 best-effort).
+mount_agent() {
+    local agent="$1" strict="${2:-1}"
+    case "$agent" in
+        codex)
+            if ! command -v node >/dev/null 2>&1; then
+                [[ "$strict" == "1" ]] && die "Codex agent requires host node on PATH"
+                warn "node not found on PATH; skipping Codex agent mounts"
+                return 0
+            fi
+            local node_prefix
+            node_prefix="$(detect_node_prefix)"
+            need_path "$node_prefix/bin/node" "host node" "$strict" || return 0
+            need_path "$node_prefix/bin/codex" "host codex" "$strict" || return 0
+            need_path "$HOST_HOME/.codex" "Codex auth/config directory" "$strict" || return 0
+            add_mount "$node_prefix" /opt/node ro
+            add_mount "$HOST_HOME/.codex" "$HOST_HOME/.codex"
+            ;;
+        claude_code)
+            need_path "$HOST_HOME/.local/bin" "host local bin directory" "$strict" || return 0
+            need_path "$HOST_HOME/.local/share/claude" "Claude Code local install" "$strict" || return 0
+            need_path "$HOST_HOME/.claude" "Claude Code auth directory" "$strict" || return 0
+            need_path "$HOST_HOME/.claude.json" "Claude Code auth/config file" "$strict" || return 0
+            add_mount "$HOST_HOME/.local/bin" "$HOST_HOME/.local/bin" ro
+            add_mount "$HOST_HOME/.local/share/claude" "$HOST_HOME/.local/share/claude" ro
+            add_mount "$HOST_HOME/.claude" "$HOST_HOME/.claude"
+            add_mount "$HOST_HOME/.claude.json" "$HOST_HOME/.claude.json"
+            ;;
+        cursor)
+            need_path "$HOST_HOME/.local/bin" "host local bin directory" "$strict" || return 0
+            need_path "$HOST_HOME/.local/share/cursor-agent" "Cursor Agent local install" "$strict" || return 0
+            need_path "$HOST_HOME/.cursor" "Cursor Agent state directory" "$strict" || return 0
+            need_path "$HOST_HOME/.config/cursor" "Cursor Agent config directory" "$strict" || return 0
+            add_mount "$HOST_HOME/.local/bin" "$HOST_HOME/.local/bin" ro
+            add_mount "$HOST_HOME/.local/share/cursor-agent" "$HOST_HOME/.local/share/cursor-agent" ro
+            add_mount "$HOST_HOME/.cursor" "$HOST_HOME/.cursor"
+            add_mount "$HOST_HOME/.config/cursor" "$HOST_HOME/.config/cursor"
+            ;;
+        *)
+            warn "Unknown agent '$agent'; not provisioning any CLI for it"
+            ;;
+    esac
 }
 
 add_device_if_present() {
@@ -221,23 +320,17 @@ add_device_if_present() {
 
 build_docker_args() {
     local interactive="${1:-0}"
-    local node_prefix
-    node_prefix="$(detect_node_prefix)"
+    # Which agent CLIs to provision, and whether their absence is fatal.
+    # Defaults (no caller override) are best-effort over all three — used by
+    # interactive `shell`/`smoke` so any installed agent works.
+    local agents="${REQUIRED_AGENTS:-codex claude_code cursor}"
+    local strict="${AGENTS_STRICT:-0}"
 
     [[ -n "$SELECTED_IMAGE" ]] || select_runtime_for_host
 
-    require_path "$node_prefix/bin/node" "host node"
-    require_path "$node_prefix/bin/codex" "host codex"
-    require_path "$HOST_HOME/.codex" "Codex auth/config directory"
-    require_path "$HOST_HOME/.local/bin" "host local bin directory"
-    require_path "$HOST_HOME/.local/share/claude" "Claude Code local install"
-    require_path "$HOST_HOME/.claude" "Claude Code auth directory"
-    require_path "$HOST_HOME/.claude.json" "Claude Code auth/config file"
-    require_path "$HOST_HOME/.local/share/cursor-agent" "Cursor Agent local install"
-    require_path "$HOST_HOME/.cursor" "Cursor Agent state directory"
-    require_path "$HOST_HOME/.config/cursor" "Cursor Agent config directory"
-
     docker_args=(run --rm --entrypoint bash)
+    unset _MOUNTED_TARGETS
+    declare -gA _MOUNTED_TARGETS=()
     if [[ "$interactive" == "1" && -t 0 ]]; then
         docker_args+=(-it)
     fi
@@ -284,15 +377,10 @@ build_docker_args() {
     add_device_if_present /dev/mem
 
     add_mount "$HOST_ROOT" "$CONTAINER_WORKDIR"
-    add_mount "$node_prefix" /opt/node ro
-    add_mount "$HOST_HOME/.codex" "$HOST_HOME/.codex"
-    add_mount "$HOST_HOME/.local/bin" "$HOST_HOME/.local/bin" ro
-    add_mount "$HOST_HOME/.local/share/claude" "$HOST_HOME/.local/share/claude" ro
-    add_mount "$HOST_HOME/.claude" "$HOST_HOME/.claude"
-    add_mount "$HOST_HOME/.claude.json" "$HOST_HOME/.claude.json"
-    add_mount "$HOST_HOME/.local/share/cursor-agent" "$HOST_HOME/.local/share/cursor-agent" ro
-    add_mount "$HOST_HOME/.cursor" "$HOST_HOME/.cursor"
-    add_mount "$HOST_HOME/.config/cursor" "$HOST_HOME/.config/cursor"
+    local _agent
+    for _agent in $agents; do
+        mount_agent "$_agent" "$strict"
+    done
 
     # The base image lacks the GNU `time` binary and the container runs as a
     # non-root user (so it cannot apt-install it). Bind-mount the host binary
@@ -457,6 +545,9 @@ case "${1:-}" in
         shift
         config_name="$(extract_config_name "$@")"
         select_runtime_for_config "$config_name"
+        # Only the configured agent's CLI/auth is required for a run.
+        REQUIRED_AGENTS="$(resolve_required_agents "$config_name")"
+        AGENTS_STRICT=1
         docker_exec 0 bash scripts/docker_benchmark.sh _container_preflight "$config_name"
         docker_exec 0 python main.py "$@"
         ;;
@@ -464,19 +555,31 @@ case "${1:-}" in
         shift
         config_name="$(extract_config_name "$@")"
         select_runtime_for_config "$config_name"
+        REQUIRED_AGENTS="$(resolve_required_agents "$config_name")"
+        AGENTS_STRICT=1
         docker_exec 0 bash scripts/docker_benchmark.sh _container_preflight "$config_name"
         ;;
     shell)
         select_runtime_for_host
+        # Interactive shell: provision whichever agents are installed (best-effort).
+        REQUIRED_AGENTS="${AKA_AGENTS:-codex claude_code cursor}"
+        REQUIRED_AGENTS="${REQUIRED_AGENTS//,/ }"
+        AGENTS_STRICT=0
         build_docker_args 1
         docker "${docker_args[@]}"
         ;;
     check-agents)
         select_runtime_for_host
+        # check-agents is the strict, all-three verification path.
+        REQUIRED_AGENTS="codex claude_code cursor"
+        AGENTS_STRICT=1
         docker_exec 0 bash scripts/docker_benchmark.sh _container_check_agents
         ;;
     smoke)
         select_runtime_for_host
+        REQUIRED_AGENTS="${AKA_AGENTS:-codex claude_code cursor}"
+        REQUIRED_AGENTS="${REQUIRED_AGENTS//,/ }"
+        AGENTS_STRICT=0
         docker_exec 0 bash scripts/docker_benchmark.sh _container_smoke
         ;;
     _container_smoke)
