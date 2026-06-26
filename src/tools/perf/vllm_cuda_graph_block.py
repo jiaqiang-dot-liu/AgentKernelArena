@@ -1,6 +1,6 @@
 """Canonical CUDA-graph benchmark helpers for triton2triton/vllm task runners.
 This file is the SOURCE OF TRUTH. After editing, run `make sync-perf-helpers`
-(or python tools/sync_perf_helpers.py) to propagate it into every task's
+(or python src/tools/sync_perf_helpers.py) to propagate it into every task's
 scripts/task_runner.py between the AKA-GENERATED markers.
 """
 

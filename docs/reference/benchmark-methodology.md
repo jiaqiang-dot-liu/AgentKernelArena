@@ -4,6 +4,11 @@ Performance timing in AgentKernelArena is **not uniform across task categories**
 There are two timing implementations; both use 10 warmup iterations and average the
 measured samples, but they differ in how samples are collected.
 
+The shared Triton timing helpers are maintained in `src/tools/perf/`; committed task
+sources contain stubs/markers, and `setup_workspace()` materializes the canonical
+helpers into each run workspace. See `src/tools/perf/README.md` for the helper
+workflow.
+
 ## 1. CUDA-graph timing (Triton tasks)
 
 Used by:

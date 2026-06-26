@@ -2,12 +2,13 @@
 #
 # All benchmarking runs inside the pinned ROCm/SGLang container. Docker is the only
 # supported path; the legacy host venv / `python main.py` workflow has been removed.
-# See scripts/docker_benchmark.sh and docs/install/install.md.
+# See src/scripts/docker_benchmark.sh and docs/install/install.md.
 
 SHELL := /bin/bash
 
 .PHONY: help docker-shell docker-check-agents docker-smoke docker-run docker-setup-flydsl \
-        sync-perf-helpers check-perf-helpers cleanup-works install-cursor-agent vllm
+        sync-perf-helpers check-perf-helpers materialize-perf-workspace \
+        materialize-perf-task cleanup-works install-cursor-agent vllm
 
 help:
 	@echo "AgentKernelArena Evaluation Framework - Makefile Commands"
@@ -21,14 +22,21 @@ help:
 	@echo "make docker-setup-flydsl - Install FlyDSL into the container (needed for flydsl2flydsl tasks)"
 	@echo ""
 	@echo "Maintenance:"
-	@echo "make sync-perf-helpers   - Propagate canonical perf helpers (tools/perf/) into task copies"
-	@echo "make check-perf-helpers  - Verify perf-helper copies are in sync"
+	@echo "make sync-perf-helpers   - Refresh committed perf-helper stubs in task sources"
+	@echo "make check-perf-helpers  - Verify task perf-helper stubs and markers are valid"
+	@echo "make materialize-perf-workspace WORKSPACE=workspace_x - Inject canonical perf helpers into workspace(s)"
+	@echo "make materialize-perf-task TASK=tasks/... OUT=/tmp/aka-task - Copy task(s) and inject canonical perf helpers"
 	@echo "make cleanup-works       - Remove workspace_* directories and logs"
 	@echo "make install-cursor-agent- Install the Cursor Agent CLI on the host"
 
-DOCKER_RUNNER := scripts/docker_benchmark.sh
+DOCKER_RUNNER := src/scripts/docker_benchmark.sh
 CONFIG ?= config.yaml
 RUN_ARGS ?=
+WORKSPACES ?= $(WORKSPACE)
+TASKS ?= $(TASK)
+OUT ?= /tmp/aka-materialized-tasks
+FORCE ?= 0
+MATERIALIZE_FORCE_ARG := $(if $(filter 1 true yes,$(FORCE)),--force,)
 
 docker-shell:
 	@$(DOCKER_RUNNER) shell
@@ -47,14 +55,24 @@ docker-run:
 docker-setup-flydsl:
 	@$(DOCKER_RUNNER) setup-flydsl
 
-# Propagate the canonical perf-benchmark helpers (tools/perf/) into every task copy.
-# Edit tools/perf/*, then run this.
+# Refresh committed perf-helper stubs/markers in task sources. Runtime workspaces
+# are materialized from src/tools/perf/ by setup_workspace().
 sync-perf-helpers:
-	@python3 tools/sync_perf_helpers.py
+	@python3 src/tools/sync_perf_helpers.py
 
-# Verify all task perf-helper copies match the canonical source (CI-friendly).
+# Verify all task perf-helper stubs/markers are in the expected committed form.
 check-perf-helpers:
-	@python3 tools/sync_perf_helpers.py --check
+	@python3 src/tools/sync_perf_helpers.py --check
+
+# Materialize canonical perf helpers into existing copied task workspace(s).
+materialize-perf-workspace:
+	@test -n "$(WORKSPACES)" || (echo "Usage: make materialize-perf-workspace WORKSPACE=workspace_x"; exit 2)
+	@python3 src/tools/materialize_perf_helpers.py workspace $(WORKSPACES)
+
+# Copy one or more task source directories to OUT, then materialize helpers there.
+materialize-perf-task:
+	@test -n "$(TASKS)" || (echo "Usage: make materialize-perf-task TASK=tasks/... [OUT=/tmp/aka-task] [FORCE=1]"; exit 2)
+	@python3 src/tools/materialize_perf_helpers.py task --out "$(OUT)" $(MATERIALIZE_FORCE_ARG) $(TASKS)
 
 cleanup-works:
 	@echo "Removing workspace directories and logs..."

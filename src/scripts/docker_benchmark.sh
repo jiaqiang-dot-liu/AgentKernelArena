@@ -4,7 +4,7 @@ set -euo pipefail
 DEFAULT_DOCKER_IMAGE_GFX942="${AKA_DOCKER_IMAGE_GFX942:-lmsysorg/sglang:v0.5.12-rocm720-mi30x}"
 DEFAULT_DOCKER_IMAGE_GFX950="${AKA_DOCKER_IMAGE_GFX950:-lmsysorg/sglang:v0.5.12-rocm720-mi35x}"
 CONTAINER_WORKDIR="${AKA_DOCKER_WORKDIR:-/workspace}"
-HOST_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+HOST_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 HOST_HOME="${HOME:?HOME must be set}"
 HOST_UID="$(id -u)"
 HOST_GID="$(id -g)"
@@ -20,11 +20,11 @@ container_path="/opt/node/bin:${HOST_HOME}/.local/bin:/opt/venv/bin:/usr/local/b
 usage() {
     cat <<'EOF'
 Usage:
-  scripts/docker_benchmark.sh run [main.py args...]
-  scripts/docker_benchmark.sh preflight [--config_name config.yaml]
-  scripts/docker_benchmark.sh shell
-  scripts/docker_benchmark.sh check-agents
-  scripts/docker_benchmark.sh smoke
+  src/scripts/docker_benchmark.sh run [main.py args...]
+  src/scripts/docker_benchmark.sh preflight [--config_name config.yaml]
+  src/scripts/docker_benchmark.sh shell
+  src/scripts/docker_benchmark.sh check-agents
+  src/scripts/docker_benchmark.sh smoke
 
 Environment overrides:
   AKA_DOCKER_IMAGE        Absolute Docker image override.
@@ -581,7 +581,7 @@ case "${1:-}" in
         # Only the configured agent's CLI/auth is required for a run.
         REQUIRED_AGENTS="$(resolve_required_agents "$config_name")"
         AGENTS_STRICT=1
-        docker_exec 0 bash scripts/docker_benchmark.sh _container_preflight "$config_name"
+        docker_exec 0 bash src/scripts/docker_benchmark.sh _container_preflight "$config_name"
         docker_exec 0 python main.py "$@"
         ;;
     preflight)
@@ -590,7 +590,7 @@ case "${1:-}" in
         select_runtime_for_config "$config_name"
         REQUIRED_AGENTS="$(resolve_required_agents "$config_name")"
         AGENTS_STRICT=1
-        docker_exec 0 bash scripts/docker_benchmark.sh _container_preflight "$config_name"
+        docker_exec 0 bash src/scripts/docker_benchmark.sh _container_preflight "$config_name"
         ;;
     shell)
         select_runtime_for_host
@@ -606,21 +606,21 @@ case "${1:-}" in
         # check-agents is the strict, all-three verification path.
         REQUIRED_AGENTS="codex claude_code cursor"
         AGENTS_STRICT=1
-        docker_exec 0 bash scripts/docker_benchmark.sh _container_check_agents
+        docker_exec 0 bash src/scripts/docker_benchmark.sh _container_check_agents
         ;;
     smoke)
         select_runtime_for_host
         REQUIRED_AGENTS="${AKA_AGENTS:-codex claude_code cursor}"
         REQUIRED_AGENTS="${REQUIRED_AGENTS//,/ }"
         AGENTS_STRICT=0
-        docker_exec 0 bash scripts/docker_benchmark.sh _container_smoke
+        docker_exec 0 bash src/scripts/docker_benchmark.sh _container_smoke
         ;;
     setup-flydsl)
         select_runtime_for_host
         # FlyDSL install needs no agent CLIs.
         REQUIRED_AGENTS=""
         AGENTS_STRICT=0
-        docker_exec 0 bash scripts/docker_benchmark.sh _container_setup_flydsl
+        docker_exec 0 bash src/scripts/docker_benchmark.sh _container_setup_flydsl
         ;;
     _container_setup_flydsl)
         container_setup_flydsl

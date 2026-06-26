@@ -116,6 +116,21 @@ and must validate correctness meaningfully.
 - **Performance methodology**: a recommended pattern is 10 warmup iterations plus
   100 measured iterations, reporting the average runtime.
 
+## Performance helper stubs
+
+The shared performance timing helpers are generated from `src/tools/perf/` into each
+run workspace. In committed task sources:
+
+- `tasks/*/rocmbench/**/performance_utils_pytest.py` is intentionally a stub.
+- The `AKA-GENERATED` region in `triton2triton/vllm/*/scripts/task_runner.py` is
+  intentionally a stub block.
+
+Do not hand-edit those stubs. If a task needs shared timing behavior, add the
+stub/marker and run `make sync-perf-helpers`. If you need to change timing logic,
+edit the canonical file in `src/tools/perf/` and run `make check-perf-helpers`
+before pushing. To inspect a task with the real helpers injected, run
+`make materialize-perf-task TASK=tasks/...`.
+
 ## Validate before merging
 
 Every new task must pass the **task_validator** agent before it is merged. It

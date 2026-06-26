@@ -25,6 +25,9 @@ make install-cursor-agent
 # Optional: install FlyDSL into the container (only for flydsl2flydsl tasks)
 make docker-setup-flydsl
 
+# Optional: install local commit hooks
+pre-commit install
+
 # Optional: start a local vLLM server for self-hosted models
 make vllm
 ```
@@ -47,6 +50,14 @@ make docker-run CONFIG=config.yaml
 - Keep agent integrations isolated under `agents/<agent_name>/` — don't leak agent-specific logic into `src/`.
 - Update `config.yaml`, `README.md`, and the agent registry (`agents/__init__.py`) when adding a new agent.
 - Add documentation or comments when intent is non-obvious.
+- Performance timing helpers are generated into run workspaces from
+  `src/tools/perf/`.
+  Do not hand-edit `tasks/*/rocmbench/**/performance_utils_pytest.py` stubs or the
+  `AKA-GENERATED` block in vLLM `task_runner.py` files. Edit `src/tools/perf/`
+  instead, and run `make check-perf-helpers` before pushing.
+  Use `make materialize-perf-workspace WORKSPACE=...` or
+  `make materialize-perf-task TASK=tasks/...` when you need a local copy with
+  the real helper code injected.
 
 ## Testing and Verification
 
@@ -63,6 +74,7 @@ python compare_runs.py --runs <run-id-1> <run-id-2>
 ```
 
 - For changes to scoring or evaluation logic, attach before/after results on at least one task category.
+- For changes to `src/tools/perf/`, also include `make check-perf-helpers` output.
 
 ## Filing Issues
 

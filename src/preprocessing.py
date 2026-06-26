@@ -9,6 +9,8 @@ from pathlib import Path
 import yaml
 from typing import Any, Optional
 
+from src.perf_helper_materialization import materialize_perf_helpers_in_workspace
+
 
 def _resolve_gfx_arch(target_gpu_model: str) -> str | None:
     """
@@ -310,5 +312,6 @@ def setup_workspace(task_config_dir: str, run_directory: Path, timestamp: str, l
             shutil.copy2(item, dst)
 
     logger.info(f"Copied task folder content from {task_folder} to {workspace_path}")
+    materialize_perf_helpers_in_workspace(workspace_path, logger=logger)
 
     return workspace_path

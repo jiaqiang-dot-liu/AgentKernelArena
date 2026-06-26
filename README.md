@@ -115,6 +115,10 @@ make docker-smoke
 make docker-check-agents
 ```
 
+Performance timing helpers are maintained in `src/tools/perf/`; committed task
+sources keep stubs that are materialized into run workspaces. See
+`src/tools/perf/README.md` for the helper workflow.
+
 ## Usage
 
 ### Basic Usage
