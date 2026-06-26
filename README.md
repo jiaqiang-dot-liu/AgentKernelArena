@@ -313,7 +313,7 @@ tasks:
   - <task_type>/<task_name>
 
 # Run validation
-python3 main.py
+make docker-run CONFIG=config.yaml
 ```
 
 Review the generated `validation_report.yaml` in the workspace directory. The task must achieve **PASS** overall status (all checks pass). A **WARN** status (no failures but warnings) is acceptable with justification. A **FAIL** status means the task must be fixed before merging.

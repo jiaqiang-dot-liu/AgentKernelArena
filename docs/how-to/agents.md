@@ -54,10 +54,10 @@ without, then compare the standardized scores:
 
 ```bash
 # Baseline
-python main.py --run-suffix baseline
+make docker-run CONFIG=config.yaml RUN_ARGS="--run-suffix baseline"
 
 # With the new capability enabled in the agent configuration
-python main.py --run-suffix with_capability
+make docker-run CONFIG=config.yaml RUN_ARGS="--run-suffix with_capability"
 ```
 
 Both runs land in the same workspace directory with distinct run names, so the

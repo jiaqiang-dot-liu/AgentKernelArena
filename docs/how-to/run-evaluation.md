@@ -99,10 +99,10 @@ Long runs can be resumed; completed tasks are skipped.
 
 ```bash
 # Resume a specific run directory
-python main.py --resume-run run_20260617_101500
+make docker-run CONFIG=config.yaml RUN_ARGS="--resume-run run_20260617_101500"
 
 # Resume the most recent run
-python main.py --resume-latest
+make docker-run CONFIG=config.yaml RUN_ARGS="--resume-latest"
 ```
 
 ## 5. Read the results

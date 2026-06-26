@@ -42,8 +42,11 @@ workspace_directory_prefix: workspace
 | `--resume-run <run_dir>` | Resume a specific run directory, skipping completed tasks. |
 | `--resume-latest` | Resume the most recent run in the workspace. |
 
+These flags are passed to the in-container entrypoint via `make docker-run`
+(`CONFIG=` sets `--config_name`; `RUN_ARGS=` forwards the rest):
+
 ```bash
-python main.py --config_name config_triton.yaml --run-suffix with_mcp
+make docker-run CONFIG=config_triton.yaml RUN_ARGS="--run-suffix with_mcp"
 ```
 
 ## Task configuration

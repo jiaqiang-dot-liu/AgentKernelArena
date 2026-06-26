@@ -1,9 +1,9 @@
 # Install AgentKernelArena
 
 AgentKernelArena runs AI coding agents against GPU kernel tasks on an AMD GPU and
-evaluates the results. The recommended workflow runs the evaluator inside the
-GPU-arch-specific SGLang Docker image and bind-mounts the local
-agent CLIs plus their login state.
+evaluates the results. **Docker is the only supported workflow**: the evaluator runs
+inside the GPU-arch-specific SGLang Docker image and bind-mounts the local agent CLIs
+plus their login state. (The legacy host `.venv` / `python main.py` path has been removed.)
 
 ## Prerequisites
 
@@ -21,7 +21,7 @@ agent CLIs plus their login state.
   supported CLIs. See
   [Configure agents and models](../how-to/agents.md))
 
-## Recommended: Docker runner
+## Docker runner
 
 From the repository root, use the Docker-first Makefile targets. The runner does
 not copy credentials into an image; it bind-mounts the existing host login state.
@@ -50,30 +50,6 @@ make docker-run CONFIG=config.yaml
 make docker-run CONFIG=config.yaml RUN_ARGS="--run-suffix cursor_docker"
 ```
 
-## Legacy venv installation
-
-The older `.venv` workflow remains available for local development. From the
-repository root, the `Makefile` detects your ROCm version, creates a virtual
-environment, and installs dependencies:
-
-```bash
-make setup
-make act
-```
-
-If you prefer not to use the `Makefile`:
-
-```bash
-python3.12 -m venv .venv
-source .venv/bin/activate
-
-# Install the ROCm PyTorch build that matches your ROCm version, for example:
-pip install torch torchvision torchaudio \
-  --index-url https://download.pytorch.org/whl/rocm6.4
-
-pip install -r requirements.txt
-```
-
 ## Install agent CLIs
 
 Install whichever agents you plan to evaluate. For example:
@@ -88,6 +64,18 @@ npm install -g @anthropic-ai/claude-code
 # Codex CLI: follow the official Codex CLI instructions, then ensure
 # `codex` is available on PATH.
 ```
+
+## FlyDSL tasks (optional)
+
+`flydsl2flydsl` tasks need the `flydsl` package inside the container. Most images
+already ship it (`make docker-smoke` prints `flydsl=ok <version>`). If yours does
+not, install it once into the container's persistent pip user-base:
+
+```bash
+make docker-setup-flydsl
+```
+
+This is a no-op when the image already provides FlyDSL.
 
 ## Configure API keys
 

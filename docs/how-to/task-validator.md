@@ -24,7 +24,7 @@ workspace_directory_prefix: workspace
 Then run:
 
 ```bash
-python3 main.py
+make docker-run CONFIG=config.yaml
 ```
 
 Each task workspace receives a `validation_report.yaml` with per-check results,

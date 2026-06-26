@@ -1,7 +1,8 @@
 # Examples
 
 These walkthroughs assume you have completed [installation](../install/install.md)
-and activated the virtual environment (`make act`).
+and can run the Docker runner (`make docker-smoke` passes). All runs go through
+`make docker-run`.
 
 ## Example 1: Evaluate one agent on one task
 
@@ -24,7 +25,7 @@ workspace_directory_prefix: workspace
 2. Run:
 
 ```bash
-python main.py
+make docker-run CONFIG=config.yaml
 ```
 
 3. Inspect the result:
@@ -65,7 +66,7 @@ workspace_directory_prefix: workspace
 ```
 
 ```bash
-python main.py
+make docker-run CONFIG=config.yaml
 ```
 
 Each task gets its own workspace under the same `run_<timestamp>/` directory, and
@@ -78,10 +79,10 @@ task set twice with distinct run suffixes.
 
 ```bash
 # Baseline (capability disabled in the agent configuration)
-python main.py --run-suffix baseline
+make docker-run CONFIG=config.yaml RUN_ARGS="--run-suffix baseline"
 
 # Treatment (capability enabled)
-python main.py --run-suffix with_capability
+make docker-run CONFIG=config.yaml RUN_ARGS="--run-suffix with_capability"
 ```
 
 Both runs land in `workspace_MI300_<agent>/` with distinct run names. Build the
@@ -113,7 +114,7 @@ workspace_directory_prefix: workspace
 ```
 
 ```bash
-python3 main.py
+make docker-run CONFIG=config.yaml
 ```
 
 Open the generated `validation_report.yaml` in the task workspace. The task must
@@ -126,8 +127,8 @@ If a long run is interrupted, resume it without repeating completed tasks:
 
 ```bash
 # Resume the most recent run
-python main.py --resume-latest
+make docker-run CONFIG=config.yaml RUN_ARGS="--resume-latest"
 
 # Or resume a specific run directory
-python main.py --resume-run run_20260617_101500
+make docker-run CONFIG=config.yaml RUN_ARGS="--resume-run run_20260617_101500"
 ```

@@ -29,7 +29,7 @@ workspace_directory_prefix: workspace
 ### 2. Run
 
 ```bash
-python3 main.py
+make docker-run CONFIG=config.yaml
 ```
 
 ### 3. Read Results
@@ -142,7 +142,7 @@ A task **must** be fully self-contained. This means:
 
 3. **No missing Python imports.** Every `import` or `from X import Y` must resolve to either:
    - Python standard library
-   - Packages available in the `.venv` environment (torch, numpy, triton, etc.)
+   - Packages available in the Docker container environment (torch, numpy, triton, etc.)
    - Local files within the task directory
 
 4. **No external data downloads.** Test inputs must be generated inline (random tensors, synthetic data) or bundled as small files in the task directory.
