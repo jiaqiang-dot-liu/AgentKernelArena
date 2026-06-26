@@ -288,6 +288,16 @@ deterministic mapping: pass_compilation/pass_correctness from the JSON reports, 
 from the performance report, base_execution_time from baseline_perf.yaml, and speedup_ratio = base/optimized.
 `eval_result.yaml` and the `task_result_template` field are NOT required for repository tasks — do not FAIL
 solely on their absence. Mark PASS when these reports are present (or would be produced by the runner).
+
+For optimization tasks whose performance test emits per-case timing (e.g. `perf/benchmark_results.json`
+with mean/median per configuration) and signals compile/correctness via pytest exit codes — typical of
+`triton2triton` / `instruction2triton` — the BASELINE timing does NOT need to live inside the perf test,
+and the test does NOT need its own PyTorch/reference baseline. The harness derives `base_execution_time`
+by running the SAME `performance_command` against the ORIGINAL (unmodified) kernel before the agent runs
+(saved to `baseline_perf.yaml`) and `best_optimized_execution_time` from the optimized run, then computes
+`speedup_ratio = base/optimized` itself. Therefore `task_result_template: null` and the absence of an
+in-test baseline are EXPECTED and fine — do NOT WARN/FAIL Check 10 for that reason. Mark PASS as long as the
+performance command emits parseable per-case timing and compile/correctness pass/fail are observable.
 Status: PASS if fields can be mapped deterministically, FAIL only if essential pass/fail/timing signals are missing.
 
 ## Output Format

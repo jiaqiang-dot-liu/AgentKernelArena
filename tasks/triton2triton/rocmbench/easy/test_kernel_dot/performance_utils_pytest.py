@@ -59,7 +59,7 @@ def _measure_cuda_events(callable_fn: Callable[[], Any], repetition: int) -> lis
 def _measure_times(
     callable_fn: Callable[[], Any],
     config: BenchConfig,
-    target_ms: float = 20.0,
+    target_ms: float = 1.0,
     n_retries: int = 5,
     estimate_reps: int = 5,
     max_graph_repeats: int = 1000,
@@ -72,7 +72,7 @@ def _measure_times(
     max_graph_repeats = max(1, int(max_graph_repeats))
     metadata: dict[str, Any] = {
         "benchmark_target_ms": float(target_ms),
-        "benchmark_retries": int(n_retries),
+        "benchmark_samples": int(config.repetition),
         "benchmark_max_repeats": int(max_graph_repeats),
     }
 
@@ -115,7 +115,7 @@ def _measure_times(
             torch.cuda.synchronize()
 
             retry_times: list[float] = []
-            for _ in range(max(1, int(n_retries))):
+            for _ in range(max(1, int(config.repetition))):
                 start_event = torch.cuda.Event(enable_timing=True)
                 end_event = torch.cuda.Event(enable_timing=True)
                 start_event.record(stream)

@@ -42,7 +42,7 @@ def _benchmark_cuda_graph_or_events(
     fn,
     warmup=10,
     repetition=100,
-    target_ms=20.0,
+    target_ms=1.0,
     n_retries=5,
     estimate_reps=5,
     max_graph_repeats=1000,
@@ -59,7 +59,7 @@ def _benchmark_cuda_graph_or_events(
     max_graph_repeats = max(1, int(max_graph_repeats))
     metadata = {
         "benchmark_target_ms": float(target_ms),
-        "benchmark_retries": int(n_retries),
+        "benchmark_samples": int(repetition),
         "benchmark_max_repeats": int(max_graph_repeats),
     }
 
@@ -112,7 +112,7 @@ def _benchmark_cuda_graph_or_events(
             torch.cuda.synchronize()
 
             retry_times = []
-            for _ in range(max(1, int(n_retries))):
+            for _ in range(max(1, int(repetition))):
                 start_event = torch.cuda.Event(enable_timing=True)
                 end_event = torch.cuda.Event(enable_timing=True)
                 start_event.record(stream)
