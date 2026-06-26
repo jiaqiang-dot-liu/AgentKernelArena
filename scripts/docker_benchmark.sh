@@ -351,7 +351,7 @@ build_docker_args() {
         -e "MPLCONFIGDIR=/tmp/matplotlib"
         -e "TORCH_EXTENSIONS_DIR=/tmp/torch-extensions"
         -e "TRITON_CACHE_DIR=/tmp/triton-cache"
-        -e "PYTHONUSERBASE=${HOST_HOME}/.cache/aka-pyuserbase"
+        -e "PYTHONUSERBASE=${CONTAINER_WORKDIR}/.aka-pyuserbase"
         -e "MIOPEN_USER_DB_PATH=/tmp/miopen-cache"
         -e "MIOPEN_CACHE_DIR=/tmp/miopen-cache"
         -e "MIOPEN_CUSTOM_CACHE_DIR=/tmp/miopen-cache"
@@ -380,11 +380,11 @@ build_docker_args() {
     add_device_if_present /dev/mem
 
     add_mount "$HOST_ROOT" "$CONTAINER_WORKDIR"
-    # Persistent pip user-base so `make docker-setup-flydsl` survives across runs
-    # (the base image ships no flydsl). PYTHONUSERBASE above points the container's
-    # python at this dir, so an installed flydsl is importable in every run.
-    mkdir -p "$HOST_HOME/.cache/aka-pyuserbase" 2>/dev/null || true
-    add_mount "$HOST_HOME/.cache/aka-pyuserbase" "$HOST_HOME/.cache/aka-pyuserbase"
+    # Persistent pip user-base (PYTHONUSERBASE) so `make docker-setup-flydsl` survives
+    # across runs. It lives INSIDE the repo dir, which is already bind-mounted above and
+    # is owned by the host user — this avoids a separate mount whose source the docker
+    # daemon would have to create (which fails on NFS/root-squashed homes).
+    mkdir -p "$HOST_ROOT/.aka-pyuserbase" 2>/dev/null || true
     local _agent
     for _agent in $agents; do
         mount_agent "$_agent" "$strict"
