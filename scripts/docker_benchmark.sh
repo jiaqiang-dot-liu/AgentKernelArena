@@ -464,10 +464,17 @@ PY
 }
 
 container_check_agents() {
-    python - <<'PY'
+    # Verify only the requested agents (default: all three). Driven by the same
+    # agent set as the mounts, so a single-agent run does not require the others.
+    local agents="$*"
+    [[ -n "$agents" ]] || agents="codex claude_code cursor"
+    AKA_CHECK_AGENTS="$agents" python - <<'PY'
 import json
+import os
 import shutil
 import subprocess
+
+agents = os.environ.get("AKA_CHECK_AGENTS", "").split()
 
 
 def require_cmd(name: str) -> str:
@@ -486,42 +493,46 @@ def run_checked(cmd: list[str]) -> str:
     return output.strip()
 
 
-require_cmd("codex")
-codex_status = run_checked(["codex", "login", "status"])
-codex_line = next((line for line in codex_status.splitlines() if "Logged in" in line), codex_status.splitlines()[-1])
-print(f"codex_status={codex_line}")
+if "codex" in agents:
+    require_cmd("codex")
+    codex_status = run_checked(["codex", "login", "status"])
+    codex_line = next((line for line in codex_status.splitlines() if "Logged in" in line), codex_status.splitlines()[-1])
+    print(f"codex_status={codex_line}")
 
-require_cmd("claude")
-claude_version = run_checked(["claude", "--version"]).splitlines()[-1]
-claude_status_raw = run_checked(["claude", "auth", "status"])
-claude_status = json.loads(claude_status_raw)
-if not claude_status.get("loggedIn"):
-    raise SystemExit("claude is not logged in")
-print(
-    "claude_status=loggedIn "
-    f"authMethod={claude_status.get('authMethod')} "
-    f"subscriptionType={claude_status.get('subscriptionType')} "
-    f"version={claude_version}"
-)
+if "claude_code" in agents:
+    require_cmd("claude")
+    claude_version = run_checked(["claude", "--version"]).splitlines()[-1]
+    claude_status_raw = run_checked(["claude", "auth", "status"])
+    claude_status = json.loads(claude_status_raw)
+    if not claude_status.get("loggedIn"):
+        raise SystemExit("claude is not logged in")
+    print(
+        "claude_status=loggedIn "
+        f"authMethod={claude_status.get('authMethod')} "
+        f"subscriptionType={claude_status.get('subscriptionType')} "
+        f"version={claude_version}"
+    )
 
-require_cmd("cursor-agent")
-cursor_version = run_checked(["cursor-agent", "--version"]).splitlines()[-1]
-cursor_status = json.loads(run_checked(["cursor-agent", "status", "--format", "json"]))
-if not cursor_status.get("isAuthenticated"):
-    raise SystemExit("cursor-agent is not authenticated")
-print(
-    "cursor_status=authenticated "
-    f"hasAccessToken={cursor_status.get('hasAccessToken')} "
-    f"hasRefreshToken={cursor_status.get('hasRefreshToken')} "
-    f"version={cursor_version}"
-)
+if "cursor" in agents:
+    require_cmd("cursor-agent")
+    cursor_version = run_checked(["cursor-agent", "--version"]).splitlines()[-1]
+    cursor_status = json.loads(run_checked(["cursor-agent", "status", "--format", "json"]))
+    if not cursor_status.get("isAuthenticated"):
+        raise SystemExit("cursor-agent is not authenticated")
+    print(
+        "cursor_status=authenticated "
+        f"hasAccessToken={cursor_status.get('hasAccessToken')} "
+        f"hasRefreshToken={cursor_status.get('hasRefreshToken')} "
+        f"version={cursor_version}"
+    )
 PY
 }
 
 container_preflight() {
     local config_name="${1:-config.yaml}"
     container_smoke
-    container_check_agents
+    # Only verify the agent(s) this config actually uses (mounts are scoped the same way).
+    container_check_agents $(resolve_required_agents "$config_name")
 python - "$config_name" <<'PY'
 import pathlib
 import sys
