@@ -1,6 +1,13 @@
-# Configuration and API reference
+---
+myst:
+    html_meta:
+        "description": "Complete reference for AgentKernelArena configuration: run config.yaml schema, task config fields, CLI flags, scoring formula, and the agent registry."
+        "keywords": "AgentKernelArena, API reference, config.yaml, CLI flags, scoring, agent registry, ROCm, GPU kernel"
+---
 
-This page documents the run configuration (`config.yaml`), the per-task
+# AgentKernelArena configuration and API reference
+
+This topic documents the run configuration (`config.yaml`), the per-task
 configuration, the command-line flags, the scoring formula, and the agent
 registry.
 
@@ -33,14 +40,14 @@ workspace_directory_prefix: workspace
 
 ## Command-line flags
 
-`main.py` accepts the following flags:
+`main.py` accepts these flags:
 
 | Flag | Description |
 | --- | --- |
-| `--config_name <file>` | Config file to load (default `config.yaml`). Use separate files to keep multiple task sets in one folder. |
-| `--run-suffix <suffix>` | Suffix appended to the run directory name (letters, numbers, `.`, `_`, `-` only). Useful for labeling A/B runs. |
-| `--resume-run <run_dir>` | Resume a specific run directory, skipping completed tasks. |
-| `--resume-latest` | Resume the most recent run in the workspace. |
+| `--config_name <file>` | Config file to load (default `config.yaml`). Use separate files to keep multiple task sets in one folder |
+| `--run-suffix <suffix>` | Suffix appended to the run directory name (letters, numbers, `.`, `_`, `-` only). Useful for labeling A/B runs |
+| `--resume-run <run_dir>` | Resume a specific run directory, skipping completed tasks |
+| `--resume-latest` | Resume the most recent run in the workspace |
 
 ```bash
 python main.py --config_name config_triton.yaml --run-suffix with_mcp
@@ -49,40 +56,40 @@ python main.py --config_name config_triton.yaml --run-suffix with_mcp
 ## Task configuration
 
 Each task is defined by a `config.yaml` in its directory. Command fields are
-**lists**.
+*lists*.
 
 For isolated-kernel tasks (`hip2hip`, `cuda2hip`, `triton2triton`,
 `instruction2triton`, `torch2hip`, and `flydsl2flydsl`):
 
 | Field | Required | Description |
 | --- | --- | --- |
-| `source_file_path` | yes | Source files containing the kernel, relative to the task root. |
-| `target_kernel_functions` | yes | Kernel function names that must be defined in the source. |
-| `compile_command` | yes | Command(s) to compile or build-check. |
-| `correctness_command` | yes | Command(s) to validate correctness. |
-| `task_type` | yes | One of `hip2hip`, `cuda2hip`, `triton2triton`, `instruction2triton`, `torch2hip`, or `flydsl2flydsl`. |
-| `performance_command` | no | Command(s) to measure performance. |
-| `task_result_template` | no | Override the result template (`null` = default). |
-| `prompt.source_code` | no | Override the prompt's source-code section. |
-| `prompt.instructions` | no | Custom prompt instructions. |
-| `prompt.cheatsheet` | no | Reference/cheatsheet content for the prompt. |
+| `source_file_path` | Yes | Source files containing the kernel, relative to the task root |
+| `target_kernel_functions` | Yes | Kernel function names that must be defined in the source |
+| `compile_command` | Yes | Command(s) to compile or build-check |
+| `correctness_command` | Yes | Command(s) to validate correctness |
+| `task_type` | Yes | One of `hip2hip`, `cuda2hip`, `triton2triton`, `instruction2triton`, `torch2hip`, or `flydsl2flydsl` |
+| `performance_command` | No | Command(s) to measure performance |
+| `task_result_template` | No | Override the result template (`null` = default) |
+| `prompt.source_code` | No | Override the prompt's source-code section |
+| `prompt.instructions` | No | Custom prompt instructions |
+| `prompt.cheatsheet` | No | Reference/cheatsheet content for the prompt |
 
 For repository-level tasks (`task_type: repository`):
 
 | Field | Required | Description |
 | --- | --- | --- |
-| `repo_url` | yes | Upstream repository to clone for the task. |
-| `task_type` | yes | Must be `repository`. |
-| `repository_language` | yes | Primary optimization stack, for example `hip` or `triton`. |
-| `compile_command` | yes | Command(s) to compile or build-check. |
-| `correctness_command` | yes | Command(s) to validate correctness. |
-| `performance_command` | no | Command(s) to measure performance. |
-| `post_clone_install` | no | Setup command(s) to run after cloning the upstream repository. |
-| `post_clone_install_mode` | no | Controls when `post_clone_install` runs, for example `every_setup`. |
-| `source_file_path` | no | Optional target source-file hints, relative to the cloned repository root. |
-| `target_kernel_functions` | no | Optional target function or kernel-symbol hints. |
-| `prompt.instructions` | no | Custom prompt instructions. |
-| `prompt.cheatsheet` | no | Reference/cheatsheet content for the prompt. |
+| `repo_url` | Yes | Upstream repository to clone for the task |
+| `task_type` | Yes | Must be `repository` |
+| `repository_language` | Yes | Primary optimization stack, for example `hip` or `triton` |
+| `compile_command` | Yes | Command(s) to compile or build-check |
+| `correctness_command` | Yes | Command(s) to validate correctness |
+| `performance_command` | No | Command(s) to measure performance |
+| `post_clone_install` | No | Setup command(s) to run after cloning the upstream repository |
+| `post_clone_install_mode` | No | Controls when `post_clone_install` runs, for example `every_setup` |
+| `source_file_path` | No | Optional target source-file hints, relative to the cloned repository root |
+| `target_kernel_functions` | No | Optional target function or kernel-symbol hints |
+| `prompt.instructions` | No | Custom prompt instructions |
+| `prompt.cheatsheet` | No | Reference/cheatsheet content for the prompt |
 
 See [Add a task](../how-to/add-task.md) for layout and authoring rules.
 
@@ -109,9 +116,9 @@ The score is the sum of three components:
 
 | Component | Points | Condition |
 | --- | --- | --- |
-| Compilation | `20` | The kernel compiles successfully. |
-| Correctness | `100` | The kernel passes the correctness check. |
-| Speedup | `speedup_ratio × 100` | Added only when compilation **and** correctness pass. |
+| Compilation | `20` | The kernel compiles successfully |
+| Correctness | `100` | The kernel passes the correctness check |
+| Speedup | `speedup_ratio × 100` | Added only when compilation *and* correctness pass |
 
 The rules, expressed as the framework applies them:
 
@@ -119,7 +126,7 @@ The rules, expressed as the framework applies them:
 - Compilation passes, correctness fails → score `20`.
 - Both pass → `120 + speedup_ratio × 100`.
 
-**Example**: a kernel that compiles (`20`), is correct (`100`), and achieves a
+**Example**: A kernel that compiles (`20`), is correct (`100`), and achieves a
 `1.58×` speedup scores `20 + 100 + 158 = 278`.
 
 The speedup used for scoring prefers the explicit `speedup_ratio` written by the

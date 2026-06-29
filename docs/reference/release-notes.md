@@ -1,4 +1,11 @@
-# Release notes
+---
+myst:
+    html_meta:
+        "description": "Release notes for AgentKernelArena, covering new features, known limitations, supported GPU task categories, and agent integration changes for each release."
+        "keywords": "AgentKernelArena, release notes, changelog, ROCm, GPU kernel, HIP, Triton, agents, evaluation"
+---
+
+# AgentKernelArena release notes
 
 ## AgentKernelArena 0.1.0
 
@@ -7,10 +14,12 @@ coding agents on GPU kernel optimization tasks on AMD GPUs.
 
 ### Features
 
+AgentKernelArena 0.1.0 includes the following features.
+
 - **Multi-agent arena**: run Cursor, Claude Code, Codex, SWE-agent, OpenEvolve
   (GEAK), GEAK HIP, GEAK OptimAgent v2, GEAK OurLLM kernel-to-kernel, and
   single-LLM-call agents through a common evaluation pipeline.
-- **Multi-model support**: OpenAI, Anthropic, and additional models via
+- **Multi-model support**: OpenAI, Anthropic, and additional models through
   OpenRouter or a self-hosted vLLM server.
 - **Task categories**: `hip2hip`, `cuda2hip`, `triton2triton`,
   `instruction2triton`, `torch2hip`, and `flydsl2flydsl`, with bundled suites
@@ -31,6 +40,8 @@ coding agents on GPU kernel optimization tasks on AMD GPUs.
   7.1 and installs the matching PyTorch build.
 
 ### Known limitations
+
+The following limitations are present in this release.
 
 - Agents can hang during task execution and block test completion.
 - The published leaderboard is forthcoming; the live demo is illustrative only.
