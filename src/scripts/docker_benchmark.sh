@@ -400,9 +400,6 @@ build_docker_args() {
     if [[ -e "$HOST_HOME/.gitconfig" ]]; then
         add_mount "$HOST_HOME/.gitconfig" "$HOST_HOME/.gitconfig" ro
     fi
-    if [[ -d "$HOST_HOME/.ssh" ]]; then
-        add_mount "$HOST_HOME/.ssh" "$HOST_HOME/.ssh" ro
-    fi
 
     docker_args+=("$SELECTED_IMAGE")
 }
