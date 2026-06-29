@@ -1,10 +1,3 @@
----
-myst:
-    html_meta:
-        "description": "Learn how to install AgentKernelArena on an AMD GPU system using make setup, manual virtual environment setup, or direct agent CLI installation."
-        "keywords": "AgentKernelArena, install, ROCm, AMD GPU, HIP, PyTorch, setup, venv, agent CLI"
----
-
 # Install AgentKernelArena
 
 AgentKernelArena runs AI coding agents against GPU kernel tasks on an AMD GPU and
@@ -14,7 +7,7 @@ agent CLI available.
 
 ## Prerequisites
 
-- **Python 3.12 or later**
+- **Python 3.12+**
 - **AMD GPU with ROCm** — ROCm 6.4, 7.0, or 7.1 (the `Makefile` auto-detects the
   installed version under `/opt/rocm-*`)
 - **ROCm toolchain for HIP tasks** — `hipcc` and `rocprof-compute`
@@ -29,7 +22,7 @@ agent CLI available.
 
 From the repository root, the `Makefile` detects your ROCm version, creates a
 `.venv` virtual environment with the matching ROCm PyTorch build, and installs
-all dependencies:
+all dependencies.
 
 ```bash
 git clone https://github.com/AMD-AGI/AgentKernelArena.git

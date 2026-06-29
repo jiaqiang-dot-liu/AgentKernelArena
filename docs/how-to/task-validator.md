@@ -1,14 +1,7 @@
----
-myst:
-    html_meta:
-        "description": "Use the AgentKernelArena task_validator agent to run 10 automated quality checks on GPU kernel tasks before merging or publishing leaderboard results."
-        "keywords": "AgentKernelArena, task validator, GPU kernel, quality checks, ROCm, HIP, Triton, validation report"
----
+# Validate tasks
 
-# Validate tasks in AgentKernelArena
-
-The `task_validator` agent checks that tasks are correctly configured,
-self-contained, and functional. It doesn't optimize kernels — it audits them.
+The **task_validator** agent checks that tasks are correctly configured,
+self-contained, and functional. It does not optimize kernels — it audits them.
 Use it to validate new tasks before merging and to audit existing tasks before
 publishing results to a leaderboard.
 
@@ -49,9 +42,7 @@ timeout_seconds: 600          # max time per task validation (0 disables the tim
 python_path: /root/AgentKernelArena/.venv/bin/python3
 ```
 
-## `task_validator` checks
-
-The `task_validator` runs these checks in order:
+## The 10 checks
 
 | # | Check | What it verifies |
 | --- | --- | --- |
@@ -75,7 +66,7 @@ The `task_validator` runs these checks in order:
 
 ## Result template
 
-A validated task's **compile → correctness → performance** flow must produce results
+A validated task's compile → correctness → performance flow must produce results
 that populate the standard template:
 
 ```yaml

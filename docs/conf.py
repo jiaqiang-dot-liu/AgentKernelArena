@@ -1,63 +1,45 @@
-"""
-html_theme is usually unchanged (rocm_docs_theme).
-flavor defines the site header display, select the flavor for the corresponding portals
-flavor options: rocm, rocm-docs-home, rocm-blogs, rocm-ds, instinct, ai-developer-hub, local, generic
-"""
+# Configuration file for the Sphinx documentation builder.
+#
+# AgentKernelArena documentation is built with rocm-docs-core, which configures
+# the theme, navigation, MyST Markdown support, and shared ROCm options. Both
+# Markdown (.md, via MyST) and reStructuredText (.rst) source files build out of
+# the box.
+#
+# https://www.sphinx-doc.org/en/master/usage/configuration.html
+# https://rocm.docs.amd.com/projects/rocm-docs-core/en/latest/
 
-version_number = "0.1.0"
+# -- Project information ------------------------------------------------------
 
-html_theme = "rocm_docs_theme"
-html_theme_options = {
-    "flavor": "generic",
-    "header_title": f"AgentKernelArena {version_number}",
-    "header_link": False,
-    "version_list_link": False,
-    "nav_secondary_items": {
-        "GitHub": False,
-        "Community": False,
-        "Blogs": "https://rocm.blogs.amd.com/",
-        "ROCm Developer Hub": "https://www.amd.com/en/developer/resources/rocm-hub.html",
-        "Instinct™ Docs": "https://instinct.docs.amd.com/",
-        "Infinity Hub": "https://www.amd.com/en/developer/resources/infinity-hub.html",
-        "Support": False,
-    },
-    "link_main_doc": False,
-}
-
-# This section turns on/off article info
-setting_all_article_info = True
-all_article_info_os = ["linux"]
-all_article_info_author = ""
-
-# for PDF output on Read the Docs
 project = "AgentKernelArena"
 author = "Advanced Micro Devices, Inc."
-copyright = "Copyright (c) 2026 Advanced Micro Devices, Inc. All rights reserved."
-version = version_number
-release = version_number
+copyright = "2026, Advanced Micro Devices, Inc."
 
-external_toc_path = "./sphinx/_toc.yml"  # Defines Table of Content structure definition path
+# Single-sourced version. Update alongside the package version.
+version = "0.1.0"
+release = version
 
-"""
-Doxygen Settings
-Ensure Doxyfile is located at docs/doxygen.
-If the component does not need doxygen, delete this section for optimal build time
-"""
-# doxygen_root = "doxygen"
-# doxysphinx_enabled = True
-# doxygen_project = {
-#    "name": "doxygen",
-#    "path": "doxygen/xml",
-# }
+# -- General configuration ----------------------------------------------------
 
-# Add more addtional package accordingly
-extensions = [
-    "rocm_docs",
-    "sphinxcontrib.mermaid"
-]
+extensions = ["rocm_docs", "sphinxcontrib.mermaid"]
 
+# Render fenced ```mermaid code blocks in Markdown as diagrams.
 myst_fence_as_directive = ["mermaid"]
 
-html_title = f"{project} {version_number} documentation"
+external_toc_path = "./sphinx/_toc.yml"
 
-external_projects_current_project = "AgentKernelArena"
+# Don't load intersphinx inventories for other ROCm projects. AgentKernelArena
+# is not yet registered in the rocm-docs-core project registry, so the default
+# ("all") tries to fetch internal inventories that are not publicly reachable
+# and aborts the build under Sphinx 9.x. These docs do not cross-reference other
+# ROCm projects. Once the project is onboarded, this can be set back to "all" or
+# to an explicit list of related projects.
+external_projects = []
+
+# docs/README.md documents the build process for contributors and is not a
+# published page; keep it out of the source build so it is not treated as an
+# orphan document.
+exclude_patterns = ["README.md"]
+
+# rocm-docs-core options.
+html_theme = "rocm_docs_theme"
+html_theme_options = {"flavor": "rocm-docs-home"}
