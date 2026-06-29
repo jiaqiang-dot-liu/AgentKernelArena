@@ -22,12 +22,14 @@ python -m sphinx -T -b html docs docs/_build/html
 
 | Path | Page | Notes |
 | --- | --- | --- |
-| `index.rst` | Overview | Landing page; feature summary, use cases, links to all subpages and the GitHub repo. |
+| `index.rst` | Overview | Landing page with links to the main documentation sections and the GitHub repo. |
+| `what-is-aka.rst` | Overview | Product overview, key features, and use cases. |
 | `install/install.md` | Installation | Docker runner (`make docker-smoke`/`docker-run`), agent CLIs, and API keys. |
 | `reference/release-notes.md` | Release Notes | Per-release feature breakdown; initial release lists all features. |
 | `reference/compatibility-matrix.md` | Compatibility Matrix | Verified hardware/software versions. Contains `TODO (verify)` markers. |
 | `reference/api-reference.md` | Configuration and API reference | `config.yaml` schema, task `config.yaml` schema, CLI flags, scoring, and the agent registry. |
-| `how-to/run-evaluation.md` | How-to | Configure `config.yaml`, run `main.py`, resume runs, and read results. |
+| `reference/benchmark-methodology.md` | Reference | Timing methodology, benchmark helper materialization, and speedup interpretation. |
+| `how-to/run-evaluation.md` | How-to | Configure `config.yaml`, run through Docker, resume runs, and read results. |
 | `how-to/agents.md` | How-to | Supported agents, model providers, and A/B testing. |
 | `how-to/add-task.md` | How-to | Task directory layout, `config.yaml` fields, and task types. |
 | `how-to/task-validator.md` | How-to | The task_validator agent and its 10 checks. |

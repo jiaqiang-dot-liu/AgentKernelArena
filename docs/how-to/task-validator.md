@@ -1,7 +1,14 @@
-# Validate tasks
+---
+myst:
+    html_meta:
+        "description": "Use the AgentKernelArena task_validator agent to run 10 automated quality checks on GPU kernel tasks before merging or publishing leaderboard results."
+        "keywords": "AgentKernelArena, task validator, GPU kernel, quality checks, ROCm, HIP, Triton, validation report"
+---
 
-The **task_validator** agent checks that tasks are correctly configured,
-self-contained, and functional. It does not optimize kernels — it audits them.
+# Validate tasks in AgentKernelArena
+
+The `task_validator` agent checks that tasks are correctly configured,
+reproducible, and functional. It doesn't optimize kernels — it audits them.
 Use it to validate new tasks before merging and to audit existing tasks before
 publishing results to a leaderboard.
 
@@ -48,7 +55,9 @@ model: sonnet
 effort: max
 ```
 
-## The 10 checks
+## `task_validator` checks
+
+The `task_validator` runs these checks in order:
 
 | # | Check | What it verifies |
 | --- | --- | --- |
@@ -59,7 +68,7 @@ effort: max
 | 5 | `correctness` | `correctness_command` succeeds (exit 0, within 180s) |
 | 6 | `performance` | `performance_command` succeeds, if present (within 180s) |
 | 7 | `correctness_implementation_review` | The correctness check is meaningful, not trivially passing |
-| 8 | `self_contained` | No missing headers/imports or references to external repos/paths |
+| 8 | `self_contained` | No missing headers/imports; isolated tasks avoid undeclared external repos/paths, and repository tasks declare their upstream in `repo_url` |
 | 9 | `gpu_hang_check` | No command hangs or times out |
 | 10 | `result_template_compatibility` | Output maps to the standard `task_result_template.yaml` |
 
@@ -72,7 +81,7 @@ effort: max
 
 ## Result template
 
-A validated task's compile → correctness → performance flow must produce results
+A validated task's **compile → correctness → performance** flow must produce results
 that populate the standard template:
 
 ```yaml

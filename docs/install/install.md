@@ -1,9 +1,16 @@
+---
+myst:
+    html_meta:
+        "description": "Learn how to install AgentKernelArena with the Docker-first benchmark runner, pinned ROCm SGLang images, host agent CLIs, and API keys."
+        "keywords": "AgentKernelArena, install, Docker, ROCm, SGLang, AMD GPU, HIP, PyTorch, agent CLI"
+---
+
 # Install AgentKernelArena
 
 AgentKernelArena runs AI coding agents against GPU kernel tasks on an AMD GPU and
 evaluates the results. **Docker is the only supported workflow**: the evaluator runs
 inside the GPU-arch-specific SGLang Docker image and bind-mounts the local agent CLIs
-plus their login state. (The legacy host `.venv` / `python main.py` path has been removed.)
+plus their login state.
 
 ## Prerequisites
 
@@ -17,9 +24,9 @@ plus their login state. (The legacy host `.venv` / `python main.py` path has bee
   and smoke commands.
 - **Git**
 - At least one supported agent CLI already installed and logged in on the host. The
-  Docker runner currently treats Codex, Claude Code, and Cursor Agent as first-class
-  supported CLIs. See
-  [Configure agents and models](../how-to/agents.md))
+  Docker runner provisions the configured agent for a run. Codex, Claude Code,
+  and Cursor Agent are the first-class supported CLIs. See
+  [Configure agents and models](../how-to/agents.md).
 
 ## Docker runner
 

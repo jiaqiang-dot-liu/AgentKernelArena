@@ -8,39 +8,45 @@ defaults:
 root: index
 
 subtrees:
-  - caption: Install
-    entries:
-      - file: install/install
-        title: Install AgentKernelArena
+- entries:
+  - file: what-is-aka
+    title: What is AgentKernelArena?
+  - file: reference/release-notes
+    title: Release notes
+  - file: reference/compatibility-matrix
+    title: Compatibility matrix
 
-  - caption: Reference
-    entries:
-      - file: reference/release-notes
-        title: Release notes
-      - file: reference/compatibility-matrix
-        title: Compatibility matrix
-      - file: reference/api-reference
-        title: Configuration and API reference
+- caption: Install
+  entries:
+    - file: install/install
+      title: Install AgentKernelArena
 
-  - caption: How to
-    entries:
-      - file: how-to/run-evaluation
-        title: Run an evaluation
-      - file: how-to/agents
-        title: Configure agents and models
-      - file: how-to/add-task
-        title: Add a task
-      - file: how-to/task-validator
-        title: Validate tasks
-      - file: how-to/visualization
-        title: Visualize and compare runs
+- caption: How to
+  entries:
+    - file: how-to/run-evaluation
+      title: Run an evaluation
+    - file: how-to/agents
+      title: Configure agents and models
+    - file: how-to/add-task
+      title: Add a task
+    - file: how-to/task-validator
+      title: Validate tasks
+    - file: how-to/visualization
+      title: Visualize and compare runs
 
-  - caption: Examples
-    entries:
-      - file: examples/examples
-        title: Examples
+- caption: Examples
+  entries:
+    - file: examples/examples
+      title: Examples
 
-  - caption: About
-    entries:
-      - file: about/license
-        title: License
+- caption: Reference
+  entries:
+    - file: reference/api-reference
+      title: Configuration and API reference
+    - file: reference/benchmark-methodology
+      title: Performance benchmark methodology
+
+- caption: About
+  entries:
+    - file: about/license
+      title: License
