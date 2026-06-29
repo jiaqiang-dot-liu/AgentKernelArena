@@ -1,10 +1,3 @@
----
-myst:
-    html_meta:
-        "description": "AgentKernelArena is released under the Apache License, Version 2.0 by Advanced Micro Devices, Inc. View the full license text on this page."
-        "keywords": "AgentKernelArena, license, Apache 2.0, open source, AMD"
----
-
 # License
 
 AgentKernelArena is released under the Apache License, Version 2.0. The full

@@ -1,15 +1,8 @@
----
-myst:
-    html_meta:
-        "description": "Build and serve the AgentKernelArena visualization dashboard to compare GPU kernel evaluation run reports across agents and model providers."
-        "keywords": "AgentKernelArena, visualization, dashboard, compare runs, agents, models, ROCm, GPU kernel, evaluation"
----
-
-# Visualize and compare runs in AgentKernelArena
+# Visualize and compare runs
 
 AgentKernelArena ships a static dashboard under `visualization/` for comparing
-run reports across agents and models. This topic covers how to build the dashboard
-data and serve it.
+run reports across agents and models. This page covers building the dashboard
+data and serving it.
 
 ## What the dashboard reads
 
@@ -19,7 +12,7 @@ The dashboard scans for report directories that contain:
 - `task_type_breakdown.json`
 - `overall_report.txt`
 
-By default, it scans only visualization-specific report bundles:
+By default it scans only visualization-specific report bundles:
 
 ```text
 visualization/reports/<report_name>/
@@ -44,7 +37,7 @@ Then open:
 http://127.0.0.1:8080
 ```
 
-### Serve on port `80`
+### Serve on port 80
 
 Port `80` usually requires elevated privileges:
 
@@ -77,9 +70,7 @@ bash setup.sh --include-workspace-runs
 
 The dashboard picks up newly discovered report directories on the next refresh.
 
-## Dashboard implementation notes
-
-The following details apply to the dashboard implementation:
+## Notes
 
 - The HTTP service serves the UI from `visualization/frontend/`.
 - Source-file links are exposed through an `/artifacts/...` route that only
@@ -87,4 +78,4 @@ The following details apply to the dashboard implementation:
 - If no reports are found yet, the dashboard still builds and shows an empty
   state.
 - `frontend/dashboard/data.js` and `frontend/dashboard/data.json` are generated
-  files; don't edit them by hand.
+  files; do not edit them by hand.

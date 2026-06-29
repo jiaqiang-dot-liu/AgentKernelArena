@@ -1,19 +1,12 @@
----
-myst:
-    html_meta:
-        "description": "Learn how to configure config.yaml, run an AgentKernelArena evaluation against GPU kernel tasks, resume interrupted runs, and read scored results."
-        "keywords": "AgentKernelArena, run evaluation, config.yaml, GPU kernel, ROCm, AMD, task results, resume run, scoring"
----
-
-# Run an evaluation in AgentKernelArena
+# Run an evaluation
 
 An evaluation runs one agent against a set of tasks and produces scored results.
-This topic explains how to configure a run, execute it, resume an
-interrupted run, and read the output.
+This page walks through configuring the run, executing it, resuming an
+interrupted run, and reading the output.
 
-## Configure `config.yaml`
+## 1. Configure `config.yaml`
 
-The root `config.yaml` selects the agent, the tasks, and the target GPU:
+The root `config.yaml` selects the agent, the tasks, and the target GPU.
 
 ```yaml
 agent:
@@ -30,7 +23,7 @@ log_directory: logs
 workspace_directory_prefix: workspace
 ```
 
-### Select tasks
+### Selecting tasks
 
 Each entry in `tasks` is a path relative to the `tasks/` directory. You can
 select tasks at any level of granularity:
@@ -45,7 +38,7 @@ select tasks at any level of granularity:
 See [Configuration and API reference](../reference/api-reference.md) for the full
 set of `config.yaml` fields.
 
-## Start a run
+## 2. Run
 
 ```bash
 python main.py
@@ -64,7 +57,7 @@ python main.py --run-suffix cursor_with_mcp
 # → workspace_MI300_cursor/run_20260617_101500_cursor_with_mcp
 ```
 
-### What happens during a run
+## 3. What happens during a run
 
 ```mermaid
 flowchart TD
@@ -81,7 +74,7 @@ flowchart TD
 For each task, the framework:
 
 1. Copies the task into an isolated, timestamped workspace.
-2. Measures a *baseline* (compiles and times the original kernel; for
+2. Measures a **baseline** (compiles and times the original kernel; for
    `torch2hip` tasks it times the PyTorch reference directly).
 3. Launches the configured agent with a generated prompt.
 4. Evaluates the agent's kernel for compilation, correctness, and performance.
@@ -90,7 +83,7 @@ For each task, the framework:
 After all tasks finish, a post-processing step aggregates the per-task results
 into a run report.
 
-## Resume an interrupted run
+## 4. Resume an interrupted run
 
 Long runs can be resumed; completed tasks are skipped.
 
@@ -102,7 +95,7 @@ python main.py --resume-run run_20260617_101500
 python main.py --resume-latest
 ```
 
-## Read the results
+## 5. Read the results
 
 A run produces this layout under the workspace directory:
 

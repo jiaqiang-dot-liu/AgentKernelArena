@@ -1,14 +1,7 @@
----
-myst:
-    html_meta:
-        "description": "Configure agents and model providers in AgentKernelArena. Covers supported agents, OpenAI and Anthropic integration, A/B testing, and adding custom agents."
-        "keywords": "AgentKernelArena, agents, models, Claude Code, Cursor, Codex, OpenAI, Anthropic, A/B testing, ROCm, GPU"
----
-
-# Configure agents and models in AgentKernelArena
+# Configure agents and models
 
 AgentKernelArena evaluates one agent per run. The agent is selected by the
-`agent.template` field in `config.yaml`. This topic lists the supported agents,
+`agent.template` field in `config.yaml`. This page lists the supported agents,
 explains how models and providers are configured, and describes how to use the
 arena for A/B testing.
 
@@ -59,10 +52,10 @@ export OPENROUTER_API_KEY="..."
 ## A/B testing and ablation studies
 
 Beyond ranking different agents and models, AgentKernelArena works as a
-controlled A/B testing harness for agent-side capabilities — a new Model Context Protocol (MCP) server,
+controlled A/B testing harness for agent-side capabilities — a new MCP server,
 skill, prompt strategy, or tool integration.
 
-Run the same task set twice, once with the capability enabled and once
+Run the **same task set twice**, once with the capability enabled and once
 without, then compare the standardized scores:
 
 ```bash
@@ -89,4 +82,4 @@ To integrate a custom agent:
 3. Wire the agent into the prompt builder and post-processing handler in
    `src/module_registration.py` if it needs the standard behavior.
 
-See the development section of the repository [`README.md`](https://github.com/AMD-AGI/AgentKernelArena/blob/main/README.md#development) for the full template.
+See the development section of the repository `README.md` for the full template.
