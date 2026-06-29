@@ -11,8 +11,8 @@ Thanks for your interest in AgentKernelArena! This guide explains how to contrib
 
 ## Development Setup
 
-Docker is the only supported path — all runs happen inside the pinned ROCm/SGLang
-container (see `docs/install/install.md`). There is no host venv / `python main.py` setup.
+Docker is the only supported path. All runs happen inside the pinned ROCm/SGLang
+container; see `docs/install/install.md`.
 
 ```bash
 # Verify the container can see Python, ROCm tools, GPU, and your agent logins

@@ -1,4 +1,11 @@
-# Examples
+---
+myst:
+    html_meta:
+        "description": "Step-by-step examples for running AgentKernelArena evaluations, A/B testing agent capabilities, validating tasks, and resuming interrupted runs."
+        "keywords": "AgentKernelArena, examples, evaluation, A/B test, task validation, GPU kernel, ROCm, HIP, Triton"
+---
+
+# AgentKernelArena examples
 
 These walkthroughs assume you have completed [installation](../install/install.md)
 and can run the Docker runner (`make docker-smoke` passes). All runs go through
@@ -10,32 +17,32 @@ Run a single HIP task with the Cursor agent.
 
 1. Edit `config.yaml`:
 
-```yaml
-agent:
-  template: cursor
+    ```yaml
+    agent:
+      template: cursor
 
-tasks:
-  - hip2hip/gpumode/GELU
+    tasks:
+      - hip2hip/gpumode/GELU
 
-target_gpu_model: MI300
-log_directory: logs
-workspace_directory_prefix: workspace
-```
+    target_gpu_model: MI300
+    log_directory: logs
+    workspace_directory_prefix: workspace
+    ```
 
 2. Run:
 
-```bash
-make docker-run CONFIG=config.yaml
-```
+    ```bash
+    make docker-run CONFIG=config.yaml
+    ```
 
 3. Inspect the result:
 
-```text
-workspace_MI300_cursor/
-└── run_<timestamp>/
-    └── hip2hip_gpumode_GELU_<timestamp>/
-        └── task_result.yaml
-```
+    ```text
+    workspace_MI300_cursor/
+    └── run_<timestamp>/
+        └── hip2hip_gpumode_GELU_<timestamp>/
+            └── task_result.yaml
+    ```
 
 A successful `task_result.yaml` looks like:
 
@@ -74,8 +81,8 @@ post-processing aggregates them into a run report.
 
 ## Example 3: A/B test an agent capability
 
-Measure whether a new MCP server, skill, or prompt change helps. Run the same
-task set twice with distinct run suffixes.
+Measure whether a new Model Context Protocol (MCP) server, skill, or prompt
+change helps. Run the same task set twice with distinct run suffixes.
 
 ```bash
 # Baseline (capability disabled in the agent configuration)
@@ -119,7 +126,7 @@ make docker-run CONFIG=config.yaml
 
 Open the generated `validation_report.yaml` in the task workspace. The task must
 reach **PASS** (or **WARN** with justification) before merging. See
-[Validate tasks](../how-to/task-validator.md).
+[Validate tasks](../how-to/task-validator.md) for more information.
 
 ## Example 5: Resume an interrupted run
 

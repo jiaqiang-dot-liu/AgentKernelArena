@@ -1,8 +1,15 @@
-# Add a task
+---
+myst:
+    html_meta:
+        "description": "Learn how to create a new GPU kernel task for AgentKernelArena, including directory layout, config.yaml schema, supported task types, and authoring rules."
+        "keywords": "AgentKernelArena, add task, GPU kernel, HIP, Triton, CUDA, config.yaml, task types, ROCm"
+---
+
+# Add a task in AgentKernelArena
 
 A task is a single GPU kernel optimization problem. Each task lives in its own
 directory under `tasks/<task_type>/<task_name>/` and is described by a
-`config.yaml`. This page covers the directory layout, the configuration schema,
+`config.yaml`. This topic covers the directory layout, the configuration schema,
 and the supported task types.
 
 ## Task types
@@ -21,7 +28,7 @@ The `task_type` field declares what kind of optimization the task represents:
 
 The repository ships task suites including `hip2hip` (gpumode and others),
 `triton2triton` (vLLM and ROCmBench), `torch2hip`, `instruction2triton`, and
-`flydsl2flydsl`.
+`flydsl2flydsl`, plus repository-level tasks under `tasks/repository/`.
 
 ## Directory layout
 
@@ -40,7 +47,7 @@ path referenced in `config.yaml` resolves inside the task directory.
 ## Required `config.yaml` fields
 
 Most tasks optimize files that are copied into the task workspace. For those
-isolated-kernel tasks, all command fields are **lists**, even when there is a
+isolated-kernel tasks, all command fields are *lists*, even when there's a
 single command.
 
 ```yaml
@@ -102,18 +109,20 @@ prompt:
 
 ## Authoring rules
 
-To produce trustworthy, comparable scores, every task must be **self-contained**
-and must validate correctness meaningfully.
+To produce trustworthy, comparable scores, every task must have a reproducible
+setup and must validate correctness meaningfully.
 
-- **Self-contained**: no references to external repositories or absolute paths,
-  no missing headers or Python imports, and no external data downloads. Generate
-  test inputs inline or bundle small files in the task directory.
-- **Real correctness check**: compare against a CPU/NumPy reference, known-good
+- **Reproducible setup**: Isolated-kernel tasks must not reference external
+  repositories, absolute paths, or undeclared downloads. Generate test inputs
+  inline or bundle small files in the task directory. Repository-level tasks
+  should declare their upstream source in `repo_url` and keep setup commands
+  explicit in `config.yaml`.
+- **Real correctness check**: Compare against a CPU/NumPy reference, known-good
   output, or a PyTorch eager baseline; use sensible tolerances; test 2–3 shapes;
   and exit non-zero on failure.
-- **Real compilation check**: actually compile or syntax-check the source, not a
+- **Real compilation check**: Actually compile or syntax-check the source, not a
   text-pattern search; exit code `0` means success.
-- **Performance methodology**: a recommended pattern is 10 warmup iterations plus
+- **Performance methodology**: A recommended pattern is 10 warmup iterations plus
   100 measured iterations, reporting the average runtime.
 
 ## Performance helper stubs
@@ -133,6 +142,6 @@ before pushing. To inspect a task with the real helpers injected, run
 
 ## Validate before merging
 
-Every new task must pass the **task_validator** agent before it is merged. It
+Every new task must pass the `task_validator` agent before it's merged. It
 runs 10 automated checks and emits a `validation_report.yaml`. See
 [Validate tasks](task-validator.md) for the full check list and how to run it.
