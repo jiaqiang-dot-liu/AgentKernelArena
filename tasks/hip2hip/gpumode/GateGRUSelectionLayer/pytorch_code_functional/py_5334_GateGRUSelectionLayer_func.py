@@ -91,4 +91,4 @@ def get_inputs():
 
 
 def get_init_inputs():
-    return [[], {'dim_model': 4, 'dim_ff': 4, 'prob_dropout': 0.5}]
+    return [[], {'dim_model': 512, 'dim_ff': 2048, 'prob_dropout': 0.5}]

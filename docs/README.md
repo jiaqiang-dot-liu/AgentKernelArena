@@ -23,7 +23,7 @@ python -m sphinx -T -b html docs docs/_build/html
 | Path | Page | Notes |
 | --- | --- | --- |
 | `index.rst` | Overview | Landing page; feature summary, use cases, links to all subpages and the GitHub repo. |
-| `install/install.md` | Installation | `make setup` (ROCm auto-detect), manual venv, agent CLIs, and API keys. |
+| `install/install.md` | Installation | Docker runner (`make docker-smoke`/`docker-run`), agent CLIs, and API keys. |
 | `reference/release-notes.md` | Release Notes | Per-release feature breakdown; initial release lists all features. |
 | `reference/compatibility-matrix.md` | Compatibility Matrix | Verified hardware/software versions. Contains `TODO (verify)` markers. |
 | `reference/api-reference.md` | Configuration and API reference | `config.yaml` schema, task `config.yaml` schema, CLI flags, scoring, and the agent registry. |

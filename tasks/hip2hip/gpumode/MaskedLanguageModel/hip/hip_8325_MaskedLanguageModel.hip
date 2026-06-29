@@ -79,6 +79,24 @@ __global__ void transpose2d_kernel(const scalar_t* __restrict__ A,
 // bias: [out_features]
 // output: [N, out_features]
 // One block processes one row (n). Threads iterate across out_features.
+// Dot product accumulated in double to match torch.nn.functional.linear (BLAS GEMM).
+// A flat fp32 reduction over in_features (e.g. 512) diverges from BLAS enough that the
+// downstream log_softmax exceeds rtol=1e-4/atol=1e-5; double accumulation closes the gap.
+template <typename scalar_t>
+__device__ __forceinline__ scalar_t row_logit(
+    const scalar_t* __restrict__ xrow,
+    const scalar_t* __restrict__ weight_T,
+    const scalar_t* __restrict__ bias,
+    int in_features, int out_features, int col)
+{
+    double acc = 0.0;
+    for (int k = 0; k < in_features; ++k) {
+        acc += static_cast<double>(xrow[k]) *
+               static_cast<double>(weight_T[static_cast<long long>(k) * out_features + col]);
+    }
+    return static_cast<scalar_t>(acc + static_cast<double>(bias[col]));
+}
+
 template <typename scalar_t>
 __global__ void fused_linear_logsoftmax_kernel(
     const scalar_t* __restrict__ input_2d,
@@ -99,11 +117,7 @@ __global__ void fused_linear_logsoftmax_kernel(
     for (int col = threadIdx.x; col < out_features; col += blockDim.x) {
         // dot(xrow, W[col,:]) where W is [out_features, in_features]
         // with weight_T layout: weight_T[k, col] => weight_T[k*out_features + col]
-        scalar_t acc = scalar_t(0);
-        for (int k = 0; k < in_features; ++k) {
-            acc += xrow[k] * weight_T[static_cast<long long>(k) * out_features + col];
-        }
-        acc += bias[col];
+        scalar_t acc = row_logit(xrow, weight_T, bias, in_features, out_features, col);
         thread_max = acc > thread_max ? acc : thread_max;
     }
 
@@ -113,11 +127,7 @@ __global__ void fused_linear_logsoftmax_kernel(
     // Pass 2: compute per-thread sum of exp(acc - row_max)
     scalar_t thread_sum = scalar_t(0);
     for (int col = threadIdx.x; col < out_features; col += blockDim.x) {
-        scalar_t acc = scalar_t(0);
-        for (int k = 0; k < in_features; ++k) {
-            acc += xrow[k] * weight_T[static_cast<long long>(k) * out_features + col];
-        }
-        acc += bias[col];
+        scalar_t acc = row_logit(xrow, weight_T, bias, in_features, out_features, col);
         thread_sum += device_exp(acc - row_max);
     }
 
@@ -128,11 +138,7 @@ __global__ void fused_linear_logsoftmax_kernel(
 
     // Pass 3: write outputs
     for (int col = threadIdx.x; col < out_features; col += blockDim.x) {
-        scalar_t acc = scalar_t(0);
-        for (int k = 0; k < in_features; ++k) {
-            acc += xrow[k] * weight_T[static_cast<long long>(k) * out_features + col];
-        }
-        acc += bias[col];
+        scalar_t acc = row_logit(xrow, weight_T, bias, in_features, out_features, col);
         output[static_cast<long long>(n) * out_features + col] = acc - lse;
     }
 }

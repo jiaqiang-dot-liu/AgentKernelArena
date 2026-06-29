@@ -16,6 +16,25 @@ TEST_SHAPES = [
 ]
 WARMUP_ITERATIONS = 10
 BENCHMARK_ITERATIONS = 100
+
+
+# >>> AKA-GENERATED: shared CUDA-graph benchmark helpers - edit src/tools/perf/vllm_cuda_graph_block.py then run `make sync-perf-helpers` >>>
+def _measure_cuda_event_fallback(*args, **kwargs):
+    raise RuntimeError(
+        "CUDA-graph benchmark helpers were not materialized. "
+        "Run this task through AgentKernelArena so setup_workspace() can inject "
+        "src/tools/perf/vllm_cuda_graph_block.py into the workspace."
+    )
+
+
+def _benchmark_cuda_graph_or_events(*args, **kwargs):
+    raise RuntimeError(
+        "CUDA-graph benchmark helpers were not materialized. "
+        "Run this task through AgentKernelArena so setup_workspace() can inject "
+        "src/tools/perf/vllm_cuda_graph_block.py into the workspace."
+    )
+# <<< AKA-GENERATED <<<
+
 def load_module():
     spec = importlib.util.spec_from_file_location("kernel", SOURCE_FILE)
     mod = importlib.util.module_from_spec(spec)
@@ -104,23 +123,18 @@ def run_performance():
             dt = torch.rand(nheads, nchunks, chunk_size, device=device, dtype=torch.float32) * 0.1
             dA_cumsum = torch.cumsum(dt * (-0.1), dim=-1)
             cu = torch.arange(0, nchunks + 1, device=device, dtype=torch.int32) * chunk_size
-            for _ in range(WARMUP_ITERATIONS):
+            def _bench_fn():
                 mod.chunk_state_fwd(B, x, dt, dA_cumsum, cu)
-            torch.cuda.synchronize()
-            n_iter = BENCHMARK_ITERATIONS
-            starts = [torch.cuda.Event(enable_timing=True) for _ in range(n_iter)]
-            ends = [torch.cuda.Event(enable_timing=True) for _ in range(n_iter)]
-            for j in range(n_iter):
-                starts[j].record()
-                mod.chunk_state_fwd(B, x, dt, dA_cumsum, cu)
-                ends[j].record()
-            torch.cuda.synchronize()
-            times = [s.elapsed_time(e) for s, e in zip(starts, ends)]
-            elapsed_ms = sum(times) / len(times)
+            elapsed_ms, benchmark_metadata = _benchmark_cuda_graph_or_events(
+                _bench_fn,
+                warmup=WARMUP_ITERATIONS,
+                repetition=BENCHMARK_ITERATIONS,
+            )
 
             test_cases.append({
                 "test_case_id": f"perf{test_idx + 1}",
                 "execution_time_ms": elapsed_ms,
+                **benchmark_metadata,
                 "params": {
                     "seqlen": seqlen,
                     "nheads": nheads,

@@ -80,4 +80,4 @@ def get_inputs():
 
 
 def get_init_inputs():
-    return [[], {'input_size': 4}]
+    return [[], {'input_size': 128, 'hidden_size': 2048}]

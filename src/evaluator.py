@@ -15,7 +15,7 @@ from typing import Dict, Any, Optional, List, Tuple
 
 from .evaluator_utils import run_command
 from .performance import measure_performance, measure_baseline
-from .testcases import TestCaseResult, save_performance_results, calculate_average_speedup
+from .testcases import TestCaseResult, save_performance_results, calculate_average_speedup, collect_benchmark_methods
 
 # Default timeouts for run_command (seconds). Repository CMake builds can exceed a few minutes.
 _DEFAULT_COMPILE_TIMEOUT_S = 3600
@@ -149,6 +149,7 @@ def evaluate_kernel(
         'valid_optimized_cases': 0,
         'compilation_error_message': None,
         'correctness_error_message': None,
+        'speedup_calculation_error_message': None,
     }
     
     # 1. Compilation check
@@ -178,6 +179,9 @@ def evaluate_kernel(
     if optimized_cases:
         # Save optimized results
         save_performance_results(optimized_cases, workspace, "optimized_perf.yaml", logger)
+        # Record the timing method(s) used for the optimized measurement so the final
+        # task_result can flag mixed-method (baseline vs optimized) comparisons.
+        results['optimized_benchmark_methods'] = collect_benchmark_methods(optimized_cases)
         valid_optimized_cases = _valid_perf_cases(optimized_cases)
         valid_baseline_cases = _valid_perf_cases(baseline_cases)
         results['valid_optimized_cases'] = len(valid_optimized_cases)
@@ -199,22 +203,53 @@ def evaluate_kernel(
 
             # Calculate average speedup across valid test cases only
             if valid_baseline_cases:
-                avg_speedup = calculate_average_speedup(valid_baseline_cases, valid_optimized_cases, logger)
-                results['average_speedup'] = avg_speedup
                 avg_baseline_time = sum(c.execution_time_ms for c in valid_baseline_cases) / len(valid_baseline_cases)
                 log.info(
                     f"Baseline: {len(valid_baseline_cases)}/{len(baseline_cases)} valid test case(s), "
                     f"average time: {avg_baseline_time:.4f} ms"
                 )
-                log.info(f"Average speedup: {avg_speedup:.2f}x")
+
+                if (
+                    len(valid_baseline_cases) != len(baseline_cases)
+                    or len(valid_optimized_cases) != len(optimized_cases)
+                ):
+                    error_msg = (
+                        "Cannot calculate speedup because performance results contain invalid "
+                        "test case timings: "
+                        f"baseline_valid={len(valid_baseline_cases)}/{len(baseline_cases)}, "
+                        f"optimized_valid={len(valid_optimized_cases)}/{len(optimized_cases)}"
+                    )
+                    results['speedup_calculation_error_message'] = error_msg
+                    log.warning(error_msg)
+                else:
+                    avg_speedup = calculate_average_speedup(
+                        valid_baseline_cases,
+                        valid_optimized_cases,
+                        logger,
+                        require_complete_match=True,
+                    )
+                    if avg_speedup > 0:
+                        results['average_speedup'] = avg_speedup
+                        log.info(f"Average speedup: {avg_speedup:.2f}x")
+                    else:
+                        error_msg = (
+                            "Cannot calculate speedup because baseline and optimized "
+                            "test cases did not match completely"
+                        )
+                        results['speedup_calculation_error_message'] = error_msg
+                        log.warning(error_msg)
             else:
                 if baseline_cases:
-                    log.warning(
+                    error_msg = (
                         "Baseline data exists but has no valid performance samples "
                         "(execution_time_ms <= 0 or invalid). Cannot calculate speedup."
                     )
+                    results['speedup_calculation_error_message'] = error_msg
+                    log.warning(error_msg)
                 else:
-                    log.warning("Baseline not available, cannot calculate speedup")
+                    error_msg = "Baseline not available, cannot calculate speedup"
+                    results['speedup_calculation_error_message'] = error_msg
+                    log.warning(error_msg)
     else:
         log.warning("Failed to measure optimized execution time")
     
@@ -262,11 +297,30 @@ def write_task_result(
     # Get results
     optimized_time = evaluation_results.get('best_optimized_execution_time', 0.0)
     avg_speedup = evaluation_results.get('average_speedup', 0.0)
+    speedup_error = evaluation_results.get('speedup_calculation_error_message')
     
     # Use average speedup if available, otherwise calculate from average times
-    if avg_speedup == 0.0 and avg_baseline_time > 0 and optimized_time > 0:
+    if avg_speedup == 0.0 and not speedup_error and avg_baseline_time > 0 and optimized_time > 0:
         avg_speedup = avg_baseline_time / optimized_time
-    
+
+    # Surface the timing method(s) used on each side. If baseline and optimized were
+    # measured with different methods (e.g. cuda_graph vs cuda_event_fallback), the
+    # reported speedup_ratio may reflect the measurement-method delta rather than kernel
+    # quality — make that visible so such comparisons can be spotted/discounted.
+    baseline_methods = collect_benchmark_methods(baseline_cases)
+    optimized_methods = evaluation_results.get('optimized_benchmark_methods', [])
+    benchmark_method_consistent = (
+        bool(baseline_methods)
+        and bool(optimized_methods)
+        and len(set(baseline_methods) | set(optimized_methods)) == 1
+    )
+    if baseline_methods and optimized_methods and not benchmark_method_consistent:
+        log.warning(
+            f"Benchmark method mismatch — baseline={baseline_methods} optimized={optimized_methods}. "
+            "speedup_ratio may reflect the measurement-method delta (e.g. cuda_graph vs "
+            "cuda_event_fallback overhead), not kernel quality."
+        )
+
     task_result = {
         'task_name': task_name,
         'pass_compilation': evaluation_results['pass_compilation'],
@@ -276,8 +330,12 @@ def write_task_result(
         'base_execution_time': avg_baseline_time,  # Average baseline time
         'best_optimized_execution_time': optimized_time,  # Average optimized time
         'speedup_ratio': avg_speedup,  # Average speedup across test cases
+        'baseline_benchmark_methods': baseline_methods,
+        'optimized_benchmark_methods': optimized_methods,
+        'benchmark_method_consistent': benchmark_method_consistent,
         'valid_baseline_cases': len(valid_baseline_cases),
         'valid_optimized_cases': evaluation_results.get('valid_optimized_cases', 0),
+        'speedup_calculation_error_message': speedup_error,
         'optimization_summary': f'Optimized by {agent_name} using centralized evaluator'
     }
     

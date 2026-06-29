@@ -10,6 +10,7 @@ from src.preprocessing import setup_workspace, setup_rocm_env, is_task_complete
 from src.module_registration import AgentType, load_agent_launcher, load_post_processing_handler
 from src.evaluator import measure_baseline, evaluate_kernel, write_task_result
 from src.runtime_env import apply_subprocess_python_path
+from src.perf_helper_materialization import materialize_perf_helpers_in_workspace
 
 
 parser = argparse.ArgumentParser(description="arguments for AgentKernelArena")
@@ -195,7 +196,19 @@ def main() -> None:
                 task_config = yaml.safe_load(f)
             
             task_type = task_config.get('task_type', '')
-            if task_type == 'torch2hip':
+
+            # The task_validator inspects the task and writes its own
+            # validation_report.yaml; it does not optimize the kernel. Skip the whole
+            # benchmark pipeline for it (baseline compile/measure, optimized
+            # evaluation, and perf plots) — those would only re-measure the unchanged
+            # kernel and emit a meaningless ~1.0x task_result.yaml plus plots. The
+            # validator runs its own compile/correctness/performance checks.
+            is_validator = (agent == AgentType.TASK_VALIDATOR)
+
+            baseline_cases = []
+            if is_validator:
+                logger.info("task_validator run: skipping baseline/evaluation/perf-plot benchmark pipeline")
+            elif task_type == 'torch2hip':
                 logger.info("torch2hip task: skipping baseline compilation, measuring PyTorch baseline directly...")
                 baseline_cases = measure_baseline(workspace_path, task_config, logger)
             else:
@@ -209,7 +222,7 @@ def main() -> None:
                 else:
                     logger.info("Measuring baseline performance...")
                     baseline_cases = measure_baseline(workspace_path, task_config, logger)
-            
+
             # Launch agent (agent should only generate optimized kernel)
             logger.info(f"Launching agent: {agent.value}")
 
@@ -221,26 +234,33 @@ def main() -> None:
             )
 
             logger.info(f"Agent execution completed")
-            
-            # Centralized evaluation of optimized kernel
-            logger.info("Running centralized evaluation...")
-            evaluation_results = evaluate_kernel(
-                workspace_path,
-                task_config,
-                baseline_cases,
-                logger
-            )
-            
-            # Write standardized task_result.yaml
-            write_task_result(
-                workspace_path,
-                evaluation_results,
-                baseline_cases,
-                task_name,
-                agent.value,
-                logger
-            )
-            
+
+            if not is_validator:
+                # Agents work inside the task workspace and could accidentally
+                # modify generated perf helpers. Re-materialize from src/tools/perf/
+                # immediately before scoring so benchmark methodology stays
+                # canonical.
+                materialize_perf_helpers_in_workspace(workspace_path, logger=logger)
+
+                # Centralized evaluation of optimized kernel
+                logger.info("Running centralized evaluation...")
+                evaluation_results = evaluate_kernel(
+                    workspace_path,
+                    task_config,
+                    baseline_cases,
+                    logger
+                )
+
+                # Write standardized task_result.yaml
+                write_task_result(
+                    workspace_path,
+                    evaluation_results,
+                    baseline_cases,
+                    task_name,
+                    agent.value,
+                    logger
+                )
+
             logger.info(f"Task {task_name} completed successfully")
 
             # Add workspace path to list for post-processing

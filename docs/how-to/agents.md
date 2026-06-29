@@ -12,12 +12,6 @@ arena for A/B testing.
 | `cursor` | Cursor Agent CLI |
 | `claude_code` | Anthropic Claude Code CLI |
 | `codex` | OpenAI Codex CLI |
-| `swe_agent` | SWE-agent |
-| `openevolve` | OpenEvolve (GEAK) evolutionary search |
-| `geak_optimagentv2` | GEAK OptimAgent v2 |
-| `geak_hip` | GEAK HIP agent |
-| `geak_ourllm_kernel2kernel` | GEAK OurLLM kernel-to-kernel agent |
-| `single_llm_call` | A single LLM call (no agent loop) |
 | `task_validator` | Task quality validator (see [Validate tasks](task-validator.md)) |
 
 Select one in `config.yaml`:
@@ -60,10 +54,10 @@ without, then compare the standardized scores:
 
 ```bash
 # Baseline
-python main.py --run-suffix baseline
+make docker-run CONFIG=config.yaml RUN_ARGS="--run-suffix baseline"
 
 # With the new capability enabled in the agent configuration
-python main.py --run-suffix with_capability
+make docker-run CONFIG=config.yaml RUN_ARGS="--run-suffix with_capability"
 ```
 
 Both runs land in the same workspace directory with distinct run names, so the

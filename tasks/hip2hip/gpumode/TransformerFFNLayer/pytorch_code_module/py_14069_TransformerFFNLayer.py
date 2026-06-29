@@ -90,15 +90,16 @@ class TransformerFFNLayer(nn.Module):
 def get_inputs():
     """
     Generate multiple test cases with varying sizes
-    TransformerFFNLayer forward() expects x: (T, B, C) where C=hidden_size=4
+    TransformerFFNLayer forward() expects x: (T, B, C) where C=hidden_size.
+    Sizes scaled up so the conv1d(k=1)+linear (two GEMMs against rocBLAS) is the
+    real cost rather than launch/copy overhead.
     """
     configs = [
-        # (T, B, C) where C must be 4 to match hidden_size=4 initialization
-        ([4, 4, 4],),  # T=4, B=4, C=4
-        ([8, 4, 4],),  # T=8, B=4, C=4
-        ([16, 4, 4],),  # T=16, B=4, C=4
-        ([32, 4, 4],),  # T=32, B=4, C=4
-        ([64, 4, 4],),  # T=64, B=4, C=4
+        # (T, B, C) where C must match hidden_size=512; tokens = T*B
+        ([128, 8, 512],),   # 1024 tokens
+        ([256, 8, 512],),   # 2048 tokens
+        ([512, 8, 512],),   # 4096 tokens
+        ([512, 16, 512],),  # 8192 tokens
     ]
     
     for shape in configs:
@@ -108,4 +109,4 @@ def get_inputs():
 
 
 def get_init_inputs():
-    return [[], {'hidden_size': 4, 'filter_size': 4}]
+    return [[], {'hidden_size': 512, 'filter_size': 2048}]

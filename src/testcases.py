@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import List, Optional, Tuple, Dict, Any
 from dataclasses import dataclass
 
+_SYNTHETIC_TEST_ID_METADATA_KEY = "_synthetic_test_case_id"
+
 
 @dataclass
 class TestCaseResult:
@@ -116,6 +118,7 @@ def _parse_single_case_from_dict(
     task_type: Optional[str] = None
 ) -> Optional[TestCaseResult]:
     """Parse a single test case from a dictionary."""
+    has_explicit_test_id = 'test_case_id' in case
     test_id = case.get('test_case_id', default_test_id)
     shape = case.get('shape') or case.get('shapes')
     
@@ -142,6 +145,7 @@ def _parse_single_case_from_dict(
             metadata['speedup'] = case['speedup']
     if 'bytes_per_second_gs' in case:
         metadata['bytes_per_second_gs'] = case['bytes_per_second_gs']
+    metadata[_SYNTHETIC_TEST_ID_METADATA_KEY] = not has_explicit_test_id
 
     return TestCaseResult(
         test_case_id=test_id,
@@ -247,7 +251,10 @@ def parse_test_cases_from_json(
                             test_case_id=test_case_id,
                             shape=report.get('shape') or report.get('shapes'),
                             execution_time_ms=time_val,
-                            metadata=metadata
+                            metadata={
+                                **metadata,
+                                _SYNTHETIC_TEST_ID_METADATA_KEY: True,
+                            }
                         ))
         
         log.info(f"Parsed {len(test_cases)} test case(s) from {report_file}")
@@ -319,81 +326,105 @@ def parse_test_cases_from_stdout(
 def match_test_cases(
     baseline_cases: List[TestCaseResult],
     optimized_cases: List[TestCaseResult],
-    logger: Optional[logging.Logger] = None
+    logger: Optional[logging.Logger] = None,
+    allow_index_fallback: bool = True,
 ) -> List[Tuple[TestCaseResult, TestCaseResult]]:
     """
     Match test cases between baseline and optimized results.
     
     Matching strategy:
-    1. Match by test_case_id (exact match)
-    2. Match by params (excluding distinguishing conditions)
-    3. Match by shape (if available)
-    4. Match by index (if same number of cases)
+    1. Match by params when present
+    2. Match by shape when present
+    3. Match by explicit test_case_id
+    4. Match by index for any remaining cases when allowed
     
     Args:
         baseline_cases: Baseline test case results
         optimized_cases: Optimized test case results
         logger: Optional logger
+        allow_index_fallback: Whether to pair unmatched cases by remaining order
         
     Returns:
         List of (baseline_case, optimized_case) tuples
     """
     log = logger or logging.getLogger(__name__)
     matched = []
+    used_baseline = set()
     used_optimized = set()
-    
-    # Strategy 1: Match by test_case_id
-    baseline_by_id = {case.test_case_id: case for case in baseline_cases}
-    for opt_case in optimized_cases:
-        if opt_case.test_case_id in baseline_by_id:
-            matched.append((baseline_by_id[opt_case.test_case_id], opt_case))
-            used_optimized.add(id(opt_case))
-    
-    # Strategy 2: Match by params (excluding distinguishing conditions)
-    remaining_baseline = [b for b in baseline_cases if b not in [m[0] for m in matched]]
-    remaining_optimized = [o for o in optimized_cases if id(o) not in used_optimized]
-    
-    # Distinguishing param keys that should be ignored for matching
-    distinguishing_keys = {'mode', 'dtype', 'query_type', 'input_type', 'layout', 
-                          'output_mode', 'box_type', 'pool_mode'}
-    
-    def get_matching_params(params_dict):
-        """Extract params for matching (excluding distinguishing conditions)."""
-        if not params_dict or not isinstance(params_dict, dict):
+
+    def freeze_value(value):
+        """Convert nested metadata values into comparable tuples."""
+        if isinstance(value, dict):
+            return tuple(sorted((k, freeze_value(v)) for k, v in value.items()))
+        if isinstance(value, (list, tuple)):
+            return tuple(freeze_value(v) for v in value)
+        return value
+
+    def get_params_key(case: TestCaseResult):
+        params = case.metadata.get('params') if case.metadata else None
+        if not params or not isinstance(params, dict):
             return None
-        matching = {k: v for k, v in params_dict.items() if k not in distinguishing_keys}
-        return tuple(sorted(matching.items())) if matching else None
-    
-    for base_case in remaining_baseline:
-        base_params = get_matching_params(base_case.metadata.get('params') if base_case.metadata else None)
-        if base_params:
+        return freeze_value(params)
+
+    def get_shape_key(case: TestCaseResult):
+        if not case.shape:
+            return None
+        return freeze_value(case.shape)
+
+    def get_explicit_id_key(case: TestCaseResult):
+        if not case.test_case_id:
+            return None
+        metadata = case.metadata or {}
+        if metadata.get(_SYNTHETIC_TEST_ID_METADATA_KEY, False):
+            return None
+        return case.test_case_id
+
+    def remaining_cases(cases, used_ids):
+        return [case for case in cases if id(case) not in used_ids]
+
+    def match_by_key(key_fn, strategy_name: str) -> None:
+        nonlocal matched
+        remaining_baseline = remaining_cases(baseline_cases, used_baseline)
+        remaining_optimized = remaining_cases(optimized_cases, used_optimized)
+
+        for base_case in remaining_baseline:
+            base_key = key_fn(base_case)
+            if base_key is None:
+                continue
             for opt_case in remaining_optimized:
-                opt_params = get_matching_params(opt_case.metadata.get('params') if opt_case.metadata else None)
-                if opt_params and base_params == opt_params:
+                if id(opt_case) in used_optimized:
+                    continue
+                opt_key = key_fn(opt_case)
+                if opt_key is not None and base_key == opt_key:
                     matched.append((base_case, opt_case))
+                    used_baseline.add(id(base_case))
                     used_optimized.add(id(opt_case))
                     break
-    
-    # Strategy 3: Fallback to shape matching if params not available
-    remaining_baseline = [b for b in baseline_cases if b not in [m[0] for m in matched]]
-    remaining_optimized = [o for o in optimized_cases if id(o) not in used_optimized]
-    
-    for base_case in remaining_baseline:
-        if base_case.shape:
-            for opt_case in remaining_optimized:
-                if opt_case.shape and base_case.shape == opt_case.shape:
-                    matched.append((base_case, opt_case))
-                    used_optimized.add(id(opt_case))
-                    break
-    
-    # Strategy 4: Match by index (for remaining cases)
-    remaining_baseline = [b for b in baseline_cases if b not in [m[0] for m in matched]]
-    remaining_optimized = [o for o in optimized_cases if id(o) not in used_optimized]
-    
-    min_len = min(len(remaining_baseline), len(remaining_optimized))
-    for i in range(min_len):
-        matched.append((remaining_baseline[i], remaining_optimized[i]))
-    
+
+        if matched:
+            log.debug(f"Matched {len(matched)} cumulative test case(s) after {strategy_name}")
+
+    # Prefer semantic keys over generated IDs so reordered pytest results do not mismatch.
+    match_by_key(get_params_key, "params matching")
+    match_by_key(get_shape_key, "shape matching")
+    match_by_key(get_explicit_id_key, "explicit test_case_id matching")
+
+    if allow_index_fallback:
+        remaining_baseline = remaining_cases(baseline_cases, used_baseline)
+        remaining_optimized = remaining_cases(optimized_cases, used_optimized)
+
+        if len(remaining_baseline) != len(remaining_optimized):
+            log.warning(
+                "Index fallback has different remaining case counts: "
+                f"baseline={len(remaining_baseline)}, optimized={len(remaining_optimized)}"
+            )
+
+        min_len = min(len(remaining_baseline), len(remaining_optimized))
+        for i in range(min_len):
+            matched.append((remaining_baseline[i], remaining_optimized[i]))
+            used_baseline.add(id(remaining_baseline[i]))
+            used_optimized.add(id(remaining_optimized[i]))
+
     log.info(f"Matched {len(matched)} test case(s) between baseline and optimized")
     return matched
 
@@ -401,7 +432,8 @@ def match_test_cases(
 def calculate_average_speedup(
     baseline_cases: List[TestCaseResult],
     optimized_cases: List[TestCaseResult],
-    logger: Optional[logging.Logger] = None
+    logger: Optional[logging.Logger] = None,
+    require_complete_match: bool = True,
 ) -> float:
     """
     Calculate average speedup across all matched test cases.
@@ -410,16 +442,35 @@ def calculate_average_speedup(
         baseline_cases: Baseline test case results
         optimized_cases: Optimized test case results
         logger: Optional logger
+        require_complete_match: Require every baseline and optimized case to match
         
     Returns:
         Average speedup ratio (baseline_time / optimized_time), or 0.0 if no valid matches
     """
     log = logger or logging.getLogger(__name__)
     
-    matched = match_test_cases(baseline_cases, optimized_cases, logger)
+    allow_index_fallback = (
+        not require_complete_match
+        or (len(baseline_cases) == 1 and len(optimized_cases) == 1)
+    )
+    matched = match_test_cases(
+        baseline_cases,
+        optimized_cases,
+        logger,
+        allow_index_fallback=allow_index_fallback,
+    )
     
     if not matched:
         log.warning("No test cases matched, cannot calculate speedup")
+        return 0.0
+
+    if require_complete_match and (
+        len(matched) != len(baseline_cases) or len(matched) != len(optimized_cases)
+    ):
+        log.warning(
+            "Incomplete test case match, refusing to calculate speedup: "
+            f"matched={len(matched)}, baseline={len(baseline_cases)}, optimized={len(optimized_cases)}"
+        )
         return 0.0
     
     speedups = []
@@ -430,6 +481,9 @@ def calculate_average_speedup(
             log.debug(f"Test case {base_case.test_case_id}: {base_case.execution_time_ms:.4f} ms -> {opt_case.execution_time_ms:.4f} ms (speedup: {speedup:.2f}x)")
         else:
             log.warning(f"Invalid execution times for test case {base_case.test_case_id}: baseline={base_case.execution_time_ms}, optimized={opt_case.execution_time_ms}")
+            if require_complete_match:
+                log.warning("Invalid case time encountered, refusing to calculate speedup")
+                return 0.0
     
     if not speedups:
         log.warning("No valid speedups calculated")
@@ -474,6 +528,15 @@ def save_performance_results(
         # Only include params from metadata, exclude everything else
         if case.metadata and 'params' in case.metadata:
             case_dict['params'] = case.metadata['params']
+        # Persist the timing method (and any fallback reason) so that baseline vs
+        # optimized comparisons can detect mixed-method measurements. A baseline timed
+        # with cuda_graph (host-overhead-free) compared against an optimized kernel that
+        # fell back to cuda_event timing (per-launch + sync overhead) would otherwise
+        # fabricate a speedup/regression from the measurement-method delta alone.
+        if case.metadata:
+            for k in ('benchmark_method', 'benchmark_fallback_reason'):
+                if case.metadata.get(k) is not None:
+                    case_dict[k] = case.metadata[k]
         results['test_cases'].append(case_dict)
     
     output_file = workspace / filename
@@ -521,7 +584,23 @@ def load_performance_results(
         
         log.info(f"Loaded {len(test_cases)} test case(s) from {input_file}")
         return test_cases
-        
+
     except Exception as e:
         log.error(f"Failed to load performance results from {input_file}: {e}")
         return []
+
+
+def collect_benchmark_methods(test_cases: List[TestCaseResult]) -> List[str]:
+    """Return the sorted set of distinct `benchmark_method` values across test cases.
+
+    The method is read from each case's metadata (populated from the benchmark JSON
+    and persisted into baseline_perf.yaml / optimized_perf.yaml). An empty list means
+    no method was recorded (e.g. an older report or a non-rocmbench task).
+    """
+    methods = set()
+    for case in test_cases:
+        if case.metadata:
+            method = case.metadata.get('benchmark_method')
+            if method:
+                methods.add(str(method))
+    return sorted(methods)

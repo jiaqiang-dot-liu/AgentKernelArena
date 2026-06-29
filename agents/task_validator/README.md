@@ -29,7 +29,7 @@ workspace_directory_prefix: workspace
 ### 2. Run
 
 ```bash
-python3 main.py
+make docker-run CONFIG=config.yaml
 ```
 
 ### 3. Read Results
@@ -43,7 +43,13 @@ Edit `agents/task_validator/agent_config.yaml`:
 ```yaml
 backend: claude_code          # claude_code | codex | cursor
 timeout_seconds: 600          # max time per task validation (set 0 to disable timeout)
-python_path: /root/AgentKernelArena/.venv/bin/python3
+python_path: null             # null -> auto-use framework-detected interpreter (recommended)
+
+# Optional model settings for the active backend.
+# claude_code: passed as `claude --model` and `claude --effort`
+# codex: passed as `codex exec --model` and `model_reasoning_effort`
+model: sonnet
+effort: max
 ```
 
 ## Validation Checks
@@ -136,7 +142,7 @@ A task **must** be fully self-contained. This means:
 
 3. **No missing Python imports.** Every `import` or `from X import Y` must resolve to either:
    - Python standard library
-   - Packages available in the `.venv` environment (torch, numpy, triton, etc.)
+   - Packages available in the Docker container environment (torch, numpy, triton, etc.)
    - Local files within the task directory
 
 4. **No external data downloads.** Test inputs must be generated inline (random tensors, synthetic data) or bundled as small files in the task directory.

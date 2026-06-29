@@ -7,25 +7,19 @@
 # Available options:
 # - cursor
 # - codex
-# - geak_optimagentv2
-# - single_llm_call
-# - SWE-agent
 # - claude_code
-# - geak_hip
-# - openevolve
-# - geak_ourllm_kernel2kernel
-# - task_validator 
+# - task_validator
 agent:
   template: cursor 
 
 # Task Selection
 # Specify task names to execute (use full path from tasks/ directory)
 # Examples:
-#   - hip2hip                           # All tasks under hip2hip
-#   - triton2triton                     # All tasks under triton2triton
-#   - torch2hip                         # All tasks under torch2hip
-#   - hip2hip/silu                      # single task under hip2hip
-#   - all                               # Run ALL available tasks
+#   - hip2hip                              # All tasks under hip2hip
+#   - triton2triton                        # All tasks under triton2triton
+#   - torch2hip                            # All tasks under torch2hip
+#   - hip2hip/gpumode/NormalAttention_dot  # single task under hip2hip
+#   - all                                  # Run ALL available tasks
 
 tasks:
   # hip2hip: 20 tasks (18 from gpumode, 2 from others)
@@ -33,7 +27,6 @@ tasks:
   - hip2hip/gpumode/Feedforward
   - hip2hip/gpumode/FusedLeakyReLU
   - hip2hip/gpumode/GateGRUSelectionLayer
-  - hip2hip/gpumode/Gather
   - hip2hip/gpumode/GELU
   - hip2hip/gpumode/InnerProd
   - hip2hip/gpumode/ItemQueryAttention
@@ -44,9 +37,10 @@ tasks:
   - hip2hip/gpumode/MultiHeadAttention
   - hip2hip/gpumode/NormalAttention_dot
   - hip2hip/gpumode/NormalAttention_embedded_gaussian
-  - hip2hip/gpumode/PositionEmbedder
+  - hip2hip/gpumode/PositionWiseFeedForward
   - hip2hip/gpumode/Sigmoid
   - hip2hip/gpumode/SiLU
+  - hip2hip/gpumode/TransformerFFNLayer
   - hip2hip/others/assign_score_withk
   - hip2hip/others/ball_query
   
@@ -99,6 +93,6 @@ tasks:
   - instruction2triton/rocmbench/test_gemm_fusion
 
 
-target_gpu_model: MI300
+target_gpu_model: MI355X # MI300 or MI355X
 log_directory: logs
 workspace_directory_prefix: workspace

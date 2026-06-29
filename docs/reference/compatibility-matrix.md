@@ -15,11 +15,11 @@ tested environment before publication.
 
 | Component | Version | Notes |
 | --- | --- | --- |
-| ROCm | 6.4, 7.0, 7.1 | Auto-detected by the `Makefile` from `/opt/rocm-*`. |
-| Python | 3.12+ | |
-| PyTorch | ROCm build matching the detected ROCm version | Installed by `make setup` (nightly for ROCm 7.x). |
-| Triton | Bundled with the ROCm PyTorch wheel | Required for Triton task categories. |
-| FlyDSL | Latest from PyPI | Required for `flydsl2flydsl` tasks. TODO (verify) pinned version. |
+| ROCm | 6.4, 7.0, 7.1 | Provided by the SGLang Docker image; arch (gfx942/gfx950) selects the image. |
+| Python | Provided by the image (e.g. 3.10) | Bundled in the SGLang image. |
+| PyTorch | ROCm build bundled in the image | Provided by the SGLang Docker image. |
+| Triton | Bundled with the image's ROCm PyTorch | Required for Triton task categories. |
+| FlyDSL | Provided by the image (or `make docker-setup-flydsl`) | Required for `flydsl2flydsl` tasks. |
 | uv | Latest | Used to create the virtual environment. |
 | hipcc | Matches ROCm | Required for HIP tasks. |
 | rocprof-compute | Matches ROCm | Required for HIP performance profiling. |
@@ -31,8 +31,6 @@ tested environment before publication.
 | Cursor Agent CLI | TODO (verify) | Installed via `make install-cursor-agent`. |
 | Claude Code | TODO (verify) | `npm install -g @anthropic-ai/claude-code`. |
 | Codex CLI | TODO (verify) | Installed per the official Codex CLI instructions. |
-| SWE-agent | TODO (verify) | |
-| OpenEvolve (GEAK) | TODO (verify) | |
 
 ## Model providers
 

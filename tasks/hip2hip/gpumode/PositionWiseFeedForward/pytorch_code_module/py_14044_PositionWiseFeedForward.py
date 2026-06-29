@@ -53,21 +53,13 @@ def get_inputs():
     - Different batch sizes and sequence lengths
     - Input shape: (batch_size, word_pad_len, d_model)
     """
+    # d_model scaled up so W_1/W_2 are real GEMMs and the LayerNorm reduction is
+    # non-trivial; M = batch * word_pad_len.
     configs = [
-        # Small
-        ([4, 4, 4],),
-        ([8, 8, 4],),
-        # Medium
-        ([16, 16, 4],),
-        ([32, 32, 4],),
-        # Large
-        ([64, 64, 4],),
-        ([128, 128, 4],),
-        # Different sequence lengths
-        ([4, 8, 4],),
-        ([8, 16, 4],),
-        ([16, 32, 4],),
-        ([32, 64, 4],),
+        ([32, 32, 512],),    # 1024 rows
+        ([64, 64, 512],),    # 4096 rows
+        ([128, 64, 512],),   # 8192 rows
+        ([128, 128, 512],),  # 16384 rows
     ]
     
     for shape in configs:
@@ -77,4 +69,4 @@ def get_inputs():
 
 
 def get_init_inputs():
-    return [[], {'d_model': 4, 'hidden_size': 4}]
+    return [[], {'d_model': 512, 'hidden_size': 2048}]

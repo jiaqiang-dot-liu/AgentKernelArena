@@ -14,34 +14,64 @@ from .evaluator_utils import run_command
 _DEFAULT_PERFORMANCE_COMMAND_TIMEOUT_S = 3600
 
 
-def find_performance_report_files(workspace: Path, task_type: Optional[str] = None) -> List[Path]:
+def performance_report_candidates(workspace: Path, task_type: Optional[str] = None) -> List[Path]:
     """
-    Find potential performance report files based on task type and common patterns.
-    
+    Return possible performance report paths based on task type and common patterns.
+
     Args:
         workspace: Workspace directory
         task_type: Task type (e.g., 'triton2triton', 'hip2hip')
-        
+
     Returns:
         List of potential report file paths to check
     """
-    report_files = []
-    
-    # Common report file locations
-    common_paths = [
+    return [
         workspace / "build" / "performance_report.json",
         workspace / "performance_report.json",
         workspace / "build" / "perf_report.json",
         workspace / "perf_report.json",
         workspace / "perf" / "benchmark_results.json",
     ]
+
+
+def find_performance_report_files(workspace: Path, task_type: Optional[str] = None) -> List[Path]:
+    """
+    Find existing performance report files based on task type and common patterns.
     
-    
-    # Add common paths
-    report_files.extend(common_paths)
-    
+    Args:
+        workspace: Workspace directory
+        task_type: Task type (e.g., 'triton2triton', 'hip2hip')
+
+    Returns:
+        List of existing report file paths to check
+    """
     # Filter to only existing files
-    return [f for f in report_files if f.exists()]
+    return [f for f in performance_report_candidates(workspace, task_type) if f.exists()]
+
+
+def clear_performance_report_files(
+    workspace: Path,
+    task_type: Optional[str] = None,
+    logger: Optional[logging.Logger] = None
+) -> None:
+    """Remove stale performance report files before running a fresh benchmark."""
+    log = logger or logging.getLogger(__name__)
+    removed = []
+
+    for report_file in performance_report_candidates(workspace, task_type):
+        if not report_file.exists():
+            continue
+        try:
+            if report_file.is_file() or report_file.is_symlink():
+                report_file.unlink()
+                removed.append(str(report_file))
+            else:
+                log.warning(f"Skipping stale performance report path that is not a file: {report_file}")
+        except Exception as e:
+            log.warning(f"Failed to remove stale performance report {report_file}: {e}")
+
+    if removed:
+        log.info(f"Removed {len(removed)} stale performance report file(s)")
 
 
 def parse_execution_time_from_json(
@@ -267,6 +297,8 @@ def measure_performance(
     for cmd in performance_commands:
         if is_baseline and task_type == 'torch2hip':
             cmd = cmd + " --baseline_only"
+
+        clear_performance_report_files(workspace, task_type, log)
         success, stdout, stderr = run_command(cmd, workspace, timeout=perf_timeout, logger=log)
         
         # Combine stdout and stderr for parsing
@@ -324,4 +356,3 @@ def measure_baseline(
         log.warning("Failed to measure baseline execution time")
     
     return baseline_cases
-

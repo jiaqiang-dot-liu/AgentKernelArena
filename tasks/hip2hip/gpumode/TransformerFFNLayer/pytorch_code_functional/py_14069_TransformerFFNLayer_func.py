@@ -143,4 +143,4 @@ def get_inputs():
 
 
 def get_init_inputs():
-    return [[], {'hidden_size': 4, 'filter_size': 4}]
+    return [[], {'hidden_size': 512, 'filter_size': 2048}]

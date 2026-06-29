@@ -24,7 +24,7 @@ workspace_directory_prefix: workspace
 Then run:
 
 ```bash
-python3 main.py
+make docker-run CONFIG=config.yaml
 ```
 
 Each task workspace receives a `validation_report.yaml` with per-check results,
@@ -39,7 +39,13 @@ The validator's own backend and limits are set in
 ```yaml
 backend: claude_code          # claude_code | codex | cursor
 timeout_seconds: 600          # max time per task validation (0 disables the timeout)
-python_path: /root/AgentKernelArena/.venv/bin/python3
+python_path: null             # null uses the framework/container Python
+
+# Optional model settings for the active backend.
+# claude_code: passed as `claude --model` and `claude --effort`
+# codex: passed as `codex exec --model` and `model_reasoning_effort`
+model: sonnet
+effort: max
 ```
 
 ## The 10 checks
