@@ -24,9 +24,9 @@ class Conv2d_InstanceNorm_Divide(nn.Module):
 
 
 batch_size = 128
-in_channels  = 64  
-out_channels = 128  
-height = width = 128  
+in_channels  = 64
+out_channels = 128
+height = width = 128
 kernel_size = 3
 divide_by = 2.0
 

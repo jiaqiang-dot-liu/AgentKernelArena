@@ -12,10 +12,10 @@ performance_command:
   --py_func_file pytorch_code_functional/py_l1n9_Tall_skinny_matrix_multiplication__func.py --hip_file hip/hip_l1n9_Tall_skinny_matrix_multiplication_.hip
 prompt:
   source_code: null
-  instructions: You are a hip expert and good at gpu kernel implementation. Please
-    implemnt a target HIP kernel code corresponding to pytorch modullle code provided
-    as followings, which includes hip kernel, kernel laucher and python bliding code
-    for the hip launcher.
+  instructions: You are a HIP expert skilled at GPU kernel implementation. Please
+    implement target HIP kernel code corresponding to the provided PyTorch module,
+    including the HIP kernel, kernel launcher, and Python binding code
+    for the HIP launcher.
   task_type: null
   cheatsheet: null
 target_file_path: hip/hip_l1n9_Tall_skinny_matrix_multiplication_.hip

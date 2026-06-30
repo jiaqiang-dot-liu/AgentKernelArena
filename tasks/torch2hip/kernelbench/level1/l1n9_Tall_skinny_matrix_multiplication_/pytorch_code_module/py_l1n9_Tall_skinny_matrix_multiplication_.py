@@ -8,7 +8,7 @@ class Tall_skinny_matrix_multiplication_(nn.Module):
     """
     def __init__(self):
         super(Tall_skinny_matrix_multiplication_, self).__init__()
-    
+
     def forward(self, A, B):
         """
         Performs the matrix multiplication.

@@ -8,7 +8,7 @@ class Matmul_with_irregular_shapes_(nn.Module):
     """
     def __init__(self):
         super(Matmul_with_irregular_shapes_, self).__init__()
-    
+
     def forward(self, A: torch.Tensor, B: torch.Tensor) -> torch.Tensor:
         """
         Performs matrix multiplication of A and B.

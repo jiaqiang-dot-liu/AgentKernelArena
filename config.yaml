@@ -10,7 +10,7 @@
 # - claude_code
 # - task_validator
 agent:
-  template: cursor 
+  template: cursor
 
 # Task Selection
 # Specify task names to execute (use full path from tasks/ directory)
@@ -79,41 +79,6 @@ tasks:
   - torch2hip/gpumode/11754_layer_normalization
   - torch2hip/gpumode/14539_GELU
   - torch2hip/gpumode/16636_SiLU
-
-  # torch2hip/kernelbench: 33 tasks (level1 / level2 / level3)
-  - torch2hip/kernelbench/level1/l1n1_Square_matrix_multiplication_
-  - torch2hip/kernelbench/level1/l1n2_Standard_matrix_multiplication_
-  - torch2hip/kernelbench/level1/l1n3_Batched_matrix_multiplication
-  - torch2hip/kernelbench/level1/l1n4_Matrix_vector_multiplication_
-  - torch2hip/kernelbench/level1/l1n8_Matmul_with_irregular_shapes_
-  - torch2hip/kernelbench/level1/l1n9_Tall_skinny_matrix_multiplication_
-  - torch2hip/kernelbench/level1/l1n23_Softmax
-  - torch2hip/kernelbench/level1/l1n26_GELU_
-  - torch2hip/kernelbench/level1/l1n36_RMSNorm_
-  - torch2hip/kernelbench/level1/l1n40_LayerNorm
-  - torch2hip/kernelbench/level1/l1n42_Max_Pooling_2D
-  - torch2hip/kernelbench/level1/l1n47_Sum_reduction_over_a_dimension
-  - torch2hip/kernelbench/level1/l1n63_conv_standard_2D__square_input__square_kernel
-  - torch2hip/kernelbench/level1/l1n82_conv_depthwise_2D_square_input_square_kernel
-  - torch2hip/kernelbench/level1/l1n95_CrossEntropyLoss
-  - torch2hip/kernelbench/level2/l2n6_Conv3d_Softmax_MaxPool_MaxPool
-  - torch2hip/kernelbench/level2/l2n17_Conv2d_InstanceNorm_Divide
-  - torch2hip/kernelbench/level2/l2n37_Matmul_Swish_Sum_GroupNorm
-  - torch2hip/kernelbench/level2/l2n40_Matmul_Scaling_ResidualAdd
-  - torch2hip/kernelbench/level2/l2n46_Conv2d_Subtract_Tanh_Subtract_AvgPool
-  - torch2hip/kernelbench/level2/l2n52_Conv2d_Activation_BatchNorm
-  - torch2hip/kernelbench/level2/l2n55_Matmul_MaxPool_Sum_Scale
-  - torch2hip/kernelbench/level2/l2n59_Matmul_Swish_Scaling
-  - torch2hip/kernelbench/level2/l2n66_Matmul_Dropout_Softmax
-  - torch2hip/kernelbench/level2/l2n73_Conv2d_BatchNorm_Scaling
-  - torch2hip/kernelbench/level2/l2n82_Conv2d_Tanh_Scaling_BiasAdd_Max
-  - torch2hip/kernelbench/level2/l2n85_Conv2d_GroupNorm_Scale_MaxPool_Clamp
-  - torch2hip/kernelbench/level2/l2n86_Matmul_Divide_GELU
-  - torch2hip/kernelbench/level2/l2n98_Matmul_AvgPool_GELU_Scale_Max
-  - torch2hip/kernelbench/level2/l2n99_Matmul_GELU_Softmax
-  - torch2hip/kernelbench/level3/l3n31_VisionAttention
-  - torch2hip/kernelbench/level3/l3n43_MinGPTCausalAttention
-  - torch2hip/kernelbench/level3/l3n44_MiniGPTBlock
 
   # instruction2triton/rocmbench: 10 tasks
   - instruction2triton/rocmbench/gemm

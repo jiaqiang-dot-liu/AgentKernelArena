@@ -16,7 +16,7 @@ class conv_depthwise_2D_square_input_square_kernel(nn.Module):
     def __init__(self, in_channels: int, kernel_size: int, stride: int = 1, padding: int = 0, bias: bool = False):
         super(conv_depthwise_2D_square_input_square_kernel, self).__init__()
         self.conv2d = nn.Conv2d(in_channels, in_channels, kernel_size, stride=stride, padding=padding, groups=in_channels, bias=bias)
-        
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Performs the depthwise 2D convolution.

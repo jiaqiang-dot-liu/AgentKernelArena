@@ -8,7 +8,7 @@ class Square_matrix_multiplication_(nn.Module):
     """
     def __init__(self):
         super(Square_matrix_multiplication_, self).__init__()
-    
+
     def forward(self, A: torch.Tensor, B: torch.Tensor) -> torch.Tensor:
         """
         Performs the matrix multiplication.

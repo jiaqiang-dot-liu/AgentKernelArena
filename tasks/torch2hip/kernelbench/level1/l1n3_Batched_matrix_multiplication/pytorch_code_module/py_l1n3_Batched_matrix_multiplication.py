@@ -8,7 +8,7 @@ class Batched_matrix_multiplication(nn.Module):
     """
     def __init__(self):
         super(Batched_matrix_multiplication, self).__init__()
-    
+
     def forward(self, A: torch.Tensor, B: torch.Tensor) -> torch.Tensor:
         """
         Performs batched matrix multiplication.

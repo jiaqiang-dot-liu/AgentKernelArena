@@ -36,7 +36,7 @@ class Conv2d_GroupNorm_Scale_MaxPool_Clamp(nn.Module):
 batch_size = 128
 in_channels = 8
 out_channels = 64
-height, width = 128, 128 
+height, width = 128, 128
 kernel_size = 3
 num_groups = 16
 scale_shape = (out_channels, 1, 1)

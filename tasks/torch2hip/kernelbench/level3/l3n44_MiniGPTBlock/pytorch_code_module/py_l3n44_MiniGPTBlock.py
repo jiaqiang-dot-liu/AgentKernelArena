@@ -13,7 +13,7 @@ class NewGELU(nn.Module):
     """
     def __init__(self):
         super(NewGELU, self).__init__()
-    
+
     def forward(self, x):
         return 0.5 * x * (1.0 + torch.tanh(math.sqrt(2.0 / math.pi) * (x + 0.044715 * torch.pow(x, 3.0))))
 
@@ -60,7 +60,7 @@ class CausalSelfAttention(nn.Module):
         # output projection
         y = self.resid_dropout(self.c_proj(y))
         return y
-    
+
 class MiniGPTBlock(nn.Module):
     """ an unassuming Transformer block """
 

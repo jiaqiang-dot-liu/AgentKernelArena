@@ -8,7 +8,7 @@ class Softmax(nn.Module):
     """
     def __init__(self):
         super(Softmax, self).__init__()
-    
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Applies Softmax activation to the input tensor.

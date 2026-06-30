@@ -8,7 +8,7 @@ class GELU_(nn.Module):
     """
     def __init__(self):
         super(GELU_, self).__init__()
-    
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Applies GELU activation to the input tensor.
