@@ -10,7 +10,7 @@
 # - claude_code
 # - task_validator
 agent:
-  template: cursor 
+  template: cursor
 
 # Task Selection
 # Specify task names to execute (use full path from tasks/ directory)
@@ -79,7 +79,7 @@ tasks:
   - torch2hip/gpumode/11754_layer_normalization
   - torch2hip/gpumode/14539_GELU
   - torch2hip/gpumode/16636_SiLU
-  
+
   # instruction2triton/rocmbench: 10 tasks
   - instruction2triton/rocmbench/gemm
   - instruction2triton/rocmbench/layernorm
