@@ -1,0 +1,46 @@
+# Configuration for the KernelForge "forge" agent.
+#
+# This agent bridges AgentKernelArena to KernelForge's `kernel-agents forge-loop`:
+# an autonomous optimization loop (baseline -> agent edit -> 5-stage validate ->
+# bench -> keep/revert) running as a hard-killable subprocess.
+
+# Model passed to KernelForge (exported as KERNEL_AGENTS_MODEL). Must be served
+# by the configured Anthropic gateway (ANTHROPIC_BASE_URL/ANTHROPIC_AUTH_TOKEN).
+model: claude-opus-4-8
+
+# Backend expertise (fellow) is INFERRED from the task's task_type by the
+# launcher: the target side of "<src>2<dst>" picks the fellow, e.g.
+#   triton2triton / instruction2triton -> triton-fellow
+#   hip2hip / cuda2hip / torch2hip      -> hip-fellow
+#   flydsl2flydsl                       -> flydsl-fellow
+# (valid: ck, flydsl, triton, aiter, hip, hipblaslt). To force a specific
+# fellow regardless of task_type, uncomment:
+# fellow: triton-fellow
+
+# Loop budget. Kept small for a demo run; raise for real optimization.
+max_iters: 2
+max_hours: 0.1
+
+# Correctness gate (dB) used by the 5-stage validation pipeline.
+snr_threshold: 30.0
+
+# Hard wall-clock cap for the whole forge-loop subprocess (seconds).
+timeout_seconds: 3600
+
+# Claude permission mode. acceptEdits works under root; bypassPermissions is
+# blocked by Claude Code's security policy for root.
+permission_mode: acceptEdits
+
+# Driver template (relative to this agent dir) copied into the workspace as
+# forge_driver.py when the task does not ship its own scripts/forge_driver.py.
+#
+# arena_task_adapter.py is a GENERIC driver that reuses the task's own
+# correctness_command / performance_command (no per-kernel driver needed). It
+# works for any task whose config defines the standard commands. A task may
+# still ship its own scripts/forge_driver.py to override this.
+driver_file: drivers/arena_task_adapter.py
+
+# NOTE: no shapes_json here on purpose. The generic adapter ignores --shape (the
+# task's own pytest owns its shapes), so passing kernel-specific n= values adds
+# no value and isn't portable across tasks. The forge-loop CLI defaults to "{}".
+# Only set shapes_json if you use a per-kernel driver that parses --shape.
