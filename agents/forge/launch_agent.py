@@ -114,13 +114,50 @@ def _git(workspace: str, *args: str, logger: logging.Logger) -> None:
         logger.debug(f"git {' '.join(args)} -> {result.returncode}: {result.stderr.strip()}")
 
 
+# Build artifacts / regenerated reports / forge scaffolding must NOT be tracked:
+# if they are, a validation or benchmark run that regenerates them dirties the
+# tree and makes the loop's `git revert` fail — leaking a reverted (often broken)
+# edit into the final tree. Only source is tracked, matching the loop's own
+# `git add -u` philosophy.
+_GITIGNORE = """\
+__pycache__/
+*.pyc
+*.pyo
+*.so
+*.o
+*.hsaco
+*.pt
+build/
+perf/
+*_perf.yaml
+performance_report.json
+perf_report.json
+forge_experiments/
+forge_driver.py
+forge_program.md
+.pytest_cache/
+*.log
+"""
+
+
 def _init_git_workspace(workspace: str, logger: logging.Logger) -> None:
-    """Initialize a git repo with an initial commit (required by forge-loop)."""
+    """Initialize a git repo with an initial commit (required by forge-loop).
+
+    Writes a .gitignore first so build artifacts and regenerated perf reports
+    stay untracked — otherwise later tool runs dirty the tree and break the
+    loop's keep/revert (git revert aborts on unstaged changes).
+    """
     if not (Path(workspace) / ".git").exists():
         _git(workspace, "init", logger=logger)
+    gitignore = Path(workspace) / ".gitignore"
+    if not gitignore.exists():
+        gitignore.write_text(_GITIGNORE)
     # Local identity so commits succeed without global git config.
     _git(workspace, "config", "user.email", "forge-loop@local", logger=logger)
     _git(workspace, "config", "user.name", "forge-loop", logger=logger)
+    # Untrack anything already staged/committed that the .gitignore now excludes
+    # (e.g. build/ created by Arena's baseline step before this init).
+    _git(workspace, "rm", "-r", "--cached", "--quiet", ".", logger=logger)
     _git(workspace, "add", "-A", logger=logger)
     _git(workspace, "commit", "-m", "forge: initial workspace snapshot", logger=logger)
 
