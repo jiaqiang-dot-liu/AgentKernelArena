@@ -2,7 +2,7 @@ agent:
   template: forge
 
 tasks:
-  - triton2triton/rocmbench/easy/test_block_copy
+  - flydsl2flydsl/softmax_kernel
 
 target_gpu_model: MI300
 log_directory: logs

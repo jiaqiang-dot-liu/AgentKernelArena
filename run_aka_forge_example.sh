@@ -11,28 +11,61 @@
 #     bash run_aka_forge_example.sh
 #
 # Env-overridable, e.g.:
-#     TASK=triton2triton/rocmbench/easy/test_add_kernel bash run_aka_forge_example.sh
+#     TASK=flydsl2flydsl/rmsnorm_kernel bash run_aka_forge_example.sh
 #     MODEL=claude-opus-4-7 bash run_aka_forge_example.sh
+#     AKA_GPU_ARCH=gfx950 bash run_aka_forge_example.sh   # force arch if autodetect fails
 #
 # NOTE: the API key is hardcoded below for convenience — treat this file as a
 #       SECRET and do NOT commit it.
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
-# ── 1. LLM gateway auth (AMD core42 / primus-safe, bearer token) ─────────────
-export FORGE_API_KEY="${FORGE_API_KEY:-ak-xxxxxxx}"
-export ANTHROPIC_BASE_URL="${ANTHROPIC_BASE_URL:-https://core42.primus-safe.amd.com:443/api/v1/llm-proxy}"
+# ── 1. LLM gateway auth (AMD primus-safe, bearer token) ──────────────────────
+export FORGE_API_KEY="${FORGE_API_KEY:-ak-xxxxxx}"
+# The base URL must NOT end in /v1: the claude CLI/SDK appends /v1/messages itself,
+# so a trailing /v1 here yields /v1/v1/messages -> 404.
+export ANTHROPIC_BASE_URL="${ANTHROPIC_BASE_URL:-https://project1.tw325.primus-safe.amd.com/api/v1/llm-proxy}"
 export ANTHROPIC_AUTH_TOKEN="${ANTHROPIC_AUTH_TOKEN:-$FORGE_API_KEY}"
+# This gateway (BRAIN_Hyperloom) requires a mandatory 'user: <NTID>' header on every
+# request, and serves an internal TLS cert not in the system trust store.
+export FORGE_USER_NTID="${FORGE_USER_NTID:-jqliu}"
+export ANTHROPIC_CUSTOM_HEADERS="${ANTHROPIC_CUSTOM_HEADERS:-user: $FORGE_USER_NTID}"
+export NODE_TLS_REJECT_UNAUTHORIZED="${NODE_TLS_REJECT_UNAUTHORIZED:-0}"
 unset ANTHROPIC_API_KEY 2>/dev/null || true
 
-# ── 2. Runtime / ROCm / cache env (what the Docker wrapper normally sets) ─────
+# ── 2. Runtime / ROCm / cache env ────────────────────────────────────────────
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-export PATH="/opt/venv/bin:$PATH"
-export AKA_GPU_ARCH="${AKA_GPU_ARCH:-gfx942}"           # MI300X=gfx942, MI355X=gfx950
+export PATH="$HOME/.local/bin:/opt/venv/bin:$PATH"   # ~/.local/bin holds the claude CLI
+
+# Detect the GPU architecture from the running machine so this script is portable
+# across nodes (MI300/MI325 -> gfx942, MI350/MI355 -> gfx950, ...). Export
+# AKA_GPU_ARCH beforehand to override the autodetection.
+detect_gpu_arch() {
+    local arch=""
+    if command -v rocminfo >/dev/null 2>&1; then
+        arch="$(rocminfo 2>/dev/null | grep -oim1 'gfx[0-9a-f]\+' | tr '[:upper:]' '[:lower:]' || true)"
+    fi
+    if [[ -z "$arch" ]] && command -v rocm-smi >/dev/null 2>&1; then
+        arch="$(rocm-smi --showhw 2>/dev/null | grep -oim1 'gfx[0-9a-f]\+' | tr '[:upper:]' '[:lower:]' || true)"
+    fi
+    if [[ -z "$arch" ]]; then
+        arch="$(python -c 'import torch
+try:
+    print(torch.cuda.get_device_properties(0).gcnArchName.split(":")[0])
+except Exception:
+    pass' 2>/dev/null || true)"
+    fi
+    printf '%s' "$arch"
+}
+
+export AKA_GPU_ARCH="${AKA_GPU_ARCH:-$(detect_gpu_arch)}"
+if [[ -z "$AKA_GPU_ARCH" ]]; then
+    echo "ERROR: could not detect a ROCm GPU arch (tried rocminfo, rocm-smi, torch). Set AKA_GPU_ARCH manually." >&2
+    exit 1
+fi
 export AGENT_KERNEL_ARENA_GPU_ARCH="$AKA_GPU_ARCH"
 export PYTORCH_ROCM_ARCH="$AKA_GPU_ARCH"
 export GPU_TARGET="$AKA_GPU_ARCH"
-export TRITON_CACHE_DIR="${TRITON_CACHE_DIR:-/tmp/triton-cache}"
 export MPLCONFIGDIR="${MPLCONFIGDIR:-/tmp/matplotlib}"
 export TORCH_EXTENSIONS_DIR="${TORCH_EXTENSIONS_DIR:-/tmp/torch-extensions}"
 export XDG_CACHE_HOME="${XDG_CACHE_HOME:-/tmp/agent-cache}"
@@ -42,8 +75,21 @@ export PYTHONUNBUFFERED=1
 export KERNEL_AGENTS_MODEL="${MODEL:-claude-opus-4-8}"
 
 # ── 3. What to run ───────────────────────────────────────────────────────────
-TASK="${TASK:-triton2triton/rocmbench/easy/test_add_kernel}"
-GPU_MODEL="${GPU_MODEL:-MI300}"
+TASK="${TASK:-flydsl2flydsl/softmax_kernel}"
+# Arena's target_gpu_model, derived from the detected arch (override via GPU_MODEL).
+case "$AKA_GPU_ARCH" in
+    gfx942) GPU_MODEL="${GPU_MODEL:-MI300}" ;;
+    gfx950) GPU_MODEL="${GPU_MODEL:-MI355X}" ;;
+    *)      GPU_MODEL="${GPU_MODEL:-MI300}" ;;
+esac
+# Real card name (display only). The physical card may be a gfx942/gfx950 variant
+# (e.g. MI325X) that Arena buckets into the coarser $GPU_MODEL profile above.
+GPU_NAME="$(python -c 'import torch
+try:
+    print(torch.cuda.get_device_name(0))
+except Exception:
+    pass' 2>/dev/null || true)"
+GPU_NAME="${GPU_NAME:-unknown}"
 RUN_SUFFIX="${RUN_SUFFIX:-forge_demo}"
 CONFIG_FILE="${CONFIG_FILE:-$REPO_ROOT/config.forge_example.yaml}"
 
@@ -62,7 +108,8 @@ EOF
 echo "── AgentKernelArena FORGE example ───────────────────────"
 echo "  repo      : $REPO_ROOT"
 echo "  task      : $TASK"
-echo "  agent     : forge   gpu: $GPU_MODEL ($AKA_GPU_ARCH)   model: $KERNEL_AGENTS_MODEL"
+echo "  agent     : forge   model: $KERNEL_AGENTS_MODEL"
+echo "  gpu       : $GPU_NAME   arch: $AKA_GPU_ARCH   (arena profile: $GPU_MODEL)"
 echo "  gateway   : $ANTHROPIC_BASE_URL"
 echo "  config    : $CONFIG_FILE"
 echo "─────────────────────────────────────────────────────────"

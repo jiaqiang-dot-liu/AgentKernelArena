@@ -18,8 +18,8 @@ model: claude-opus-4-8
 # fellow: triton-fellow
 
 # Loop budget. Kept small for a demo run; raise for real optimization.
-max_iters: 2
-max_hours: 0.1
+max_iters: 20
+max_hours: 1
 
 # Correctness gate (dB) used by the 5-stage validation pipeline.
 snr_threshold: 30.0
