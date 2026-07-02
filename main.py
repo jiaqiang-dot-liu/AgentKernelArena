@@ -13,6 +13,7 @@ from src.tasks import get_task_config
 from src.preprocessing import (
     get_task_workspace_path,
     is_task_complete,
+    resolve_gfx_arch,
     setup_rocm_env,
     setup_workspace,
 )
@@ -222,6 +223,103 @@ def _discover_tasks(tasks: list[str]) -> dict[str, str]:
     return task_config_dict
 
 
+def should_run_task_for_platform(
+    task_name: str,
+    task_config: dict[str, Any],
+    current_gfx_arch: str | None,
+    logger: logging.Logger,
+) -> bool:
+    """Return whether a task's optional platform metadata includes this run."""
+    platform_support = task_config.get("platform_support")
+    if platform_support is None:
+        return True
+    if not isinstance(platform_support, dict):
+        logger.warning(
+            "Task %s has non-dict platform_support=%r; treating task as runnable",
+            task_name,
+            platform_support,
+        )
+        return True
+
+    raw_status = platform_support.get("status", "active")
+    status = str(raw_status).strip().lower() if raw_status is not None else "active"
+    if status == "skip":
+        skip_reason = str(platform_support.get("skip_reason") or "").strip()
+        suffix = f": {skip_reason}" if skip_reason else ""
+        logger.warning(
+            "Skipping task %s before workspace setup: platform_support.status=skip%s",
+            task_name,
+            suffix,
+        )
+        return False
+    if status and status != "active":
+        logger.warning(
+            "Task %s has unsupported platform_support.status=%r; treating task as runnable",
+            task_name,
+            raw_status,
+        )
+
+    required_arch = platform_support.get("required_arch")
+    if not required_arch:
+        return True
+    if not isinstance(required_arch, str):
+        logger.warning(
+            "Task %s has non-string platform_support.required_arch=%r; treating task as runnable",
+            task_name,
+            required_arch,
+        )
+        return True
+
+    required_arch = required_arch.strip()
+    if not required_arch:
+        return True
+    if not current_gfx_arch:
+        logger.warning(
+            "Skipping task %s before workspace setup: platform_support.required_arch=%s, "
+            "but current GPU arch could not be resolved",
+            task_name,
+            required_arch,
+        )
+        return False
+    if required_arch != current_gfx_arch:
+        logger.warning(
+            "Skipping task %s before workspace setup: platform_support.required_arch=%s "
+            "does not match current GPU arch %s",
+            task_name,
+            required_arch,
+            current_gfx_arch,
+        )
+        return False
+
+    return True
+
+
+def filter_tasks_by_platform(
+    task_config_dict: dict[str, str],
+    current_gfx_arch: str | None,
+    logger: logging.Logger,
+) -> dict[str, str]:
+    """Filter task configs using their optional platform_support metadata."""
+    runnable_tasks: dict[str, str] = {}
+    skipped_tasks: list[str] = []
+
+    for task_name, task_config_dir in task_config_dict.items():
+        with open(task_config_dir, "r") as f:
+            task_config = yaml.safe_load(f) or {}
+        if should_run_task_for_platform(task_name, task_config, current_gfx_arch, logger):
+            runnable_tasks[task_name] = task_config_dir
+        else:
+            skipped_tasks.append(task_name)
+
+    if skipped_tasks:
+        logger.warning(
+            "Platform support preflight skipped %d task(s): %s",
+            len(skipped_tasks),
+            skipped_tasks,
+        )
+    return runnable_tasks
+
+
 def _build_context(
     args: argparse.Namespace,
     *,
@@ -269,6 +367,9 @@ def _build_context(
     python_path = apply_subprocess_python_path()
     logger.info(f"Subprocess Python environment: {python_path}")
     setup_rocm_env(config["target_gpu_model"], logger)
+    current_gfx_arch = os.environ.get("PYTORCH_ROCM_ARCH") or resolve_gfx_arch(
+        config["target_gpu_model"]
+    )
 
     agent_launcher = None
     if need_agent_launcher:
@@ -278,8 +379,10 @@ def _build_context(
             logger.error(f"Failed to load agent launcher: {e}")
             return None
 
-    task_config_dict = _discover_tasks(tasks)
-    logger.info(f"Found {len(task_config_dict)} configured task(s)")
+    configured_tasks = _discover_tasks(tasks)
+    logger.info(f"Found {len(configured_tasks)} configured task(s)")
+    task_config_dict = filter_tasks_by_platform(configured_tasks, current_gfx_arch, logger)
+    logger.info(f"Found {len(task_config_dict)} runnable task(s) after platform preflight")
     logger.info(f"Tasks: {list(task_config_dict.keys())}")
 
     return {

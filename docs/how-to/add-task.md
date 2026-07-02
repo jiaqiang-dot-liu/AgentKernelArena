@@ -116,11 +116,21 @@ prompt:
   source_code: null      # override the default source-code section
   instructions: null     # custom instructions
   cheatsheet: null        # reference/cheatsheet content
+
+# Optional platform gate. Omit this block for tasks that run everywhere.
+platform_support:
+  required_arch: gfx942   # compared with the detected GPU architecture
+  status: active          # active | skip
+  skip_reason: null       # recommended when status is skip
 ```
 
 Some specialized launchers and task runners use additional fields such as
 `harness_path` or `target_file_path`. Document those fields with the task or
 agent that consumes them; they are not part of the common evaluator schema.
+
+Tasks with `platform_support.status: skip`, or with a `required_arch` that does
+not match the current run, are skipped before workspace creation. Historical
+per-suite fields such as `runnable_on_gfx942` are documentation only.
 
 ## Authoring rules
 
