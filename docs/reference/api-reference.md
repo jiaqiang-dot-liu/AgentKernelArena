@@ -50,11 +50,48 @@ The in-container `main.py` entrypoint accepts these flags:
 | `--resume-latest` | Resume the most recent run in the workspace |
 
 These flags are passed to the in-container entrypoint via `make docker-run`
-(`CONFIG=` sets `--config_name`; `RUN_ARGS=` forwards the rest):
+or `make docker-parallel-run` (`CONFIG=` sets `--config_name`; `RUN_ARGS=`
+forwards the rest):
 
 ```bash
 make docker-run CONFIG=config_triton.yaml RUN_ARGS="--run-suffix with_mcp"
+make docker-parallel-run CONFIG=config_triton.yaml GPU_IDS=0,1 RUN_ARGS="--run-suffix with_mcp_parallel"
 ```
+
+The following flags are internal implementation details used by
+`docker-parallel-run` and should not be passed manually in normal use:
+
+| Flag | Description |
+| --- | --- |
+| `--run-name <run_dir>` | Explicit run directory shared by parallel init, workers, and post-processing |
+| `--parallel-init` | Initialize the shared `.parallel/` queue |
+| `--parallel-worker` | Claim and execute tasks from the shared queue |
+| `--worker-id <id>` | Worker identifier used in queue descriptors and logs |
+| `--postprocess-only` | Aggregate results once after all workers finish |
+
+## Docker runner Make targets
+
+| Target | Description |
+| --- | --- |
+| `make docker-run CONFIG=config.yaml` | Run tasks serially in one Docker container |
+| `make docker-parallel-run CONFIG=config.yaml GPU_IDS=0,1` | Run one Docker worker per listed GPU, using a shared dynamic task queue |
+| `make docker-smoke` | Verify Docker, ROCm runtime visibility, Python imports, and GPU access |
+| `make docker-check-agents` | Verify host agent CLI login reuse inside Docker |
+| `make docker-shell` | Open an interactive shell in the benchmark Docker runtime |
+
+`docker-parallel-run` accepts these environment variables:
+
+| Variable | Description |
+| --- | --- |
+| `GPU_IDS` | Comma- or space-separated host GPU IDs. If omitted, the runner uses `rocm-smi --showid` |
+| `RUN_ARGS` | Additional `main.py` flags, such as `--run-suffix`, `--resume-run`, or `--resume-latest` |
+| `AKA_LOGICAL_GPU` | Logical GPU index inside a masked worker container. Defaults to `0` and normally should not be changed |
+
+Each parallel worker sets `ROCR_VISIBLE_DEVICES` to the host GPU ID and sets
+`HIP_VISIBLE_DEVICES`, `CUDA_VISIBLE_DEVICES`, and `GPU_DEVICE_ORDINAL` to the
+logical GPU index inside the masked container. See
+[Run tasks in parallel across multiple GPUs](../how-to/parallel-run.md) for the
+full scheduling model.
 
 ## Task configuration
 

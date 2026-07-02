@@ -6,7 +6,7 @@
 
 SHELL := /bin/bash
 
-.PHONY: help docker-shell docker-check-agents docker-smoke docker-run docker-setup-flydsl \
+.PHONY: help docker-shell docker-check-agents docker-smoke docker-run docker-parallel-run docker-setup-flydsl \
         sync-perf-helpers check-perf-helpers materialize-perf-workspace \
         materialize-perf-task cleanup-works install-cursor-agent vllm
 
@@ -18,6 +18,7 @@ help:
 	@echo "make docker-check-agents - Verify Codex, Claude Code, and Cursor Agent login reuse in Docker"
 	@echo "make docker-smoke        - Verify Docker Python, ROCm tools, imports, and GPU access"
 	@echo "make docker-run CONFIG=config.yaml RUN_ARGS=\"--run-suffix test\" - Run benchmark in Docker"
+	@echo "make docker-parallel-run CONFIG=config.yaml GPU_IDS=0,1 - Run benchmark across one worker container per GPU"
 	@echo "                         Images: gfx942->mi30x, gfx950->mi35x; override with AKA_DOCKER_IMAGE=..."
 	@echo "make docker-setup-flydsl - Install FlyDSL into the container (needed for flydsl2flydsl tasks)"
 	@echo ""
@@ -49,6 +50,9 @@ docker-smoke:
 
 docker-run:
 	@$(DOCKER_RUNNER) run --config_name $(CONFIG) $(RUN_ARGS)
+
+docker-parallel-run:
+	@GPU_IDS="$(GPU_IDS)" $(DOCKER_RUNNER) parallel-run --config_name $(CONFIG) $(RUN_ARGS)
 
 # Install FlyDSL into the container's persistent pip user-base (the base image does
 # not ship it). Run once per machine/image; needed only for flydsl2flydsl tasks.

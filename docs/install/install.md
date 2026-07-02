@@ -57,6 +57,14 @@ make docker-run CONFIG=config.yaml
 make docker-run CONFIG=config.yaml RUN_ARGS="--run-suffix cursor_docker"
 ```
 
+Run across multiple GPUs by starting one isolated worker container per GPU:
+
+```bash
+make docker-parallel-run CONFIG=config.yaml GPU_IDS=0,1,2,3
+```
+
+If `GPU_IDS` is omitted, the runner discovers GPUs with `rocm-smi --showid`.
+
 ## Install agent CLIs
 
 Install whichever agents you plan to evaluate. For example:

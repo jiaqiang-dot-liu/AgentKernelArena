@@ -45,6 +45,8 @@ Key features
   baseline and optimized runs so mixed-method comparisons are visible.
 * **Workspace isolation**: Each task runs in its own timestamped workspace for
   reproducibility.
+* **Multi-GPU parallel runs**: On multi-GPU servers, start one isolated Docker
+  worker per GPU and keep idle GPUs busy with a shared task queue.
 * **A/B testing**: Run the same task set with and without a new Model Context
   Protocol (MCP) server, skill, prompt, or tool to measure its real impact.
 * **Task validator**: An agent that runs 10 automated checks on task quality
@@ -58,4 +60,6 @@ Use cases
 * Rank models and agent configurations on a standardized leaderboard.
 * A/B test whether a new agent capability (MCP server, skill, prompt) improves
   outcomes under identical conditions.
+* Run large task suites faster by distributing tasks across all GPUs on a
+  multi-GPU server.
 * Curate and validate a high-quality, self-contained GPU kernel task suite.

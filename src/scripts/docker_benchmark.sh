@@ -10,6 +10,7 @@ HOST_UID="$(id -u)"
 HOST_GID="$(id -g)"
 SELECTED_GPU_ARCH=""
 SELECTED_IMAGE=""
+AGENT_STATE_MOUNT_ROOT="${AKA_AGENT_STATE_MOUNT_ROOT:-/opt/aka-agent-state}"
 
 # /opt/venv/bin is placed before /usr/local/bin and /usr/bin so that a bare
 # `python3` / `pytest` resolves to the torch-enabled venv interpreter rather than
@@ -21,12 +22,15 @@ usage() {
     cat <<'EOF'
 Usage:
   src/scripts/docker_benchmark.sh run [main.py args...]
+  src/scripts/docker_benchmark.sh parallel-run [main.py args...]
   src/scripts/docker_benchmark.sh preflight [--config_name config.yaml]
   src/scripts/docker_benchmark.sh shell
   src/scripts/docker_benchmark.sh check-agents
   src/scripts/docker_benchmark.sh smoke
 
 Environment overrides:
+  GPU_IDS                 Comma/space separated GPU indices for parallel-run.
+  AKA_LOGICAL_GPU         Logical GPU index inside a masked worker container (default: 0).
   AKA_DOCKER_IMAGE        Absolute Docker image override.
   AKA_GPU_ARCH            GPU arch override for shell/smoke, or run configs without target_gpu_model.
   AKA_DOCKER_IMAGE_<ARCH> Per-arch image override, e.g. AKA_DOCKER_IMAGE_GFX950=...
@@ -268,6 +272,7 @@ resolve_required_agents() {
 # Mount one agent's CLI install + auth dirs. $2=strict (1 require, 0 best-effort).
 mount_agent() {
     local agent="$1" strict="${2:-1}"
+    local isolate="${AGENT_HOME_ISOLATION:-0}"
     case "$agent" in
         codex)
             if ! command -v node >/dev/null 2>&1; then
@@ -281,7 +286,11 @@ mount_agent() {
             need_path "$node_prefix/bin/codex" "host codex" "$strict" || return 0
             need_path "$HOST_HOME/.codex" "Codex auth/config directory" "$strict" || return 0
             add_mount "$node_prefix" /opt/node ro
-            add_mount "$HOST_HOME/.codex" "$HOST_HOME/.codex"
+            if [[ "$isolate" == "1" ]]; then
+                add_mount "$HOST_HOME/.codex" "$AGENT_STATE_MOUNT_ROOT/.codex" ro
+            else
+                add_mount "$HOST_HOME/.codex" "$HOST_HOME/.codex"
+            fi
             ;;
         claude_code)
             need_path "$HOST_HOME/.local/bin" "host local bin directory" "$strict" || return 0
@@ -290,8 +299,13 @@ mount_agent() {
             need_path "$HOST_HOME/.claude.json" "Claude Code auth/config file" "$strict" || return 0
             add_mount "$HOST_HOME/.local/bin" "$HOST_HOME/.local/bin" ro
             add_mount "$HOST_HOME/.local/share/claude" "$HOST_HOME/.local/share/claude" ro
-            add_mount "$HOST_HOME/.claude" "$HOST_HOME/.claude"
-            add_mount "$HOST_HOME/.claude.json" "$HOST_HOME/.claude.json"
+            if [[ "$isolate" == "1" ]]; then
+                add_mount "$HOST_HOME/.claude" "$AGENT_STATE_MOUNT_ROOT/.claude" ro
+                add_mount "$HOST_HOME/.claude.json" "$AGENT_STATE_MOUNT_ROOT/.claude.json" ro
+            else
+                add_mount "$HOST_HOME/.claude" "$HOST_HOME/.claude"
+                add_mount "$HOST_HOME/.claude.json" "$HOST_HOME/.claude.json"
+            fi
             ;;
         cursor)
             need_path "$HOST_HOME/.local/bin" "host local bin directory" "$strict" || return 0
@@ -300,8 +314,13 @@ mount_agent() {
             need_path "$HOST_HOME/.config/cursor" "Cursor Agent config directory" "$strict" || return 0
             add_mount "$HOST_HOME/.local/bin" "$HOST_HOME/.local/bin" ro
             add_mount "$HOST_HOME/.local/share/cursor-agent" "$HOST_HOME/.local/share/cursor-agent" ro
-            add_mount "$HOST_HOME/.cursor" "$HOST_HOME/.cursor"
-            add_mount "$HOST_HOME/.config/cursor" "$HOST_HOME/.config/cursor"
+            if [[ "$isolate" == "1" ]]; then
+                add_mount "$HOST_HOME/.cursor" "$AGENT_STATE_MOUNT_ROOT/.cursor" ro
+                add_mount "$HOST_HOME/.config/cursor" "$AGENT_STATE_MOUNT_ROOT/.config/cursor" ro
+            else
+                add_mount "$HOST_HOME/.cursor" "$HOST_HOME/.cursor"
+                add_mount "$HOST_HOME/.config/cursor" "$HOST_HOME/.config/cursor"
+            fi
             ;;
         *)
             warn "Unknown agent '$agent'; not provisioning any CLI for it"
@@ -327,6 +346,15 @@ build_docker_args() {
 # (e.g. setup-flydsl), while unset falls back to all three.
     local agents="${REQUIRED_AGENTS-codex claude_code cursor}"
     local strict="${AGENTS_STRICT:-0}"
+    local container_home="${AKA_CONTAINER_HOME:-$HOST_HOME}"
+    local codex_home="${AKA_CODEX_HOME:-$container_home/.codex}"
+    local cache_suffix="${AKA_CACHE_SUFFIX:-}"
+    local cache_postfix=""
+
+    if [[ -n "$cache_suffix" ]]; then
+        cache_suffix="${cache_suffix//[^A-Za-z0-9_.-]/_}"
+        cache_postfix="-$cache_suffix"
+    fi
 
     [[ -n "$SELECTED_IMAGE" ]] || select_runtime_for_host
 
@@ -345,23 +373,41 @@ build_docker_args() {
         --cap-add=SYS_PTRACE
         --security-opt=seccomp=unconfined
         --user "${HOST_UID}:${HOST_GID}"
-        -e "HOME=${HOST_HOME}"
-        -e "CODEX_HOME=${HOST_HOME}/.codex"
-        -e "XDG_CACHE_HOME=/tmp/agent-cache"
-        -e "MPLCONFIGDIR=/tmp/matplotlib"
-        -e "TORCH_EXTENSIONS_DIR=/tmp/torch-extensions"
-        -e "TRITON_CACHE_DIR=/tmp/triton-cache"
+        -e "HOME=${container_home}"
+        -e "CODEX_HOME=${codex_home}"
+        -e "XDG_CACHE_HOME=/tmp/agent-cache${cache_postfix}"
+        -e "MPLCONFIGDIR=/tmp/matplotlib${cache_postfix}"
+        -e "TORCH_EXTENSIONS_DIR=/tmp/torch-extensions${cache_postfix}"
+        -e "TRITON_CACHE_DIR=/tmp/triton-cache${cache_postfix}"
         -e "PYTHONUSERBASE=${CONTAINER_WORKDIR}/.aka-pyuserbase"
-        -e "MIOPEN_USER_DB_PATH=/tmp/miopen-cache"
-        -e "MIOPEN_CACHE_DIR=/tmp/miopen-cache"
-        -e "MIOPEN_CUSTOM_CACHE_DIR=/tmp/miopen-cache"
+        -e "MIOPEN_USER_DB_PATH=/tmp/miopen-cache${cache_postfix}"
+        -e "MIOPEN_CACHE_DIR=/tmp/miopen-cache${cache_postfix}"
+        -e "MIOPEN_CUSTOM_CACHE_DIR=/tmp/miopen-cache${cache_postfix}"
         -e "AGENT_KERNEL_ARENA_DOCKER=1"
         -e "AGENT_KERNEL_ARENA_WORKDIR=${CONTAINER_WORKDIR}"
         -e "AGENT_KERNEL_ARENA_GPU_ARCH=${SELECTED_GPU_ARCH}"
         -e "PYTORCH_ROCM_ARCH=${SELECTED_GPU_ARCH}"
+        -e "AGENT_STATE_MOUNT_ROOT=${AGENT_STATE_MOUNT_ROOT}"
         -e "PATH=${container_path}"
         -w "$CONTAINER_WORKDIR"
     )
+
+    if [[ -n "${AKA_VISIBLE_GPU:-}" ]]; then
+        local logical_gpu="${AKA_LOGICAL_GPU:-0}"
+        docker_args+=(
+            -e "AGENT_KERNEL_ARENA_HOST_GPU_ID=${AKA_VISIBLE_GPU}"
+            -e "ROCR_VISIBLE_DEVICES=${AKA_VISIBLE_GPU}"
+            -e "HIP_VISIBLE_DEVICES=${logical_gpu}"
+            -e "CUDA_VISIBLE_DEVICES=${logical_gpu}"
+            -e "GPU_DEVICE_ORDINAL=${logical_gpu}"
+        )
+    fi
+    if [[ -n "${AKA_WORKER_ID:-}" ]]; then
+        docker_args+=(-e "AGENT_KERNEL_ARENA_WORKER_ID=${AKA_WORKER_ID}")
+    fi
+    if [[ "${AGENT_HOME_ISOLATION:-0}" == "1" ]]; then
+        docker_args+=(-e "AGENT_KERNEL_ARENA_ISOLATED_HOME=1")
+    fi
 
     # GPU device nodes are group-owned (ROCm): /dev/dri/renderD* by `render` and
     # /dev/kfd by `render` or `video` depending on the host's udev rules. Add the
@@ -408,7 +454,7 @@ docker_exec() {
     local interactive="${1:-0}"
     shift
     build_docker_args "$interactive"
-    docker "${docker_args[@]}" -lc 'cd "$AGENT_KERNEL_ARENA_WORKDIR" && exec "$@"' _ "$@"
+    docker "${docker_args[@]}" -lc 'cd "$AGENT_KERNEL_ARENA_WORKDIR" && if [[ "${AGENT_KERNEL_ARENA_ISOLATED_HOME:-0}" == "1" ]]; then bash src/scripts/docker_benchmark.sh _container_prepare_worker_home; fi && exec "$@"' _ "$@"
 }
 
 extract_config_name() {
@@ -570,6 +616,239 @@ container_setup_flydsl() {
     python -c 'import flydsl; print("flydsl=" + str(getattr(flydsl, "__version__", "unknown")) + " setup OK")'
 }
 
+container_prepare_worker_home() {
+    local state_root="${AGENT_STATE_MOUNT_ROOT:-/opt/aka-agent-state}"
+    mkdir -p "$HOME"
+
+    if [[ -d "$state_root/.codex" && ! -e "$HOME/.codex" ]]; then
+        cp -a "$state_root/.codex" "$HOME/.codex"
+        chmod -R u+rwX "$HOME/.codex" 2>/dev/null || true
+    fi
+
+    if [[ -d "$state_root/.claude" && ! -e "$HOME/.claude" ]]; then
+        cp -a "$state_root/.claude" "$HOME/.claude"
+        chmod -R u+rwX "$HOME/.claude" 2>/dev/null || true
+    fi
+    if [[ -f "$state_root/.claude.json" && ! -e "$HOME/.claude.json" ]]; then
+        cp -a "$state_root/.claude.json" "$HOME/.claude.json"
+        chmod u+rw "$HOME/.claude.json" 2>/dev/null || true
+    fi
+
+    if [[ -d "$state_root/.cursor" && ! -e "$HOME/.cursor" ]]; then
+        cp -a "$state_root/.cursor" "$HOME/.cursor"
+        chmod -R u+rwX "$HOME/.cursor" 2>/dev/null || true
+    fi
+    if [[ -d "$state_root/.config/cursor" && ! -e "$HOME/.config/cursor" ]]; then
+        mkdir -p "$HOME/.config"
+        cp -a "$state_root/.config/cursor" "$HOME/.config/cursor"
+        chmod -R u+rwX "$HOME/.config/cursor" 2>/dev/null || true
+    fi
+}
+
+read_workspace_prefix() {
+    local config="$1"
+    sed -nE "s/^[[:space:]]*workspace_directory_prefix[[:space:]]*:[[:space:]]*['\"]?([^'\"#[:space:]]+).*/\1/p" "$config" | head -n 1
+}
+
+extract_run_suffix_arg() {
+    local arg
+    while [[ $# -gt 0 ]]; do
+        arg="$1"
+        case "$arg" in
+            --run-suffix)
+                shift
+                [[ $# -gt 0 ]] || die "--run-suffix requires a value"
+                printf '%s\n' "$1"
+                return
+                ;;
+            --run-suffix=*)
+                printf '%s\n' "${arg#--run-suffix=}"
+                return
+                ;;
+        esac
+        shift || true
+    done
+}
+
+extract_resume_run_arg() {
+    local arg
+    while [[ $# -gt 0 ]]; do
+        arg="$1"
+        case "$arg" in
+            --resume-run)
+                shift
+                [[ $# -gt 0 ]] || die "--resume-run requires a value"
+                printf '%s\n' "$1"
+                return
+                ;;
+            --resume-run=*)
+                printf '%s\n' "${arg#--resume-run=}"
+                return
+                ;;
+        esac
+        shift || true
+    done
+}
+
+has_arg() {
+    local needle="$1"
+    shift
+    local arg
+    for arg in "$@"; do
+        [[ "$arg" == "$needle" ]] && return 0
+    done
+    return 1
+}
+
+resolve_workspace_dir_for_config() {
+    local config="$1"
+    local prefix model agent
+    prefix="$(read_workspace_prefix "$config")"
+    model="$(read_target_gpu_model "$config")"
+    agent="$(read_agent_template "$config")"
+    [[ -n "$prefix" ]] || die "workspace_directory_prefix not found in $config"
+    [[ -n "$model" ]] || die "target_gpu_model not found in $config"
+    [[ -n "$agent" ]] || die "agent.template not found in $config"
+    printf '%s/%s_%s_%s\n' "$HOST_ROOT" "$prefix" "$model" "$agent"
+}
+
+resolve_latest_run_name() {
+    local config="$1"
+    local workspace_dir
+    workspace_dir="$(resolve_workspace_dir_for_config "$config")"
+    [[ -d "$workspace_dir" ]] || die "No workspace directory found for resume-latest: $workspace_dir"
+    find "$workspace_dir" -maxdepth 1 -mindepth 1 -type d -name 'run_*' ! -name '*_heldout' \
+        -printf '%f\n' | sort -r | head -n 1
+}
+
+resolve_parallel_run_name() {
+    local config="$1"
+    shift
+    local resume_run suffix latest
+    resume_run="$(extract_resume_run_arg "$@" || true)"
+    if [[ -n "$resume_run" ]]; then
+        printf '%s\n' "$resume_run"
+        return
+    fi
+
+    if has_arg --resume-latest "$@"; then
+        latest="$(resolve_latest_run_name "$config")"
+        [[ -n "$latest" ]] || die "No run directories found for --resume-latest"
+        printf '%s\n' "$latest"
+        return
+    fi
+
+    suffix="$(extract_run_suffix_arg "$@" || true)"
+    if [[ -n "$suffix" ]]; then
+        [[ "$suffix" =~ ^[A-Za-z0-9._-]+$ ]] || die "--run-suffix may only contain letters, numbers, dot, underscore, and dash"
+        printf 'run_%s_%s\n' "$(date +%Y%m%d_%H%M%S)" "$suffix"
+    else
+        printf 'run_%s\n' "$(date +%Y%m%d_%H%M%S)"
+    fi
+}
+
+resolve_gpu_ids() {
+    if [[ -n "${GPU_IDS:-}" ]]; then
+        printf '%s\n' "${GPU_IDS//,/ }" | tr ' ' '\n' | sed '/^$/d'
+        return
+    fi
+
+    if command -v rocm-smi >/dev/null 2>&1; then
+        rocm-smi --showid 2>/dev/null \
+            | sed -nE 's/.*GPU\[([0-9]+)\].*/\1/p' \
+            | sort -n \
+            | uniq
+        return
+    fi
+
+    die "GPU_IDS is not set and rocm-smi is not available for GPU discovery"
+}
+
+safe_label() {
+    local value="$1"
+    value="${value//[^A-Za-z0-9_.-]/_}"
+    printf '%s\n' "$value"
+}
+
+run_parallel() {
+    local config_name
+    config_name="$(extract_config_name "$@")"
+    select_runtime_for_config "$config_name"
+
+    REQUIRED_AGENTS="$(resolve_required_agents "$config_name")"
+    AGENTS_STRICT=1
+
+    local run_name safe_run_name
+    run_name="$(resolve_parallel_run_name "$config_name" "$@")"
+    safe_run_name="$(safe_label "$run_name")"
+
+    local -a gpu_ids=()
+    local gpu_id
+    while IFS= read -r gpu_id; do
+        [[ -n "$gpu_id" ]] && gpu_ids+=("$gpu_id")
+    done < <(resolve_gpu_ids)
+    [[ "${#gpu_ids[@]}" -gt 0 ]] || die "No GPU IDs available; set GPU_IDS=0,1,..."
+
+    echo "Parallel run: run_name=${run_name} workers=${#gpu_ids[@]} gpu_ids=${gpu_ids[*]}" >&2
+
+    (
+        export AKA_VISIBLE_GPU="${gpu_ids[0]}"
+        export AKA_WORKER_ID="preflight"
+        export AKA_CONTAINER_HOME="/tmp/aka-home-${safe_run_name}-preflight"
+        export AKA_CACHE_SUFFIX="${safe_run_name}-preflight"
+        export AGENT_HOME_ISOLATION=1
+        docker_exec 0 bash src/scripts/docker_benchmark.sh _container_preflight "$config_name"
+    )
+
+    (
+        export AKA_VISIBLE_GPU="${gpu_ids[0]}"
+        export AKA_WORKER_ID="init"
+        export AKA_CONTAINER_HOME="/tmp/aka-home-${safe_run_name}-init"
+        export AKA_CACHE_SUFFIX="${safe_run_name}-init"
+        export AGENT_HOME_ISOLATION=1
+        docker_exec 0 python main.py "$@" --parallel-init --run-name "$run_name"
+    )
+
+    local -a pids=()
+    local worker_id
+    for worker_id in "${!gpu_ids[@]}"; do
+        gpu_id="${gpu_ids[$worker_id]}"
+        (
+            export AKA_VISIBLE_GPU="$gpu_id"
+            export AKA_WORKER_ID="$worker_id"
+            export AKA_CONTAINER_HOME="/tmp/aka-home-${safe_run_name}-worker-${worker_id}"
+            export AKA_CACHE_SUFFIX="${safe_run_name}-worker-${worker_id}"
+            export AGENT_HOME_ISOLATION=1
+            docker_exec 0 python main.py "$@" --parallel-worker --worker-id "$worker_id" --run-name "$run_name"
+        ) &
+        pids+=("$!")
+    done
+
+    local worker_failed=0
+    local pid
+    for pid in "${pids[@]}"; do
+        if ! wait "$pid"; then
+            worker_failed=1
+        fi
+    done
+
+    local postprocess_failed=0
+    if ! (
+        export AKA_VISIBLE_GPU="${gpu_ids[0]}"
+        export AKA_WORKER_ID="postprocess"
+        export AKA_CONTAINER_HOME="/tmp/aka-home-${safe_run_name}-postprocess"
+        export AKA_CACHE_SUFFIX="${safe_run_name}-postprocess"
+        export AGENT_HOME_ISOLATION=1
+        docker_exec 0 python main.py "$@" --postprocess-only --run-name "$run_name"
+    ); then
+        postprocess_failed=1
+    fi
+
+    if [[ "$worker_failed" != "0" || "$postprocess_failed" != "0" ]]; then
+        return 1
+    fi
+}
+
 case "${1:-}" in
     run)
         shift
@@ -580,6 +859,10 @@ case "${1:-}" in
         AGENTS_STRICT=1
         docker_exec 0 bash src/scripts/docker_benchmark.sh _container_preflight "$config_name"
         docker_exec 0 python main.py "$@"
+        ;;
+    parallel-run)
+        shift
+        run_parallel "$@"
         ;;
     preflight)
         shift
@@ -631,6 +914,9 @@ case "${1:-}" in
     _container_preflight)
         shift
         container_preflight "$@"
+        ;;
+    _container_prepare_worker_home)
+        container_prepare_worker_home
         ;;
     ""|-h|--help|help)
         usage

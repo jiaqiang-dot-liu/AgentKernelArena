@@ -8,8 +8,8 @@ myst:
 # AgentKernelArena examples
 
 These walkthroughs assume you have completed [installation](../install/install.md)
-and can run the Docker runner (`make docker-smoke` passes). All runs go through
-`make docker-run`.
+and can run the Docker runner (`make docker-smoke` passes). Serial examples use
+`make docker-run`; multi-GPU examples use `make docker-parallel-run`.
 
 ## Example 1: Evaluate one agent on one task
 
@@ -128,7 +128,78 @@ Open the generated `validation_report.yaml` in the task workspace. The task must
 reach **PASS** (or **WARN** with justification) before merging. See
 [Validate tasks](../how-to/task-validator.md) for more information.
 
-## Example 5: Resume an interrupted run
+## Example 5: Run eight GPU workers in parallel
+
+On an 8-GPU server, start one Docker worker per GPU and let the workers share the
+same task queue:
+
+```yaml
+agent:
+  template: claude_code
+
+tasks:
+  - hip2hip/gpumode
+
+target_gpu_model: MI355X
+log_directory: logs
+workspace_directory_prefix: workspace
+```
+
+```bash
+make docker-parallel-run \
+  CONFIG=config.yaml \
+  GPU_IDS=0,1,2,3,4,5,6,7 \
+  RUN_ARGS="--run-suffix claude_parallel8"
+```
+
+The run directory contains normal per-task workspaces plus a scheduler queue:
+
+```text
+workspace_MI355X_claude_code/
+└── run_<timestamp>_claude_parallel8/
+    ├── .parallel/
+    │   ├── pending/
+    │   ├── running/
+    │   ├── done/
+    │   └── failed/
+    ├── hip2hip_gpumode_GELU_<timestamp>/
+    │   └── task_result.yaml
+    └── reports/
+        └── overall_report.txt
+```
+
+Each worker sees one logical GPU inside its container (`HIP_VISIBLE_DEVICES=0`,
+`CUDA_VISIBLE_DEVICES=0`) while `ROCR_VISIBLE_DEVICES` selects the host GPU.
+Post-processing runs once after all worker containers finish.
+
+## Example 6: Validate tasks in parallel
+
+The same queue works for `task_validator`. This is useful before merging a large
+batch of tasks:
+
+```yaml
+agent:
+  template: task_validator
+
+tasks:
+  - hip2hip/gpumode
+
+target_gpu_model: MI355X
+log_directory: logs
+workspace_directory_prefix: workspace
+```
+
+```bash
+make docker-parallel-run \
+  CONFIG=config.yaml \
+  GPU_IDS=0,1,2,3,4,5,6,7 \
+  RUN_ARGS="--run-suffix validator_parallel8"
+```
+
+Each task workspace writes `validation_report.yaml`, and the run directory gets
+one final `validation_summary.yaml` after all workers complete.
+
+## Example 7: Resume an interrupted run
 
 If a long run is interrupted, resume it without repeating completed tasks:
 
@@ -138,4 +209,11 @@ make docker-run CONFIG=config.yaml RUN_ARGS="--resume-latest"
 
 # Or resume a specific run directory
 make docker-run CONFIG=config.yaml RUN_ARGS="--resume-run run_20260617_101500"
+```
+
+For a parallel run, use the same resume arguments with `docker-parallel-run`:
+
+```bash
+make docker-parallel-run CONFIG=config.yaml GPU_IDS=0,1,2,3 RUN_ARGS="--resume-latest"
+make docker-parallel-run CONFIG=config.yaml GPU_IDS=0,1,2,3 RUN_ARGS="--resume-run run_20260617_101500_parallel8"
 ```

@@ -26,7 +26,7 @@ The following software versions are required or verified.
 
 | Component | Version | Notes |
 | --- | --- | --- |
-| Docker | Current stable release | Required; evaluations run through `make docker-run`. |
+| Docker | Current stable release | Required; serial evaluations run through `make docker-run`; multi-GPU evaluations run through `make docker-parallel-run`. |
 | SGLang benchmark image | `lmsysorg/sglang:v0.5.12-rocm720-mi30x` for `gfx942`; `lmsysorg/sglang:v0.5.12-rocm720-mi35x` for `gfx950` | Override with `AKA_DOCKER_IMAGE`, `AKA_DOCKER_IMAGE_GFX942`, or `AKA_DOCKER_IMAGE_GFX950`. |
 | ROCm | Bundled in the selected SGLang image | The default images are ROCm 7.2 based. |
 | Python | Provided by the image (e.g. 3.10) | Bundled in the SGLang image. |
