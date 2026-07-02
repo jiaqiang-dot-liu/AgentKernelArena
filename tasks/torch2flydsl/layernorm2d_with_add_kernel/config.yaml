@@ -1,51 +1,13 @@
-task_type: torch2flydsl
 source_file_path:
-  - model.py
-harness_path: test_kernel_harness.py
-compile_command:
-  - python3 test_kernel_harness.py --compile
-correctness_command:
-  - python3 test_kernel_harness.py --correctness
-performance_command:
-  - python3 test_kernel_harness.py --full-benchmark
+- kernel.py
 target_kernel_functions:
-  - flydsl_layernorm2d_with_add
-  - build_layernorm2d_with_add_module
-source_origin:
-  repo: AITER (local)
-  commit: e773193041689602e5431e110ef39db0390e7015
-  path:
-    - aiter/aiter/ops/norm.py
-    - aiter/op_tests/test_layernorm2d.py
-  note: >-
-    Model-only task (no kernel.py): aiter has no clean standalone FlyDSL kernel
-    for fused residual-add + LayerNorm2d, so FlyDSL is GEAK's target. model.py is
-    the pure-torch (b)-faithful reference: residual_out = input + residual (bf16
-    store, also returned), then row-wise LayerNorm over the last dim (mean/var
-    reduction and normalization in fp32, affine weight+bias, truncated to bf16 on
-    store), as in op_tests/test_layernorm2d.py:run_torch with residual. The
-    harness validates model.py against the REAL runtime op
-    aiter.layernorm2d_fwd_with_add (x_bias=None) as ground truth at the tight
-    bf16 gate (normalized worst-element <= 1e-2 / isclose pass-rate >= 99.9% for
-    BOTH the output and residual_out). Shapes: m in {1,32,128,256,2048},
-    n in {4096,8192}.
-prompt:
-  source_code: null
-  instructions: |
-    Author a FlyDSL kernel in kernel.py that computes the same result as the
-    PyTorch `Model.forward` in model.py: fused residual-add + 2D LayerNorm. For a
-    row-major [m, n] bf16 input, a [m, n] bf16 residual, an [n] bf16 weight and
-    an [n] bf16 bias, compute residual_out = input + residual (bf16), then
-    out = layer_norm(residual_out) * weight + bias over the last dim (fp32
-    mean/variance reduction, eps), returning the [m, n] bf16 output and the
-    [m, n] bf16 residual_out.
-    Expose `flydsl_layernorm2d_with_add(input, residual, weight, bias, eps)`
-    returning (output, residual_out), plus
-    `build_layernorm2d_with_add_module(...)`.
-    Keep the kernel in FlyDSL — do NOT rewrite it in HIP, CUDA, or Triton.
-    Correctness and performance are checked with:
-      python3 test_kernel_harness.py --correctness
-      python3 test_kernel_harness.py --full-benchmark
-  task_type: null
-  cheatsheet: null
+- flydsl_layernorm2d_with_add
+- build_layernorm2d_with_add_module
+compile_command:
+- python3 -c "import model, kernel; print('compile ok')"
+correctness_command:
+- python3 test_kernel_harness.py --correctness
+performance_command:
+- python3 test_kernel_harness.py --full-benchmark
+task_type: torch2flydsl
 task_result_template: null

@@ -40,8 +40,8 @@ TEST_SHAPES = [
     (8, 64, 96),        # many small segments
     (2, 96, 48),        # D < 64
 ]
-WARMUP_ITERATIONS = 5
-BENCHMARK_ITERATIONS = 50
+WARMUP_ITERATIONS = 10
+BENCHMARK_ITERATIONS = 100
 
 MAX_OOM_RETRIES = 5
 ATOL = 1e-2

@@ -1,54 +1,12 @@
-task_type: torch2flydsl
 source_file_path:
-  - model.py
-harness_path: test_kernel_harness.py
-compile_command:
-  - python3 -c "import model; print('compile ok')"
-correctness_command:
-  - python3 test_kernel_harness.py --correctness
-performance_command:
-  - python3 test_kernel_harness.py --full-benchmark
+- kernel.py
 target_kernel_functions:
-  - flydsl_fmoe_fp8_blockscale_g1u1
-source_origin:
-  repo: AITER (local)
-  commit: e773193041689602e5431e110ef39db0390e7015
-  path:
-    - aiter/op_tests/test_moe_blockscale.py
-    - aiter/aiter/ops/moe_op.py
-    - aiter/aiter/configs/model_configs/a8w8_blockscale_untuned_fmoe_ds_v3.csv
-    - aiter/aiter/configs/model_configs/a8w8_blockscale_untuned_fmoe_glm5.csv
-  note: >-
-    model.py is a pure-torch (b)-faithful reference for the FP8 (float8_e4m3fn)
-    block-scaled two-stage g1u1 fused MoE (softmax top-k router, per-token
-    per-1x128 activation scales, per-128x128 weight scales, silu-gated stage1,
-    grouped down GEMM + weighted top-k combine, fp32 accumulate, bf16 out)
-    matching aiter.fmoe_fp8_blockscale_g1u1
-    (op_tests/test_moe_blockscale.py:torch_moe_blockscale). No clean standalone
-    FlyDSL device kernel for this MoE op exists for gfx942/gfx950, so per the
-    convention rule no kernel.py is shipped: FlyDSL is GEAK's target. The harness
-    quantizes via model.quantize_blockscale_moe (byte-identical FP8 operands),
-    adds the host-side weight shuffle + moe_sorting dispatch, and validates the
-    reference against the real aiter op; real shapes come from the ds_v3 / glm5
-    blockscale fmoe CSVs (DeepSeek-V3, GLM-5).
-prompt:
-  source_code: null
-  instructions: |
-    Author a FlyDSL kernel in kernel.py implementing the FP8 block-scaled
-    two-stage g1u1 fused MoE that the PyTorch `Model.forward` in model.py
-    references: a softmax top-k router selects topk experts per token; stage 1
-    runs the grouped gate/up GEMM and silu(gate)*up; stage 2 runs the grouped
-    down GEMM and combines experts with the renormalized router weights.
-    Activations are FP8 (float8_e4m3fn) with per-token per-1x128 scales and
-    weights are FP8 with per-128x128 block scales (dequantize each operand,
-    accumulate in fp32, output bf16); routing uses a sorted token/expert
-    dispatch (moe_sorting). Expose
-    `flydsl_fmoe_fp8_blockscale_g1u1(hidden_states, w1, w2, topk_weights, topk_ids, ...)`
-    (it may quantize/shuffle via the helpers in model.py for host-side prep).
-    Keep the kernel in FlyDSL — do NOT rewrite it in HIP, CUDA, or Triton.
-    Correctness and performance are checked with:
-      python3 test_kernel_harness.py --correctness
-      python3 test_kernel_harness.py --full-benchmark
-  task_type: null
-  cheatsheet: null
+- flydsl_fmoe_fp8_blockscale_g1u1
+compile_command:
+- python3 -c "import model, kernel; print('compile ok')"
+correctness_command:
+- python3 test_kernel_harness.py --correctness
+performance_command:
+- python3 test_kernel_harness.py --full-benchmark
+task_type: torch2flydsl
 task_result_template: null

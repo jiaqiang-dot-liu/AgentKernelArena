@@ -1,85 +1,13 @@
-task_type: triton2flydsl
 source_file_path:
-  - jagged_dense_bmm_broadcast_add.py
-harness_path: test_kernel_harness.py
-compile_command:
-  - python3 test_kernel_harness.py --compile
-correctness_command:
-  - python3 test_kernel_harness.py --correctness
-performance_command:
-  - python3 test_kernel_harness.py --full-benchmark
+- jagged_dense_bmm_broadcast_add.py
 target_kernel_functions:
-  - triton_jagged_dense_bmm_add
-  - jagged_dense_bmm_broadcast_add_kernel
-source_origin:
-  repo: Meta generative-recommenders
-  path: generative_recommenders/ops/triton/triton_jagged.py
-  url: https://raw.githubusercontent.com/meta-recsys/generative-recommenders/main/generative_recommenders/ops/triton/triton_jagged.py
-  note: >-
-    Standalone, FORWARD-only extraction of Meta generative-recommenders'
-    jagged x dense batched matmul with broadcast bias add. Only the portable
-    `@triton.jit jagged_dense_bmm_broadcast_add_kernel` (+ its `_get_bmm_configs`
-    autotune space) and the host forward path are ported. The
-    `generative_recommenders.common` / `ops.utils` deps (`triton_autotune`,
-    `autotune_max_seq_len`, `fine_grained_autotune_max_seq_len`,
-    `switch_to_contiguous_if_needed`, `is_sm90`, `is_sm100_plus`) are inlined;
-    `is_sm90`/`is_sm100_plus` return False so AMD/CDNA takes the portable Triton
-    path. The CUDA fb `torch.ops.load_library` path + `CUDA_JAGGED_DENSE_BMM_*`
-    branches and the autograd backward are dropped. The unrelated concat/split
-    2D-jagged and jagged-jagged-reduce kernels are NOT ported.
-prompt:
-  source_code: null
-  instructions: |
-    Translate the Triton jagged x dense batched matmul with broadcast bias-add
-    kernel into an equivalent FlyDSL kernel for AMD GPUs (gfx950), preserving the
-    public entry signature and numerical correctness.
-
-    The source (`jagged_dense_bmm_broadcast_add.py`) is a STANDALONE, FORWARD-only
-    extraction from Meta generative-recommenders
-    (generative_recommenders/ops/triton/triton_jagged.py). It depends only on
-    `triton` and `torch`. It implements a batched matmul where the left operand is
-    jagged (variable-length per batch) and the right operand is dense, with a
-    broadcast (or per-row elementwise) bias add:
-      - `jagged_dense_bmm_broadcast_add_kernel` : for each (BLOCK_M rows of a
-        segment, BLOCK_N output cols, batch b) tile, loads the segment's jagged
-        rows via `seq_offsets`, multiplies by Dense[b] (K x N) with fp32
-        accumulation over BLOCK_K chunks, adds a bias (broadcast [B, N] or
-        elementwise [sum_M_i, N]), and stores the masked tile to Out.
-    The host wrapper `triton_jagged_dense_bmm_add(...)` makes the operands
-    contiguous, allocates the output, builds the 3D launch grid
-    (cdiv(N, BLOCK_N), cdiv(max_seq_len, BLOCK_M), B), and launches the kernel.
-
-    Key features of the op:
-    - Jagged left operand: `Jagged` is [sum_B(M_i), K], indexed per batch via the
-      `seq_offsets` [B + 1] prefix-sum; `Dense` is [B, K, N]; `Out` is
-      [sum_B(M_i), N]. Tiles with start_m >= seq_len early-exit.
-    - Bias modes: ELEMENTWISE=False adds a per-batch broadcast bias [B, N];
-      ELEMENTWISE=True adds a per-row bias [sum_B(M_i), N].
-    - fp32 accumulation; `allow_tf32` is plumbed through from
-      `torch.backends.cuda.matmul.allow_tf32`.
-    - int64-safe row/batch offset arithmetic for large jagged tensors.
-    - Autotuned over BLOCK_M/BLOCK_N/BLOCK_K x num_stages x num_warps
-      (`_get_bmm_configs`), keyed on AUTOTUNE_MAX_SEQ_LEN, N, K, ELEMENTWISE,
-      HAS_BIAS.
-    - FORWARD-only: the autograd backward and the CUDA fb (Hopper) path are
-      dropped; the NVIDIA SM checks are inlined to False so the portable Triton
-      path is taken on AMD/CDNA.
-
-    Your FlyDSL implementation MUST:
-    - Expose an entry point with the same signature as
-      `triton_jagged_dense_bmm_add(max_seq_len, seq_offsets, jagged, dense, bias,
-      elementwise=False)`.
-    - Match the Triton kernel (the reference; forward-only). The harness runs the
-      Triton forward on all TEST_SHAPES (broadcast and elementwise bias, ragged
-      segment lengths) and asserts finite, correctly-shaped output; the
-      flydsl-vs-triton comparison is added when the FlyDSL target lands.
-    - Be written in FlyDSL (FlyDSL Python DSL) targeting AMD Instinct (gfx950) --
-      do NOT simply re-tune the Triton kernel and do NOT rewrite it in HIP/CUDA.
-
-    Validation:
-    - `python3 test_kernel_harness.py --compile`        must PASS.
-    - `python3 test_kernel_harness.py --correctness`    must PASS (all shapes).
-    - `python3 test_kernel_harness.py --full-benchmark` must run and write the report.
-  task_type: null
-  cheatsheet: null
+- triton_jagged_dense_bmm_add
+- jagged_dense_bmm_broadcast_add_kernel
+compile_command:
+- python3 test_kernel_harness.py --compile
+correctness_command:
+- python3 test_kernel_harness.py --correctness
+performance_command:
+- python3 test_kernel_harness.py --full-benchmark
+task_type: triton2flydsl
 task_result_template: null

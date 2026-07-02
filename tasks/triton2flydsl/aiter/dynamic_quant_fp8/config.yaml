@@ -1,68 +1,17 @@
-task_type: triton2flydsl
 source_file_path:
-  - dynamic_quant_fp8.py
-harness_path: test_kernel_harness.py
-compile_command:
-  - python3 test_kernel_harness.py --compile
-correctness_command:
-  - python3 test_kernel_harness.py --correctness
-performance_command:
-  - python3 test_kernel_harness.py --full-benchmark
+- dynamic_quant_fp8.py
 target_kernel_functions:
-  - static_per_tensor_quant_fp8_i8
-  - dynamic_per_tensor_quant_fp8_i8
-  - dynamic_per_token_quant_fp8_i8
-  - _static_per_tensor_quant_fp8_i8_kernel
-  - _dynamic_per_tensor_quant_fp8_i8_kernel
-  - _dynamic_per_token_quant_fp8_i8_kernel
-source_origin:
-  repo: AITER (local)
-  commit: e773193041689602e5431e110ef39db0390e7015
-  path:
-    - aiter/ops/triton/quant/quant.py
-    - aiter/ops/triton/_triton_kernels/quant/quant.py
-  note: >-
-    Standalone extraction of AITER's fp8/int8 quantization Triton kernels:
-    static_per_tensor_quant_fp8_i8 (caller-provided per-tensor scale),
-    dynamic_per_tensor_quant_fp8_i8 (amax/DTYPE_MAX over the whole tensor via
-    tl.atomic_max, then static quant), and dynamic_per_token_quant_fp8_i8 (per-row
-    amax/DTYPE_MAX). The three device kernels depend only on triton and are copied
-    verbatim; the host wrappers depend only on triton + torch (no aiter imports). fp8
-    is arch-specific (gfx942 = e4m3fnuz max ~240, gfx950 = e4m3fn max 448): the harness
-    quantizes and builds its reference with the arch-matched fp8 e4m3 dtype (mirroring
-    utils.types.get_fp8_e4m3_dtype). The harness runs each kernel over real quant
-    shapes x {int8, fp8} and validates finiteness plus closeness to the torch reference
-    at the upstream tolerance (static atol=1e-2, dynamic atol=1e-1); the flydsl-vs-triton
-    comparison is added when the FlyDSL target lands.
-prompt:
-  source_code: null
-  instructions: |
-    Translate the Triton fp8/int8 quantization kernels into equivalent FlyDSL
-    kernels for AMD GPUs (gfx942/gfx950), preserving the public entry signatures and
-    numerical correctness.
-
-    The source (`dynamic_quant_fp8.py`) is a STANDALONE extraction from AITER. It
-    depends only on `triton` and `torch`. It implements:
-      - `_static_per_tensor_quant_fp8_i8_kernel` / `static_per_tensor_quant_fp8_i8` :
-        qx = (x / scale_in).to(qdtype) with a caller-provided per-tensor scale.
-      - `_dynamic_per_tensor_quant_fp8_i8_kernel` / `dynamic_per_tensor_quant_fp8_i8` :
-        scale = amax(|x|) / DTYPE_MAX (atomic-max across row programs), then quantize.
-      - `_dynamic_per_token_quant_fp8_i8_kernel` / `dynamic_per_token_quant_fp8_i8` :
-        scale[m] = amax_n(|x[m,:]|) / DTYPE_MAX; qx[m] = x[m] / scale[m].
-
-    Your FlyDSL implementation MUST:
-    - Expose entry points with the same signatures
-      (`*_quant_fp8_i8(qx, x_in, scale, ...)`).
-    - Match the Triton kernels (the reference). The harness runs each kernel on all
-      TEST_SHAPES x {int8, fp8} and checks finiteness + closeness to the torch
-      reference (arch-matched fp8 e4m3).
-    - Be written in FlyDSL targeting AMD Instinct -- do NOT simply re-tune the Triton
-      kernels and do NOT rewrite them in HIP/CUDA.
-
-    Validation:
-    - `python3 test_kernel_harness.py --compile`        must PASS.
-    - `python3 test_kernel_harness.py --correctness`    must PASS (all shapes).
-    - `python3 test_kernel_harness.py --full-benchmark` must run and write the report.
-  task_type: null
-  cheatsheet: null
+- static_per_tensor_quant_fp8_i8
+- dynamic_per_tensor_quant_fp8_i8
+- dynamic_per_token_quant_fp8_i8
+- _static_per_tensor_quant_fp8_i8_kernel
+- _dynamic_per_tensor_quant_fp8_i8_kernel
+- _dynamic_per_token_quant_fp8_i8_kernel
+compile_command:
+- python3 test_kernel_harness.py --compile
+correctness_command:
+- python3 test_kernel_harness.py --correctness
+performance_command:
+- python3 test_kernel_harness.py --full-benchmark
+task_type: triton2flydsl
 task_result_template: null

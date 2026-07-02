@@ -39,8 +39,8 @@ TEST_SHAPES = [
     (1, 512, 256),      # single row
     (2048, 512, 768),   # tall
 ]
-WARMUP_ITERATIONS = 5
-BENCHMARK_ITERATIONS = 50
+WARMUP_ITERATIONS = 10
+BENCHMARK_ITERATIONS = 100
 
 MAX_OOM_RETRIES = 5
 # bf16 GEMM tolerance (upstream norm/GEMM closeness floor).

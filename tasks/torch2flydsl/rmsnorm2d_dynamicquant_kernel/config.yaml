@@ -1,52 +1,13 @@
-task_type: torch2flydsl
 source_file_path:
-  - model.py
-harness_path: test_kernel_harness.py
-compile_command:
-  - python3 test_kernel_harness.py --compile
-correctness_command:
-  - python3 test_kernel_harness.py --correctness
-performance_command:
-  - python3 test_kernel_harness.py --full-benchmark
+- kernel.py
 target_kernel_functions:
-  - flydsl_rmsnorm2d_dynamicquant
-  - build_rmsnorm2d_dynamicquant_module
-source_origin:
-  repo: AITER (local)
-  commit: e773193041689602e5431e110ef39db0390e7015
-  path:
-    - aiter/aiter/ops/rmsnorm.py
-    - aiter/aiter/ops/quant.py
-    - aiter/op_tests/test_rmsnorm2dFusedAddQuant.py
-  note: >-
-    Model-only task (no kernel.py): aiter has no clean standalone FlyDSL kernel
-    for fused RMSNorm + dynamic FP8 quant, so FlyDSL is GEAK's target. model.py
-    is the pure-torch (b)-faithful reference: 2D RMSNorm (fp32 mean-of-squares
-    reduction and weight multiply kept entirely in fp32, NO intermediate bf16
-    truncation, matching the fused CK kernel) then dynamic per-token FP8 (E4M3)
-    quant (scale = amax/448, all-zero row -> 1), as in
-    op_tests/test_rmsnorm2dFusedAddQuant.py (quant_type per_Token). The harness
-    validates model.py against the REAL runtime op aiter.rmsnorm_quant (CK
-    rmsnorm2d_fwd_with_dynamicquant, group_size=0) as ground truth at the tight
-    quantized gate (fp8 codes within 1 ULP + near-exact per-token fp32 scale;
-    matched 99.997% exact / code_max_diff=1). Shapes: m in {1,8,256,2048},
-    n in {2048,4096,8192}.
-prompt:
-  source_code: null
-  instructions: |
-    Author a FlyDSL kernel in kernel.py that computes the same result as the
-    PyTorch `Model.forward` in model.py: fused 2D RMSNorm + dynamic per-token
-    FP8 quant. For a row-major [m, n] bf16 input and an [n] bf16 weight, compute
-    normed = rms_norm(x) * weight (fp32 mean-of-squares reduction over the last
-    dim, eps), then quantize each row to FP8 (E4M3) with a per-row amax scale
-    (scale = amax(|normed|)/448, all-zero row -> 1), returning the [m, n] fp8
-    output and the [m, 1] fp32 scale.
-    Expose `flydsl_rmsnorm2d_dynamicquant(input, weight, eps)` returning
-    (output_fp8, scale_fp32), plus `build_rmsnorm2d_dynamicquant_module(...)`.
-    Keep the kernel in FlyDSL — do NOT rewrite it in HIP, CUDA, or Triton.
-    Correctness and performance are checked with:
-      python3 test_kernel_harness.py --correctness
-      python3 test_kernel_harness.py --full-benchmark
-  task_type: null
-  cheatsheet: null
+- flydsl_rmsnorm2d_dynamicquant
+- build_rmsnorm2d_dynamicquant_module
+compile_command:
+- python3 -c "import model, kernel; print('compile ok')"
+correctness_command:
+- python3 test_kernel_harness.py --correctness
+performance_command:
+- python3 test_kernel_harness.py --full-benchmark
+task_type: torch2flydsl
 task_result_template: null

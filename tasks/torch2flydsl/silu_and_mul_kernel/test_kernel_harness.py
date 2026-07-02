@@ -182,7 +182,7 @@ def run_correctness(verbose=True):
     return True
 
 
-def _median_ms(fn, warmup, iters):
+def _mean_ms(fn, warmup, iters):
     import torch
 
     fn()
@@ -199,10 +199,10 @@ def _median_ms(fn, warmup, iters):
         e.record()
         torch.cuda.synchronize()
         times.append(s.elapsed_time(e))
-    return sorted(times)[len(times) // 2]
+    return sum(times) / len(times)
 
 
-def run_benchmark(warmup=5, iters=20, verbose=True):
+def run_benchmark(warmup=10, iters=100, verbose=True):
     import torch
 
     mmod = _load_module(_KERNEL_DIR, MODEL_FILE, "torch_model")
@@ -217,10 +217,10 @@ def run_benchmark(warmup=5, iters=20, verbose=True):
         inp = _make_inputs(shape)
         model = mmod.Model(*mmod.get_init_inputs())
         with torch.no_grad():
-            op_ms = _median_ms(lambda: _aiter_op(inp), warmup, iters)
-            ref_ms = _median_ms(lambda: model(inp), warmup, iters)
+            op_ms = _mean_ms(lambda: _aiter_op(inp), warmup, iters)
+            ref_ms = _mean_ms(lambda: model(inp), warmup, iters)
             ker_ms = (
-                _median_ms(lambda: kmod.flydsl_silu_and_mul(inp, LIMIT), warmup, iters)
+                _mean_ms(lambda: kmod.flydsl_silu_and_mul(inp, LIMIT), warmup, iters)
                 if has_kernel
                 else None
             )
@@ -258,8 +258,8 @@ if __name__ == "__main__":
     parser.add_argument("--correctness", action="store_true")
     parser.add_argument("--benchmark", action="store_true")
     parser.add_argument("--full-benchmark", action="store_true")
-    parser.add_argument("--warmup", type=int, default=5)
-    parser.add_argument("--iterations", type=int, default=20)
+    parser.add_argument("--warmup", type=int, default=10)
+    parser.add_argument("--iterations", type=int, default=100)
     args = parser.parse_args()
 
     print("=" * 56)

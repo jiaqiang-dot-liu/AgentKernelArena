@@ -1,56 +1,12 @@
-task_type: torch2flydsl
 source_file_path:
-  - model.py
-harness_path: test_kernel_harness.py
-compile_command:
-  - python3 -c "import model; print('compile ok')"
-correctness_command:
-  - python3 test_kernel_harness.py --correctness
-performance_command:
-  - python3 test_kernel_harness.py --full-benchmark
+- kernel.py
 target_kernel_functions:
-  - flydsl_biased_grouped_topk
-source_origin:
-  repo: AITER (local)
-  commit: e773193041689602e5431e110ef39db0390e7015
-  path:
-    - aiter/ops/topk.py
-    - aiter/op_tests/test_moeTopkSoftmax.py
-  note: >-
-    model.py is the pure-torch (b)-faithful reference for biased grouped MoE
-    top-k routing (DeepSeek-V3), mirroring aiter.ops.topk.biased_grouped_topk_torch
-    with the routed_scaling_factor applied: scores = sigmoid(gating), selection
-    scores = scores + correction_bias, per-group score = sum of top-2 selection
-    scores in each group, pick the topk_group highest groups, mask the rest, pick
-    the topk experts by selection score among kept groups, gather UN-biased
-    scores at the selected ids, optionally renormalize, times route_scale. Ground
-    truth is aiter.biased_grouped_topk_hip (module_moe_asm); the harness uses fp32
-    router logits + fp32 bias (DeepSeek-V3 reality) so both consume identical bias
-    values, and validates the reference against the fused op (top-k ids EXACT
-    modulo masked-selection-score ties; weights normalized <= 1e-2). No clean
-    standalone FlyDSL routing kernel exists in aiter (biased_grouped_topk is a
-    CK/ASM op), so per the convention this is a model-only task: FlyDSL kernel.py
-    is GEAK's target, exposing flydsl_biased_grouped_topk(gating_output,
-    correction_bias, topk, num_expert_group, topk_group, renormalize,
-    route_scale). Real shapes: DeepSeek-V3 (E=256, 8 groups, top-4 groups, top-8).
-prompt:
-  source_code: null
-  instructions: |
-    Author a FlyDSL kernel in kernel.py that reproduces the PyTorch
-    `Model.forward` in model.py: biased grouped MoE top-k routing (DeepSeek-V3).
-    For a router gating output [num_tokens, num_experts], compute scores =
-    sigmoid(gating), selection scores = scores + correction_bias; score each of
-    the num_expert_group groups by the sum of its top-2 selection scores; keep
-    the topk_group highest-scoring groups and mask the rest; pick the topk experts
-    by selection score among the kept groups; gather the UN-biased scores at the
-    selected ids, optionally renormalize them to sum to 1 across the top-k, and
-    multiply by route_scale. Return topk_weights (fp32) and topk_ids (int32).
-    Expose `flydsl_biased_grouped_topk(gating_output, correction_bias, topk,
-    num_expert_group, topk_group, renormalize, route_scale)`. Keep the kernel in
-    FlyDSL -- do NOT rewrite it in HIP, CUDA, or Triton. Correctness and
-    performance are checked with:
-      python3 test_kernel_harness.py --correctness
-      python3 test_kernel_harness.py --full-benchmark
-  task_type: null
-  cheatsheet: null
+- flydsl_biased_grouped_topk
+compile_command:
+- python3 -c "import model, kernel; print('compile ok')"
+correctness_command:
+- python3 test_kernel_harness.py --correctness
+performance_command:
+- python3 test_kernel_harness.py --full-benchmark
+task_type: torch2flydsl
 task_result_template: null

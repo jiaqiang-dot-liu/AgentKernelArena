@@ -1,46 +1,12 @@
-task_type: torch2flydsl
 source_file_path:
-  - model.py
-harness_path: test_kernel_harness.py
-compile_command:
-  - python3 -c "import model; print('compile ok')"
-correctness_command:
-  - python3 test_kernel_harness.py --correctness
-performance_command:
-  - python3 test_kernel_harness.py --full-benchmark
+- kernel.py
 target_kernel_functions:
-  - flydsl_batched_gemm_a8w8
-source_origin:
-  repo: AITER (local)
-  commit: e773193041689602e5431e110ef39db0390e7015
-  path:
-    - aiter/op_tests/test_batched_gemm_a8w8.py
-    - aiter/ops/batched_gemm_op_a8w8.py
-    - aiter/aiter/configs/a8w8_untuned_batched_gemm.csv
-  note: >-
-    model.py is a pure-torch (b)-faithful reference for the batched INT8 a8w8 GEMM
-    (per-token activation scale [B,M,1], per-output-channel weight scale [B,1,N],
-    int8 product, fp32 accumulate, bf16 out) matching aiter.batched_gemm_a8w8_CK
-    (op_tests/test_batched_gemm_a8w8.py run_torch). No clean standalone FlyDSL
-    device kernel for this op exists for gfx942/gfx950 (the aiter batched a8w8
-    path is CK with only tune-harness bindings), so per the convention rule no
-    kernel.py is shipped: FlyDSL is GEAK's target. The harness quantizes via
-    model.quantize_batched_a8w8 and validates the reference against the real aiter
-    op; real shapes come from the a8w8 untuned batched-gemm CSV.
-prompt:
-  source_code: null
-  instructions: |
-    Author a FlyDSL kernel in kernel.py implementing the batched INT8 a8w8 GEMM
-    that the PyTorch `Model.forward` in model.py references: per-batch
-    out[b] = (x[b] @ w[b].T) * (x_scale[b] @ w_scale[b]) where `x` is [B, M, K]
-    INT8 with a per-token scale [B, M, 1] and `w` is [B, N, K] INT8 with a
-    per-output-channel scale [B, 1, N], int8 product accumulated in fp32 with a
-    bf16 output. Expose `flydsl_batched_gemm_a8w8(x, w)` as the entry point (it may
-    quantize via the helpers in model.py for host-side prep). Keep the kernel in
-    FlyDSL — do NOT rewrite it in HIP, CUDA, or Triton.
-    Correctness and performance are checked with:
-      python3 test_kernel_harness.py --correctness
-      python3 test_kernel_harness.py --full-benchmark
-  task_type: null
-  cheatsheet: null
+- flydsl_batched_gemm_a8w8
+compile_command:
+- python3 -c "import model, kernel; print('compile ok')"
+correctness_command:
+- python3 test_kernel_harness.py --correctness
+performance_command:
+- python3 test_kernel_harness.py --full-benchmark
+task_type: torch2flydsl
 task_result_template: null

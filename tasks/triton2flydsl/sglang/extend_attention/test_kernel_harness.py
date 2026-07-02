@@ -42,8 +42,8 @@ TEST_SHAPES = [
     {"prefix": [150], "extend": [70], "head": 8, "kv_head": 1,
      "Lq": 128, "Lv": 128, "causal": True},  # MQA
 ]
-WARMUP_ITERATIONS = 5
-BENCHMARK_ITERATIONS = 20
+WARMUP_ITERATIONS = 10
+BENCHMARK_ITERATIONS = 100
 MAX_OOM_RETRIES = 5
 
 

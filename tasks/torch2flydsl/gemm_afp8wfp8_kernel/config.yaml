@@ -1,50 +1,14 @@
+source_file_path:
+- kernel.py
+target_kernel_functions:
+- flydsl_gemm_afp8wfp8
+compile_command:
+- python3 -c "import model, kernel; print('compile ok')"
+correctness_command:
+- python3 test_kernel_harness.py --correctness
+performance_command:
+- python3 test_kernel_harness.py --full-benchmark
 task_type: torch2flydsl
 supported_archs:
-  - gfx950  # MXFP8 GEMM uses triton scaled-dot (DotScaleOp); scaled-MFMA is CDNA4-only, unsupported on gfx942/CDNA3
-source_file_path:
-  - model.py
-harness_path: test_kernel_harness.py
-compile_command:
-  - python3 -c "import model; print('compile ok')"
-correctness_command:
-  - python3 test_kernel_harness.py --correctness
-performance_command:
-  - python3 test_kernel_harness.py --full-benchmark
-target_kernel_functions:
-  - flydsl_gemm_afp8wfp8
-source_origin:
-  repo: AITER (local)
-  commit: e773193041689602e5431e110ef39db0390e7015
-  path:
-    - aiter/op_tests/triton_tests/gemm/basic/test_gemm_afp8wfp8.py
-    - aiter/aiter/ops/triton/gemm/basic/gemm_afp8wfp8.py
-  note: >-
-    model.py is a pure-torch (b)-faithful reference for the MXFP8/FP8 GEMM
-    (per-1x32 e8m0 MXFP8 activation, per-128x128 e8m0 FP8 weight, fp32
-    accumulate, bf16 out) matching aiter's gemm_afp8wfp8
-    (op_tests/triton_tests/gemm/basic/test_gemm_afp8wfp8.py
-    run_torch_gemm_afp8wfp8). The only aiter implementation of this dtype combo
-    is the Triton kernel (no CK/FlyDSL standalone for gfx942/gfx950), so per the
-    convention rule no kernel.py is shipped: FlyDSL is GEAK's target. The
-    activation 1x32 e8m0 quant follows the dynamic_mxfp8_quant integer rounding;
-    the weight uses amax-derived 128x128 e8m0 scales. The harness quantizes via
-    model.quantize_afp8wfp8 and validates the reference against the real aiter
-    Triton op (requires an FP8-capable gfx950 GPU) on the non-shuffle path;
-    shapes come from the op_test enum (N, K multiples of 128).
-prompt:
-  source_code: null
-  instructions: |
-    Author a FlyDSL kernel in kernel.py implementing the MXFP8/FP8 GEMM that the
-    PyTorch `Model.forward` in model.py references: out = a @ w.T where `a` is
-    [M, K] quantized to MXFP8 (FP8 e4m3 codes [M, K] with e8m0 per-1x32 block
-    scales [M, K/32]) and `w` is [N, K] quantized to FP8 (e4m3 codes [N, K] with
-    e8m0 per-128x128 block scales [N/128, K/128]), dequantized and accumulated
-    in fp32 with a bf16 output. Expose `flydsl_gemm_afp8wfp8(a, w)` as the entry
-    point (it may quantize via the helpers in model.py for host-side prep). Keep
-    the kernel in FlyDSL — do NOT rewrite it in HIP, CUDA, or Triton.
-    Correctness and performance are checked with:
-      python3 test_kernel_harness.py --correctness
-      python3 test_kernel_harness.py --full-benchmark
-  task_type: null
-  cheatsheet: null
+- gfx950
 task_result_template: null

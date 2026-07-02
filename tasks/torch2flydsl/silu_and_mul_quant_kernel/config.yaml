@@ -1,51 +1,13 @@
-task_type: torch2flydsl
 source_file_path:
-  - model.py
-harness_path: test_kernel_harness.py
-compile_command:
-  - python3 test_kernel_harness.py --compile
-correctness_command:
-  - python3 test_kernel_harness.py --correctness
-performance_command:
-  - python3 test_kernel_harness.py --full-benchmark
+- kernel.py
 target_kernel_functions:
-  - flydsl_silu_and_mul_quant
-  - build_silu_and_mul_quant_module
-source_origin:
-  repo: AITER (local)
-  commit: e773193041689602e5431e110ef39db0390e7015
-  path:
-    - aiter/aiter/ops/activation.py
-    - aiter/op_tests/test_activation.py
-  note: >-
-    Model-only task (no kernel.py): aiter's only FlyDSL activation kernel is the
-    MoE-stage fused silu_and_mul_fq (sorted-scale, MoE-shaped I/O) which does not
-    map 1:1 to this standalone op, so per the convention rule FlyDSL is GEAK's
-    target. model.py is the pure-torch (b)-faithful reference: act = silu(x) * y
-    over the gate/up split of a [m, 2d] input (fp32 SiLU + multiply; optional
-    GPT-OSS clamp when limit>0), then per-group FP8 (E4M3) quant along the last
-    dim (scale = max(amax(|group|), 1e-10)/448, round-to-nearest-even), as in
-    op_tests/test_activation.py:test_silu_and_mul_quant (_ref_group_scales_fp8 /
-    _dequant_fp8_group). The harness validates model.py against the REAL runtime
-    op aiter.silu_and_mul_quant as ground truth at the tight quantized gate (fp8
-    codes within 1 ULP + near-exact per-group fp32 scale). group_size=128,
-    limit=0; shapes m in {32,128,512,1024}, n in {4096,8192}.
-prompt:
-  source_code: null
-  instructions: |
-    Author a FlyDSL kernel in kernel.py that computes the same result as the
-    PyTorch `Model.forward` in model.py: fused silu_and_mul + per-group FP8
-    quant. For a row-major [m, 2d] bf16 input, split into gate x and up y of size
-    d, compute act = silu(x) * y in fp32 (apply the GPT-OSS clamp when limit>0),
-    then quantize act to FP8 (E4M3) per group of group_size along the last dim
-    (scale = max(amax(|group|), 1e-10)/448, round-to-nearest-even), returning the
-    [m, d] fp8 output and the [m, d//group_size] fp32 scale.
-    Expose `flydsl_silu_and_mul_quant(input, group_size, limit)` returning
-    (output_fp8, scale_fp32), plus `build_silu_and_mul_quant_module(...)`.
-    Keep the kernel in FlyDSL — do NOT rewrite it in HIP, CUDA, or Triton.
-    Correctness and performance are checked with:
-      python3 test_kernel_harness.py --correctness
-      python3 test_kernel_harness.py --full-benchmark
-  task_type: null
-  cheatsheet: null
+- flydsl_silu_and_mul_quant
+- build_silu_and_mul_quant_module
+compile_command:
+- python3 -c "import model, kernel; print('compile ok')"
+correctness_command:
+- python3 test_kernel_harness.py --correctness
+performance_command:
+- python3 test_kernel_harness.py --full-benchmark
+task_type: torch2flydsl
 task_result_template: null

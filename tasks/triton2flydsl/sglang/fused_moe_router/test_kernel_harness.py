@@ -44,7 +44,7 @@ TEST_SHAPES = [
     {"bs": 128, "E": 8, "hidden": 2048, "topk": 1, "cap": 30.0, "bias": True},    # cudacore topk=1 + bias
 ]
 WARMUP_ITERATIONS = 10
-BENCHMARK_ITERATIONS = 50
+BENCHMARK_ITERATIONS = 100
 MAX_OOM_RETRIES = 5
 
 

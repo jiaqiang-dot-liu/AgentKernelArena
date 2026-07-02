@@ -1,63 +1,14 @@
-task_type: triton2flydsl
 source_file_path:
-  - fused_norm_gate.py
-harness_path: test_kernel_harness.py
-compile_command:
-  - python3 test_kernel_harness.py --compile
-correctness_command:
-  - python3 test_kernel_harness.py --correctness
-performance_command:
-  - python3 test_kernel_harness.py --full-benchmark
+- fused_norm_gate.py
 target_kernel_functions:
-  - layer_norm_gated_fwd
-  - layer_norm_gated_fwd_kernel
-  - layer_norm_gated_fwd_kernel1
-source_origin:
-  repo: sglang
-  commit: 9bb9d17e1ab26d50b91e5672b7ffcac800faafc7
-  path: python/sglang/srt/layers/attention/fla/fused_norm_gate.py
-  url: https://github.com/sgl-project/sglang/blob/9bb9d17e1ab26d50b91e5672b7ffcac800faafc7/python/sglang/srt/layers/attention/fla/fused_norm_gate.py
-  note: >-
-    Standalone, forward-only extraction of sglang's fused gated (RMS/Layer)Norm
-    kernels (layer_norm_gated_fwd + the D<=512 block-ptr kernel and the D>512 row
-    kernel). This is the gated RMSNorm applied to the Gated Delta Net per-head
-    output before the output projection (Qwen3-Next / Kimi-Linear), with a
-    swish/sigmoid output gate. The autograd LayerNormGatedFunction, the
-    FusedRMSNormGated nn.Module, and the CPU/NPU fast paths are dropped;
-    `sglang.srt.utils.{cdiv,next_power_of_2}` are replaced with their `triton`
-    equivalents. fp32 reductions; optional fused residual add and mean/rstd
-    outputs are preserved. Depends only on `triton` and `torch`.
-prompt:
-  source_code: null
-  instructions: |
-    Translate the Triton fused gated (RMS/Layer)Norm forward kernels into
-    equivalent FlyDSL kernels for AMD GPUs (gfx950), preserving the public entry
-    signature and numerical correctness.
-
-    The source (`fused_norm_gate.py`) is a STANDALONE extraction from sglang
-    (python/sglang/srt/layers/attention/fla/fused_norm_gate.py). It depends only
-    on `triton` and `torch`. Per row:
-      x_hat = x * rstd                 (RMS)   or   (x - mean) * rstd  (Layer)
-      y     = x_hat * weight (+ bias)
-      activation swish/silu: y *= g * sigmoid(g)
-      activation sigmoid:    y *= sigmoid(g)
-    with rstd = 1/sqrt(mean(var) + eps) in fp32. Two kernels: a block-ptr path
-    for D<=512 (BT=32 rows/block) and a one-row-per-program path for D>512.
-
-    Your FlyDSL implementation MUST:
-    - Expose an entry point with the same signature as
-      `layer_norm_gated_fwd(x, g, weight, bias, activation="swish", eps=1e-5,
-      residual=None, out_dtype=None, residual_dtype=None, is_rms_norm=False)`
-      returning (y, mean, rstd, residual_out).
-    - Match the torch fp32 reference within bf16 tolerance (<=2% mismatched elems
-      at atol=2e-2, rtol=1e-2).
-    - Be written in FlyDSL (FlyDSL Python DSL) targeting AMD Instinct (gfx950) --
-      do NOT simply re-tune the Triton kernel and do NOT rewrite it in HIP/CUDA.
-
-    Validation:
-    - `python3 test_kernel_harness.py --compile`        must PASS.
-    - `python3 test_kernel_harness.py --correctness`    must PASS (all shapes).
-    - `python3 test_kernel_harness.py --full-benchmark` must run and write the report.
-  task_type: null
-  cheatsheet: null
+- layer_norm_gated_fwd
+- layer_norm_gated_fwd_kernel
+- layer_norm_gated_fwd_kernel1
+compile_command:
+- python3 test_kernel_harness.py --compile
+correctness_command:
+- python3 test_kernel_harness.py --correctness
+performance_command:
+- python3 test_kernel_harness.py --full-benchmark
+task_type: triton2flydsl
 task_result_template: null

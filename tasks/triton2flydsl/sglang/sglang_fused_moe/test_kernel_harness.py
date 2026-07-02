@@ -47,8 +47,8 @@ TEST_SHAPES = [
     (1024, K_HIDDEN, I_INTER, 128, TOPK),          # fewer experts (TP/EP shard)
     (512, K_HIDDEN, I_INTER, N_EXPERTS, 4),        # smaller top-k
 ]
-WARMUP_ITERATIONS = 5
-BENCHMARK_ITERATIONS = 30
+WARMUP_ITERATIONS = 10
+BENCHMARK_ITERATIONS = 100
 MAX_OOM_RETRIES = 5
 DTYPE_NAME = os.environ.get("MOE_DTYPE", "bfloat16")
 

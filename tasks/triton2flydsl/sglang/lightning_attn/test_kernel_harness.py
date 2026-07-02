@@ -38,7 +38,7 @@ TEST_SHAPES = [
     {"B": 4, "H": 16, "D": 128, "block": 64, "dtype": "fp32"},
 ]
 WARMUP_ITERATIONS = 10
-BENCHMARK_ITERATIONS = 50
+BENCHMARK_ITERATIONS = 100
 MAX_OOM_RETRIES = 5
 
 _DTYPES = {"bf16": "bfloat16", "fp16": "float16", "fp32": "float32"}

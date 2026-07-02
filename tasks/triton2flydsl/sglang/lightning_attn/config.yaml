@@ -1,66 +1,13 @@
-task_type: triton2flydsl
 source_file_path:
-  - lightning_attn.py
-harness_path: test_kernel_harness.py
-compile_command:
-  - python3 test_kernel_harness.py --compile
-correctness_command:
-  - python3 test_kernel_harness.py --correctness
-performance_command:
-  - python3 test_kernel_harness.py --full-benchmark
+- lightning_attn.py
 target_kernel_functions:
-  - linear_decode_forward_triton
-  - _linear_attn_decode_kernel
-source_origin:
-  repo: sglang
-  commit: 9bb9d17e1ab26d50b91e5672b7ffcac800faafc7
-  path: python/sglang/srt/layers/attention/linear/lightning_attn.py
-  url: https://github.com/sgl-project/sglang/blob/9bb9d17e1ab26d50b91e5672b7ffcac800faafc7/python/sglang/srt/layers/attention/linear/lightning_attn.py
-  note: >-
-    Standalone extraction of sglang's MiniMax/Bailing lightning-attention DECODE
-    Triton kernel (linear_decode_forward_triton -> _linear_attn_decode_kernel): a
-    single-token linear-attention step with a per-head exponentially-decayed KV
-    state. Per (batch, head) with cache slot slot_idx[b] and decay slope_rate[h]:
-    kv_new = outer(k, v) + exp(-slope)*kv_old; out = q . kv_new (contraction over the
-    qk dim); kv_old <- kv_new in place. The fp32 KV state is updated in place; a
-    slot_idx of -1 marks a padded batch entry (skipped). head_dim D must be a power
-    of two (the kernel uses tl.arange(0, D)). The einops `rearrange` in
-    the output reshape is inlined with a torch permute/reshape so the module depends
-    only on `triton` and `torch`. SCOPE: this task ships the decode (recurrent)
-    kernel only; the chunk-parallel prefill path (`lightning_attention` plus the
-    `_attention` autograd.Function with its four diag/kv-parallel/kv-reduce/none-diag
-    kernels) is the heavier multi-kernel variant and remains a separate candidate.
-prompt:
-  source_code: null
-  instructions: |
-    Translate the Triton MiniMax/Bailing lightning-attention decode kernel into an
-    equivalent FlyDSL kernel for AMD GPUs (gfx942/gfx950), preserving the public
-    entry signature and numerical correctness.
-
-    The source (`lightning_attn.py`) is a STANDALONE extraction from sglang
-    (python/sglang/srt/layers/attention/linear/lightning_attn.py). It depends only
-    on `triton` and `torch`. It performs one decode step of linear attention with a
-    per-head exponentially-decayed KV state. For each (batch, head) with cache slot
-    slot_idx[b] (>=0; -1 = padding, skipped) and decay slope_rate[h]:
-      kv_new = outer(k, v) + exp(-slope_rate[h]) * kv_old   # [D, D], fp32
-      out    = sum_d q[d] * kv_new[d, :]                    # [D]
-      kv_old <- kv_new                                       # in-place state update
-    Output is reshaped to [B, H*D]. q/k/v are [B, H, 1, D]; kv_caches [num_slots,
-    H, D, D] fp32.
-
-    Your FlyDSL implementation MUST:
-    - Expose an entry point with the same signature as
-      `linear_decode_forward_triton(q, k, v, kv_caches, slope_rate, slot_idx,
-      BLOCK_SIZE=32)` returning the [B, H*D] output and updating kv_caches in place.
-    - Match the torch fp32 recurrence reference within atol=1e-2, rtol=1e-2
-      (bf16/fp16 output) and atol=1e-3 for the updated KV state.
-    - Be written in FlyDSL targeting AMD Instinct -- do NOT simply re-tune the
-      Triton kernel and do NOT rewrite it in HIP/CUDA.
-
-    Validation:
-    - `python3 test_kernel_harness.py --compile`        must PASS.
-    - `python3 test_kernel_harness.py --correctness`    must PASS (all shapes).
-    - `python3 test_kernel_harness.py --full-benchmark` must run and write the report.
-  task_type: null
-  cheatsheet: null
+- linear_decode_forward_triton
+- _linear_attn_decode_kernel
+compile_command:
+- python3 test_kernel_harness.py --compile
+correctness_command:
+- python3 test_kernel_harness.py --correctness
+performance_command:
+- python3 test_kernel_harness.py --full-benchmark
+task_type: triton2flydsl
 task_result_template: null

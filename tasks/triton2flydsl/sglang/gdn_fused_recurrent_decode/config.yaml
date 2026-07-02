@@ -1,81 +1,13 @@
-task_type: triton2flydsl
 source_file_path:
-  - gdn_fused_recurrent_decode.py
-harness_path: test_kernel_harness.py
-compile_command:
-  - python3 test_kernel_harness.py --compile
-correctness_command:
-  - python3 test_kernel_harness.py --correctness
-performance_command:
-  - python3 test_kernel_harness.py --full-benchmark
+- gdn_fused_recurrent_decode.py
 target_kernel_functions:
-  - fused_recurrent_gated_delta_rule_packed_decode
-  - fused_recurrent_gated_delta_rule_packed_decode_kernel
-source_origin:
-  repo: sglang
-  path: python/sglang/srt/layers/attention/fla/fused_recurrent.py
-  url: https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/layers/attention/fla/fused_recurrent.py
-  note: >-
-    Standalone, FORWARD-only / single-step DECODE extraction of sglang's Gated
-    Delta Net (GDN) packed recurrent decode kernel
-    (fused_recurrent_gated_delta_rule_packed_decode + its @triton.jit kernel).
-    This is the hot Triton kernel observed on the Qwen3.5-35B-A3B serving trace
-    (GDN linear-attention decode, ~5% GPU time). The `fla.op.exp` indirection is
-    replaced by `tl.exp` (default, non-fast path) and the `fla.utils.input_guard`
-    decorator is dropped (the packed-decode wrapper does not use it). The kernel
-    depends only on `triton` and `torch`. The chunked prefill path, the autograd
-    Function, the eagle-tree update kernel, and all other fla helpers are NOT
-    ported.
-prompt:
-  source_code: null
-  instructions: |
-    Translate the Triton GDN packed recurrent DECODE kernel into an equivalent
-    FlyDSL kernel for AMD GPUs (gfx950), preserving the public entry signature
-    and numerical correctness.
-
-    The source (`gdn_fused_recurrent_decode.py`) is a STANDALONE, forward-only
-    single-step decode extraction from sglang
-    (python/sglang/srt/layers/attention/fla/fused_recurrent.py). It depends only
-    on `triton` and `torch`. It performs one recurrent gated-delta-rule update per
-    decode token directly on the packed `mixed_qkv` projection:
-
-      for each (sequence n, value-head hv), qk-head i_h = hv // (HV // H):
-        q = mixed_qkv[n, i_h*K : i_h*K+K]
-        k = mixed_qkv[n, H*K + i_h*K : H*K + i_h*K + K]
-        v = mixed_qkv[n, 2*H*K + hv*V : 2*H*K + hv*V + V]
-        (optional) L2-normalize q,k ; q *= scale
-        g    = -exp(A_log[hv]) * softplus(a[n,hv] + dt_bias[hv])
-        beta = sigmoid(b[n,hv])
-        h    = state[idx, hv]                # [V, K], fp32
-        h   *= exp(g)
-        v   -= sum(h * k, axis=K)
-        v   *= beta
-        h   += outer(v, k)
-        o    = sum(h * q, axis=K)
-        out[n,0,hv] = o ; state[idx, hv] = h
-
-    Key features:
-    - Packed input: q|k|v are concatenated in the last dim of mixed_qkv [B, 2*H*K + HV*V].
-    - GVA / grouped value heads: HV is a multiple of H (qk-head reused across HV/H value heads).
-    - fp32 recurrent state accumulation; state pool [pool, HV, V, K], gathered via ssm_state_indices.
-    - ssm_state_indices[n] < 0 => write zeros to output and skip the state update.
-    - in-kernel optional q/k L2-norm; softplus with threshold 20.0.
-
-    Your FlyDSL implementation MUST:
-    - Expose an entry point with the same signature as
-      `fused_recurrent_gated_delta_rule_packed_decode(mixed_qkv, a, b, A_log,
-      dt_bias, scale, initial_state, out, ssm_state_indices,
-      use_qk_l2norm_in_kernel=False)`, writing `out` in place and updating
-      `initial_state` in place, returning (out, initial_state).
-    - Match the torch fp32 reference in the harness (output AND updated state)
-      within bf16 tolerance (atol=2e-2, rtol=1e-2).
-    - Be written in FlyDSL (FlyDSL Python DSL) targeting AMD Instinct (gfx950) --
-      do NOT simply re-tune the Triton kernel and do NOT rewrite it in HIP/CUDA.
-
-    Validation:
-    - `python3 test_kernel_harness.py --compile`        must PASS.
-    - `python3 test_kernel_harness.py --correctness`    must PASS (all shapes).
-    - `python3 test_kernel_harness.py --full-benchmark` must run and write the report.
-  task_type: null
-  cheatsheet: null
+- fused_recurrent_gated_delta_rule_packed_decode
+- fused_recurrent_gated_delta_rule_packed_decode_kernel
+compile_command:
+- python3 test_kernel_harness.py --compile
+correctness_command:
+- python3 test_kernel_harness.py --correctness
+performance_command:
+- python3 test_kernel_harness.py --full-benchmark
+task_type: triton2flydsl
 task_result_template: null

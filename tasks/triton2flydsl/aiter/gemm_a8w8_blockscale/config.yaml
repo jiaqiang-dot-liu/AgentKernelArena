@@ -1,74 +1,13 @@
-task_type: triton2flydsl
 source_file_path:
-  - gemm_a8w8_blockscale.py
-harness_path: test_kernel_harness.py
-compile_command:
-  - python3 test_kernel_harness.py --compile
-correctness_command:
-  - python3 test_kernel_harness.py --correctness
-performance_command:
-  - python3 test_kernel_harness.py --full-benchmark
+- gemm_a8w8_blockscale.py
 target_kernel_functions:
-  - gemm_a8w8_blockscale
-  - _gemm_a8w8_blockscale_kernel
-source_origin:
-  repo: AITER (local)
-  commit: e773193041689602e5431e110ef39db0390e7015
-  path:
-    - aiter/ops/triton/gemm/basic/gemm_a8w8_blockscale.py
-    - aiter/ops/triton/_triton_kernels/gemm/basic/gemm_a8w8_blockscale.py
-  note: >-
-    Standalone extraction of AITER's fp8 block-scaled GEMM Triton kernel
-    (gemm_a8w8_blockscale -> _gemm_a8w8_blockscale_kernel), the DeepSeek-V3 /
-    Qwen3 fp8 dense matmul: Y = X @ W^T with 128x128 block-wise dequant
-    (A_scale [M, ceil(K/128)], W_scale [ceil(N/128), ceil(K/128)]) applied inside
-    the K loop, fp32 accumulation, bf16 output. The preshuffle kernel/launcher,
-    the gluon backend, and the split-K reduce kernel are dropped; only the
-    non-split-K (NUM_KSPLIT == 1) triton path is kept; the on-disk tuned-config
-    lookup is replaced by a static config with BLOCK_SIZE_K == GROUP_K == 128 (as
-    the kernel requires), and remap_xcd / pid_grid / make_kernel_repr are inlined,
-    so the module depends only on triton + torch. fp8 is arch-specific (gfx942 =
-    e4m3fnuz, gfx950 = e4m3fn): the harness quantizes inputs and builds its
-    reference with the arch-matched fp8 e4m3 dtype (mirroring
-    utils.types.get_fp8_dtypes). The harness runs the Triton kernel over real
-    DeepSeek-V3 / Qwen3 fp8 GEMM shapes and validates finiteness plus closeness to
-    the block-dequant torch reference at the upstream tolerance (atol=0.01,
-    rtol=1e-2); the flydsl-vs-triton comparison is added when the FlyDSL target
-    lands.
-prompt:
-  source_code: null
-  instructions: |
-    Translate the Triton fp8 block-scaled GEMM kernel into an equivalent FlyDSL
-    kernel for AMD GPUs (gfx942/gfx950), preserving the public entry signature and
-    numerical correctness.
-
-    The source (`gemm_a8w8_blockscale.py`) is a STANDALONE extraction from AITER.
-    It depends only on `triton` and `torch`. It implements:
-      - `_gemm_a8w8_blockscale_kernel` : tiled fp8 matmul C = A @ B (B is W
-        transposed to [K, N]) with 128x128 block-wise dequant -- per-K-block,
-        per-row A_scale and per-(N-block, K-block) W_scale are multiplied into the
-        partial tl.dot inside the K loop -- fp32 accumulation, grouped pid +
-        XCD-balanced pid remap. GROUP_K must equal BLOCK_SIZE_K (== 128). Only the
-        NUM_KSPLIT == 1 path is exercised.
-      - `gemm_a8w8_blockscale(x, w, x_scale, w_scale, dtype=torch.bfloat16, ...)`
-        : transposes w / w_scale, picks GROUP_K/GROUP_N + a tile config, allocates
-        the output, and launches.
-
-    Your FlyDSL implementation MUST:
-    - Expose an entry point with the same signature as
-      `gemm_a8w8_blockscale(x, w, x_scale, w_scale, ...)` computing the 128x128
-      block-scaled Y = X @ W^T.
-    - Match the Triton kernel (the reference). The harness runs the Triton kernel
-      on all TEST_SHAPES and checks finiteness + closeness to the block-dequant
-      torch reference (arch-matched fp8 e4m3); the flydsl-vs-triton comparison is
-      added when the FlyDSL target lands.
-    - Be written in FlyDSL targeting AMD Instinct -- do NOT simply re-tune the
-      Triton kernel and do NOT rewrite it in HIP/CUDA.
-
-    Validation:
-    - `python3 test_kernel_harness.py --compile`        must PASS.
-    - `python3 test_kernel_harness.py --correctness`    must PASS (all shapes).
-    - `python3 test_kernel_harness.py --full-benchmark` must run and write the report.
-  task_type: null
-  cheatsheet: null
+- gemm_a8w8_blockscale
+- _gemm_a8w8_blockscale_kernel
+compile_command:
+- python3 test_kernel_harness.py --compile
+correctness_command:
+- python3 test_kernel_harness.py --correctness
+performance_command:
+- python3 test_kernel_harness.py --full-benchmark
+task_type: triton2flydsl
 task_result_template: null

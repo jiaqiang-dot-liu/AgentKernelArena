@@ -1,50 +1,12 @@
-task_type: torch2flydsl
 source_file_path:
-  - model.py
-harness_path: test_kernel_harness.py
-compile_command:
-  - python3 -c "import model; print('compile ok')"
-correctness_command:
-  - python3 test_kernel_harness.py --correctness
-performance_command:
-  - python3 test_kernel_harness.py --full-benchmark
+- kernel.py
 target_kernel_functions:
-  - flydsl_moe_2stage_generic
-source_origin:
-  repo: AITER (local)
-  commit: e773193041689602e5431e110ef39db0390e7015
-  path:
-    - aiter/op_tests/test_moe_2stage.py
-    - aiter/aiter/fused_moe.py
-    - aiter/aiter/ops/moe_op.py
-  note: >-
-    model.py is a pure-torch (b)-faithful reference for the generic two-stage
-    fused MoE (softmax top-k router, grouped gate/up GEMM + silu-gated
-    activation, bf16 intermediate, grouped down GEMM + weighted top-k combine,
-    fp32 accumulate, bf16 out) matching aiter.fused_moe with QuantType.No
-    (op_tests/test_moe_2stage.py:torch_moe_stage1/torch_moe_stage2; CK device
-    entries moe_stage1_g1u1 / ck_moe_stage1_fwd / ck_moe_stage2_fwd). No clean
-    standalone FlyDSL device kernel for the full generic two-stage MoE exists for
-    gfx942/gfx950, so per the convention rule no kernel.py is shipped: FlyDSL is
-    GEAK's target. The harness runs the reference and validates it against the
-    real aiter op (with the host-side weight shuffle moe sorting needs); shapes
-    are a mid-size E32/k5 MoE and the DeepSeek-V3 E257/k9 fmoe shape.
-prompt:
-  source_code: null
-  instructions: |
-    Author a FlyDSL kernel in kernel.py implementing the generic two-stage fused
-    MoE that the PyTorch `Model.forward` in model.py references: a softmax top-k
-    router selects topk experts per token; stage 1 runs the grouped gate/up GEMM
-    (w1) and silu(gate)*up; the intermediate is bf16; stage 2 runs the grouped
-    down GEMM (w2) and combines experts with the renormalized router weights.
-    Operands are bf16 with fp32 accumulation and a bf16 output; routing uses a
-    sorted token/expert dispatch (moe_sorting). Expose
-    `flydsl_moe_2stage_generic(hidden_states, w1, w2, topk_weights, topk_ids, ...)`
-    as the entry point. Keep the kernel in FlyDSL — do NOT rewrite it in HIP,
-    CUDA, or Triton.
-    Correctness and performance are checked with:
-      python3 test_kernel_harness.py --correctness
-      python3 test_kernel_harness.py --full-benchmark
-  task_type: null
-  cheatsheet: null
+- flydsl_moe_2stage_generic
+compile_command:
+- python3 -c "import model, kernel; print('compile ok')"
+correctness_command:
+- python3 test_kernel_harness.py --correctness
+performance_command:
+- python3 test_kernel_harness.py --full-benchmark
+task_type: torch2flydsl
 task_result_template: null

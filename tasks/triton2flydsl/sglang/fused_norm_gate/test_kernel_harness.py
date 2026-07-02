@@ -42,7 +42,7 @@ TEST_SHAPES = [
     (2048, 768, False, "swish", True),    # kernel1 layernorm + bias
 ]
 WARMUP_ITERATIONS = 10
-BENCHMARK_ITERATIONS = 50
+BENCHMARK_ITERATIONS = 100
 MAX_OOM_RETRIES = 5
 DTYPE_NAME = os.environ.get("GDN_DTYPE", "bfloat16")
 

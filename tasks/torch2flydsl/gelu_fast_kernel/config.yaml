@@ -1,48 +1,13 @@
-task_type: torch2flydsl
 source_file_path:
-  - model.py
-harness_path: test_kernel_harness.py
-compile_command:
-  - python3 test_kernel_harness.py --compile
-correctness_command:
-  - python3 test_kernel_harness.py --correctness
-performance_command:
-  - python3 test_kernel_harness.py --full-benchmark
+- kernel.py
 target_kernel_functions:
-  - flydsl_gelu_fast
-  - build_gelu_fast_module
-source_origin:
-  repo: AITER (local)
-  commit: e773193041689602e5431e110ef39db0390e7015
-  path:
-    - aiter/ops/activation.py
-    - csrc/kernels/activation_kernels.cu
-  note: >-
-    Model-only task. model.py is the pure-torch reference for the gelu_fast
-    elementwise activation: out = gelu_tanh(x) over a [m, n] tensor, where
-    gelu_tanh is the tanh approximation
-    0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3))) (PyTorch
-    approximate="tanh"). The reference mirrors the aiter.gelu_fast device kernel:
-    bf16 in/out, fp32 activation, bf16 store, no gating. No standalone FlyDSL
-    activation kernel exists in aiter, so kernel.py is left for the agent to
-    author. The harness validates model.py against the real aiter.gelu_fast
-    output at the bf16 tight gate. Real m x n shapes are taken from
-    op_tests/test_activation.py.
-prompt:
-  source_code: null
-  instructions: |
-    Author a FlyDSL kernel in kernel.py that computes the gelu_fast elementwise
-    activation defined by the PyTorch `Model.forward` in model.py: for a
-    row-major [m, n] bf16 input, the output is [m, n] bf16 with
-    out = gelu_tanh(x), using the tanh approximation
-    0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3))), computed with fp32
-    activation and bf16 store.
-    Expose `flydsl_gelu_fast(input)` returning the [m, n] bf16 output, plus
-    `build_gelu_fast_module(...)` used to build the kernel.
-    Keep the kernel in FlyDSL — do NOT rewrite it in HIP, CUDA, or Triton.
-    Correctness and performance are checked with:
-      python3 test_kernel_harness.py --correctness
-      python3 test_kernel_harness.py --full-benchmark
-  task_type: null
-  cheatsheet: null
+- flydsl_gelu_fast
+- build_gelu_fast_module
+compile_command:
+- python3 -c "import model, kernel; print('compile ok')"
+correctness_command:
+- python3 test_kernel_harness.py --correctness
+performance_command:
+- python3 test_kernel_harness.py --full-benchmark
+task_type: torch2flydsl
 task_result_template: null

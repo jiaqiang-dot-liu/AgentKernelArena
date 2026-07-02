@@ -1,68 +1,13 @@
-task_type: triton2flydsl
 source_file_path:
-  - extend_attention.py
-harness_path: test_kernel_harness.py
-compile_command:
-  - python3 test_kernel_harness.py --compile
-correctness_command:
-  - python3 test_kernel_harness.py --correctness
-performance_command:
-  - python3 test_kernel_harness.py --full-benchmark
+- extend_attention.py
 target_kernel_functions:
-  - extend_attention_fwd
-  - _fwd_kernel
-source_origin:
-  repo: sglang
-  commit: 9bb9d17e1ab26d50b91e5672b7ffcac800faafc7
-  path: python/sglang/srt/layers/attention/triton_ops/extend_attention.py
-  url: https://github.com/sgl-project/sglang/blob/9bb9d17e1ab26d50b91e5672b7ffcac800faafc7/python/sglang/srt/layers/attention/triton_ops/extend_attention.py
-  note: >-
-    Standalone extraction of sglang's RadixAttention native extend (prefill-with-
-    KV-cache) Triton kernel (extend_attention_fwd -> _fwd_kernel). Two-stage flash
-    attention: stage 1 attends the new query tokens to the cached prefix KV (gathered
-    from k_buffer/v_buffer via kv_indices, full visibility) and stage 2 attends them
-    to the freshly-appended extend KV (k_extend/v_extend) with a causal mask; online
-    softmax in fp32, grouped-query attention, and the MLA-style split head-dim path
-    (BLOCK_DPE rope-PE for Lq in {192, 288, 576}). Sliding-window / custom-mask /
-    attention-sink / logit-cap / xAI-temperature knobs are kept but exercised at their
-    defaults (off). The is_cuda/is_hip/is_gfx95_supported probes are inlined (gfx942
-    => _is_hip True, _is_gfx95 False; STORE_TRANSPOSE follows _is_hip). The
-    deterministic unified 1-stage kernel (_fwd_kernel_unified /
-    extend_attention_fwd_unified), the build_unified_kv_indices helper, and the
-    redundant_attention torch fallback are dropped. The harness builds a faithful
-    inline torch reference (prefix-full + extend-causal masked softmax SDPA, fp32, GQA,
-    split-head) and gates on the convention's bf16 normalized worst-element band.
-    k_scale = v_scale = 1.0 (no fp8 KV). Depends only on `triton` and `torch`.
-prompt:
-  source_code: null
-  instructions: |
-    Translate the Triton extend (prefill-with-KV-cache) attention kernel into an
-    equivalent FlyDSL kernel for AMD GPUs (gfx942/gfx950), preserving the public
-    entry signature and numerical correctness.
-
-    The source (`extend_attention.py`) is a STANDALONE extraction from sglang
-    (python/sglang/srt/layers/attention/triton_ops/extend_attention.py). It depends
-    only on `triton` and `torch`. New query tokens (q_extend / k_extend / v_extend,
-    packed with qo_indptr) attend to (1) a cached prefix KV gathered from
-    k_buffer/v_buffer via kv_indices/kv_indptr with full visibility, then (2) the
-    appended extend KV with a causal mask; online softmax in fp32, grouped-query
-    attention, MLA split head-dim (Lq in {192,288,576}). sm_scale defaults to
-    1/sqrt(Lq). Output o_extend is [num_extend_tokens, head, Lv].
-
-    Your FlyDSL implementation MUST:
-    - Expose an entry point with the same signature as
-      `extend_attention_fwd(q_extend, k_extend, v_extend, o_extend, k_buffer,
-      v_buffer, qo_indptr, kv_indptr, kv_indices, custom_mask, is_causal,
-      mask_indptr, max_len_extend, k_scale, v_scale, sm_scale=None, ...)` writing o.
-    - Match a torch fp32 masked-softmax SDPA reference (prefix-full + extend-causal,
-      GQA-expanded) within the bf16 normalized worst-element band (1.5e-2).
-    - Be written in FlyDSL targeting AMD Instinct -- do NOT simply re-tune the
-      Triton kernel and do NOT rewrite it in HIP/CUDA.
-
-    Validation:
-    - `python3 test_kernel_harness.py --compile`        must PASS.
-    - `python3 test_kernel_harness.py --correctness`    must PASS (all shapes).
-    - `python3 test_kernel_harness.py --full-benchmark` must run and write the report.
-  task_type: null
-  cheatsheet: null
+- extend_attention_fwd
+- _fwd_kernel
+compile_command:
+- python3 test_kernel_harness.py --compile
+correctness_command:
+- python3 test_kernel_harness.py --correctness
+performance_command:
+- python3 test_kernel_harness.py --full-benchmark
+task_type: triton2flydsl
 task_result_template: null

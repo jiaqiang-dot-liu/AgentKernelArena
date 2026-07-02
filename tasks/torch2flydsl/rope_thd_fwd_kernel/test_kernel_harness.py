@@ -223,7 +223,7 @@ def run_correctness(verbose=True):
     return True
 
 
-def run_benchmark(warmup=10, iters=50, verbose=True):
+def run_benchmark(warmup=10, iters=100, verbose=True):
     import torch
     import aiter  # noqa: F401
 
@@ -247,7 +247,7 @@ def run_benchmark(warmup=10, iters=50, verbose=True):
         _retry(run_truth, what=shape["name"])
         torch.cuda.synchronize()
 
-        def _median(fn):
+        def _mean(fn):
             for _ in range(warmup):
                 fn()
             torch.cuda.synchronize()
@@ -260,10 +260,10 @@ def run_benchmark(warmup=10, iters=50, verbose=True):
                 e.record()
                 torch.cuda.synchronize()
                 ts.append(s.elapsed_time(e))
-            return sorted(ts)[len(ts) // 2]
+            return sum(ts) / len(ts)
 
-        ref_ms = _median(run_ref)
-        aiter_ms = _median(run_truth)
+        ref_ms = _mean(run_ref)
+        aiter_ms = _mean(run_truth)
         latencies.append(ref_ms)
         t, h, d = input.shape
         # bytes moved: input + output (bf16) + freqs (bf16).
@@ -317,7 +317,7 @@ if __name__ == "__main__":
     parser.add_argument("--benchmark", action="store_true")
     parser.add_argument("--full-benchmark", action="store_true")
     parser.add_argument("--warmup", type=int, default=10)
-    parser.add_argument("--iterations", type=int, default=50)
+    parser.add_argument("--iterations", type=int, default=100)
     args = parser.parse_args()
 
     print("=" * 60)

@@ -1,61 +1,13 @@
-task_type: triton2flydsl
 source_file_path:
-  - experts_combine.py
-harness_path: test_kernel_harness.py
-compile_command:
-  - python3 test_kernel_harness.py --compile
-correctness_command:
-  - python3 test_kernel_harness.py --correctness
-performance_command:
-  - python3 test_kernel_harness.py --full-benchmark
+- experts_combine.py
 target_kernel_functions:
-  - experts_combine_triton
-  - experts_combine_kernel
-source_origin:
-  repo: sglang
-  commit: 9bb9d17e1ab26d50b91e5672b7ffcac800faafc7
-  path: python/sglang/srt/layers/elementwise.py
-  url: https://github.com/sgl-project/sglang/blob/9bb9d17e1ab26d50b91e5672b7ffcac800faafc7/python/sglang/srt/layers/elementwise.py
-  note: >-
-    Standalone extraction of sglang's MoE/MLP experts-combine Triton kernel
-    (experts_combine_triton -> experts_combine_kernel). Per token it computes
-    out = (sum_k moe_hidden_states[:, k] + mlp_hidden_states) / sqrt(2), combining
-    the routed-MoE branch (top-k expert outputs, [num_tokens, combine_k, hidden_dim],
-    or already-combined [num_tokens, hidden_dim] => combine_k=1) with the shared-MLP
-    branch ([num_tokens, hidden_dim]); the 1/sqrt(2) balances the two branch
-    variances. The `register_custom_op` (torch.library) decorator is dropped so the
-    launcher is plain Python; the kernel body and config are verbatim. combine_k must
-    be a power of two (the kernel uses tl.arange(0, combine_k)), as in the upstream
-    grouped-expert combine. The reduction is performed in the input dtype, so the
-    harness uses the convention's normalized worst-element bf16 gate
-    (max|ref-out|/max|ref| <= 1e-2). Depends only on `triton` and `torch`.
-prompt:
-  source_code: null
-  instructions: |
-    Translate the Triton MoE/MLP experts-combine kernel into an equivalent FlyDSL
-    kernel for AMD GPUs (gfx942/gfx950), preserving the public entry signature and
-    numerical correctness.
-
-    The source (`experts_combine.py`) is a STANDALONE extraction from sglang
-    (python/sglang/srt/layers/elementwise.py). It depends only on `triton` and
-    `torch`. Per token it computes:
-      out = (sum_k moe_hidden_states[:, k] + mlp_hidden_states) / sqrt(2)
-    moe_hidden_states is [num_tokens, combine_k, hidden_dim] (top-k expert outputs
-    to be summed) or [num_tokens, hidden_dim] (combine_k = 1, pre-combined);
-    mlp_hidden_states is [num_tokens, hidden_dim]. Output keeps the mlp dtype.
-
-    Your FlyDSL implementation MUST:
-    - Expose an entry point with the same signature as
-      `experts_combine_triton(moe_hidden_states, mlp_hidden_states,
-      output_buffer=None)` returning the combined output tensor.
-    - Match the torch fp32 reference within atol=1e-2, rtol=1e-2 (bf16/fp16).
-    - Be written in FlyDSL targeting AMD Instinct -- do NOT simply re-tune the
-      Triton kernel and do NOT rewrite it in HIP/CUDA.
-
-    Validation:
-    - `python3 test_kernel_harness.py --compile`        must PASS.
-    - `python3 test_kernel_harness.py --correctness`    must PASS (all shapes).
-    - `python3 test_kernel_harness.py --full-benchmark` must run and write the report.
-  task_type: null
-  cheatsheet: null
+- experts_combine_triton
+- experts_combine_kernel
+compile_command:
+- python3 test_kernel_harness.py --compile
+correctness_command:
+- python3 test_kernel_harness.py --correctness
+performance_command:
+- python3 test_kernel_harness.py --full-benchmark
+task_type: triton2flydsl
 task_result_template: null

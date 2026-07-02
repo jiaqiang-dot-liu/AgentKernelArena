@@ -1,52 +1,13 @@
-task_type: torch2flydsl
 source_file_path:
-  - model.py
-harness_path: test_kernel_harness.py
-compile_command:
-  - python3 test_kernel_harness.py --compile
-correctness_command:
-  - python3 test_kernel_harness.py --correctness
-performance_command:
-  - python3 test_kernel_harness.py --full-benchmark
+- kernel.py
 target_kernel_functions:
-  - flydsl_smoothquant
-  - build_smoothquant_module
-source_origin:
-  repo: AITER (local)
-  commit: e773193041689602e5431e110ef39db0390e7015
-  path:
-    - aiter/ops/quant.py
-    - op_tests/test_smoothquant.py
-  note: >-
-    Model-only task. model.py is the pure-torch reference for SmoothQuant dynamic
-    per-token INT8 quantization: the activation is first smoothed per-channel
-    (x * x_scale, x_scale [n]), then dynamically per-token (per-row) INT8
-    quantized with scale amax(|x*x_scale|)/127 (an all-zero row keeps scale 1);
-    the smoothed values are divided by the per-row scale and truncated toward
-    zero (saturated to [-128,127]) for the int8 store, returning (y_int8 [m, n],
-    y_scale_fp32 [m, 1]). The reference mirrors aiter.smoothquant_fwd /
-    aiter.pertoken_quant(int8) and matches the device kernel within 1 ULP (the
-    kernel truncates toward zero). No standalone FlyDSL smoothquant kernel exists
-    in aiter, so kernel.py is left for the agent to author. The harness validates
-    model.py against the real device op at a tight quantized gate (near-exact
-    scale + INT8 codes within 1 ULP). Real m x n shapes are from
-    op_tests/test_smoothquant.py.
-prompt:
-  source_code: null
-  instructions: |
-    Author a FlyDSL kernel in kernel.py that computes the SmoothQuant per-token
-    INT8 quantization defined by the PyTorch `Model.forward` in model.py: for a
-    row-major [m, n] bf16 input and an fp32 per-channel smooth scale x_scale [n],
-    compute hidden = x * x_scale, the per-row amax, the fp32 scale amax/127 (INT8
-    max; keep scale 1 for an all-zero row), then store
-    y = truncate_toward_zero(clamp(hidden / scale, -128, 127)) as int8 [m, n] and
-    the fp32 scale [m, 1].
-    Expose `flydsl_smoothquant(input, x_scale)` returning the (y_int8, scale_fp32)
-    tuple, plus `build_smoothquant_module(...)` used to build the kernel.
-    Keep the kernel in FlyDSL — do NOT rewrite it in HIP, CUDA, or Triton.
-    Correctness and performance are checked with:
-      python3 test_kernel_harness.py --correctness
-      python3 test_kernel_harness.py --full-benchmark
-  task_type: null
-  cheatsheet: null
+- flydsl_smoothquant
+- build_smoothquant_module
+compile_command:
+- python3 -c "import model, kernel; print('compile ok')"
+correctness_command:
+- python3 test_kernel_harness.py --correctness
+performance_command:
+- python3 test_kernel_harness.py --full-benchmark
+task_type: torch2flydsl
 task_result_template: null

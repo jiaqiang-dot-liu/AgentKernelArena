@@ -40,7 +40,7 @@ NOPE_CFG = [(False, False), (True, False), (True, True)]  # (nope, nope_first)
 REUSE = [False, True]
 
 SEED = 20  # match upstream generate_rope_inputs (torch.manual_seed(20))
-WARMUP, ITERS = 10, 50
+WARMUP, ITERS = 10, 100
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -218,7 +218,7 @@ def run_benchmark(verbose=True):
             e.record()
             torch.cuda.synchronize()
             times.append(s.elapsed_time(e))
-        ms = sorted(times)[len(times) // 2]
+        ms = sum(times) / len(times)
         latencies.append(ms)
         nbytes = 2.0 * shape["S"] * shape["B"] * H * D * 2  # bf16 read+write
         report.append(

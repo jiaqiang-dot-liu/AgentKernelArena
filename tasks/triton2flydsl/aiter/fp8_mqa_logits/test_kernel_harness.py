@@ -42,7 +42,7 @@ TEST_SHAPES = [
 
 SEED = 20260617
 WARMUP_ITERATIONS = 10
-BENCHMARK_ITERATIONS = 50
+BENCHMARK_ITERATIONS = 100
 
 
 def _resolve_dir():
@@ -208,7 +208,7 @@ def run_benchmark(verbose=True):
                 ends[j].record()
             torch.cuda.synchronize()
             times = [a.elapsed_time(b) for a, b in zip(starts, ends)]
-            ms = sorted(times)[len(times) // 2]
+            ms = sum(times) / len(times)
         except Exception as e:  # noqa: BLE001
             ms = -1.0
             if verbose:

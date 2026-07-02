@@ -1,63 +1,13 @@
-task_type: triton2flydsl
 source_file_path:
-  - triton_mrope_fused.py
-harness_path: test_kernel_harness.py
-compile_command:
-  - python3 test_kernel_harness.py --compile
-correctness_command:
-  - python3 test_kernel_harness.py --correctness
-performance_command:
-  - python3 test_kernel_harness.py --full-benchmark
+- triton_mrope_fused.py
 target_kernel_functions:
-  - triton_mrope_fused
-  - _triton_mrope_forward_fused
-source_origin:
-  repo: sglang
-  commit: 9bb9d17e1ab26d50b91e5672b7ffcac800faafc7
-  path: python/sglang/srt/layers/rotary_embedding/triton_kernels.py
-  url: https://github.com/sgl-project/sglang/blob/9bb9d17e1ab26d50b91e5672b7ffcac800faafc7/python/sglang/srt/layers/rotary_embedding/triton_kernels.py
-  note: >-
-    Standalone extraction of sglang's fused multimodal (sectioned) rotary embedding
-    Triton kernel (triton_mrope_fused -> _triton_mrope_forward_fused), the Qwen2-VL /
-    Qwen2.5-VL M-RoPE applied in place to q [num_tokens, n_qh*hd] and k
-    [num_tokens, n_kh*hd]. Each token carries three positions (temporal/height/width)
-    in positions [3, num_tokens]; the rotary half-dim is partitioned into t/h/w
-    sections (contiguous in the non-interleaved layout, modulo-3 in the interleaved
-    Qwen2.5-VL layout, or via axis_map for the GLM interleaved variant) and each
-    rotary index draws cos/sin from the cos_sin_cache row of its governing position.
-    Both NEOX (split-half) and GPT-J (even/odd) rotate styles are kept. The sibling
-    Ernie-4.5 RoPE kernel in the same module is dropped; the mrope kernel is verbatim.
-    The harness exercises the non-interleaved and modulo-3 interleaved layouts (GLM
-    axis_map path not exercised). Depends only on `triton` and `torch`.
-prompt:
-  source_code: null
-  instructions: |
-    Translate the Triton fused multimodal rotary embedding (M-RoPE) kernel into an
-    equivalent FlyDSL kernel for AMD GPUs (gfx942/gfx950), preserving the public
-    entry signature and numerical correctness.
-
-    The source (`triton_mrope_fused.py`) is a STANDALONE extraction from sglang
-    (python/sglang/srt/layers/rotary_embedding/triton_kernels.py). It depends only
-    on `triton` and `torch`. It applies the Qwen2-VL / Qwen2.5-VL sectioned rotary
-    embedding in place to q and k: each token has three positions (t, h, w); the
-    rotary half-dim is split into t/h/w sections (contiguous for non-interleaved,
-    modulo-3 for interleaved) and each rotary index draws cos/sin from the cache
-    row of its governing position. Supports NEOX (split-half) and GPT-J (even/odd)
-    rotate styles. fp32 compute, output cast back to q/k dtype.
-
-    Your FlyDSL implementation MUST:
-    - Expose an entry point with the same signature as
-      `triton_mrope_fused(q, k, cos_sin_cache, positions, mrope_section, head_size,
-      rotary_dim, mrope_interleaved, mrope_interleaved_glm, is_neox_style,
-      axis_map)` rotating q and k in place.
-    - Match the torch fp32 sectioned-rope reference within atol=1e-2, rtol=1e-2.
-    - Be written in FlyDSL targeting AMD Instinct -- do NOT simply re-tune the
-      Triton kernel and do NOT rewrite it in HIP/CUDA.
-
-    Validation:
-    - `python3 test_kernel_harness.py --compile`        must PASS.
-    - `python3 test_kernel_harness.py --correctness`    must PASS (all shapes).
-    - `python3 test_kernel_harness.py --full-benchmark` must run and write the report.
-  task_type: null
-  cheatsheet: null
+- triton_mrope_fused
+- _triton_mrope_forward_fused
+compile_command:
+- python3 test_kernel_harness.py --compile
+correctness_command:
+- python3 test_kernel_harness.py --correctness
+performance_command:
+- python3 test_kernel_harness.py --full-benchmark
+task_type: triton2flydsl
 task_result_template: null

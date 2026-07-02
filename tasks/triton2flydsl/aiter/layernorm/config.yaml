@@ -1,59 +1,13 @@
-task_type: triton2flydsl
 source_file_path:
-  - layernorm.py
-harness_path: test_kernel_harness.py
-compile_command:
-  - python3 test_kernel_harness.py --compile
-correctness_command:
-  - python3 test_kernel_harness.py --correctness
-performance_command:
-  - python3 test_kernel_harness.py --full-benchmark
+- layernorm.py
 target_kernel_functions:
-  - layer_norm
-  - _layernorm_kernel
-source_origin:
-  repo: AITER (local)
-  commit: e773193041689602e5431e110ef39db0390e7015
-  path:
-    - aiter/ops/triton/normalization/norm.py
-    - aiter/ops/triton/_triton_kernels/normalization/norm.py
-  note: >-
-    Standalone extraction of AITER's LayerNorm forward Triton kernel (layer_norm
-    -> _layernorm_kernel). The quant / fused-add / backward paths are dropped, so
-    the module depends only on triton + torch. The harness runs the Triton kernel
-    over real shapes and validates finiteness plus closeness to
-    torch.nn.functional.layer_norm at the bf16/fp16 tolerance (1e-2); the
-    flydsl-vs-triton comparison is added when the FlyDSL target lands.
-prompt:
-  source_code: null
-  instructions: |
-    Translate the Triton LayerNorm forward kernel into an equivalent FlyDSL
-    kernel for AMD GPUs (gfx942/gfx950), preserving the public entry signature and
-    numerical correctness.
-
-    The source (`layernorm.py`) is a STANDALONE extraction from AITER. It depends
-    only on `triton` and `torch`. It implements:
-      - `_layernorm_kernel` : one program per row computes the row mean and
-        variance in fp32 (block-strided loops over n_cols), normalizes with
-        rsqrt(var + eps), applies the affine weight + bias, and writes the result
-        in the input dtype.
-      - `layer_norm(input, weight, bias, eps)` : allocates the output (and mean /
-        rstd scratch) and launches the kernel for a 2D input (M, N).
-
-    Your FlyDSL implementation MUST:
-    - Expose an entry point with the same signature as `layer_norm(input, weight,
-      bias, eps)`.
-    - Match the Triton kernel (the reference). The harness runs the Triton kernel
-      on all TEST_SHAPES and checks finiteness + closeness to
-      torch.nn.functional.layer_norm; the flydsl-vs-triton comparison is added
-      when the FlyDSL target lands.
-    - Be written in FlyDSL targeting AMD Instinct -- do NOT simply re-tune the
-      Triton kernel and do NOT rewrite it in HIP/CUDA.
-
-    Validation:
-    - `python3 test_kernel_harness.py --compile`        must PASS.
-    - `python3 test_kernel_harness.py --correctness`    must PASS (all shapes).
-    - `python3 test_kernel_harness.py --full-benchmark` must run and write the report.
-  task_type: null
-  cheatsheet: null
+- layer_norm
+- _layernorm_kernel
+compile_command:
+- python3 test_kernel_harness.py --compile
+correctness_command:
+- python3 test_kernel_harness.py --correctness
+performance_command:
+- python3 test_kernel_harness.py --full-benchmark
+task_type: triton2flydsl
 task_result_template: null

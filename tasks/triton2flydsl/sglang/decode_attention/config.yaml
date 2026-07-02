@@ -1,72 +1,15 @@
-task_type: triton2flydsl
 source_file_path:
-  - decode_attention.py
-harness_path: test_kernel_harness.py
-compile_command:
-  - python3 test_kernel_harness.py --compile
-correctness_command:
-  - python3 test_kernel_harness.py --correctness
-performance_command:
-  - python3 test_kernel_harness.py --full-benchmark
+- decode_attention.py
 target_kernel_functions:
-  - decode_attention_fwd
-  - _fwd_kernel_stage1
-  - _fwd_grouped_kernel_stage1
-  - _fwd_kernel_stage2
-source_origin:
-  repo: sglang
-  commit: 9bb9d17e1ab26d50b91e5672b7ffcac800faafc7
-  path: python/sglang/srt/layers/attention/triton_ops/decode_attention.py
-  url: https://github.com/sgl-project/sglang/blob/9bb9d17e1ab26d50b91e5672b7ffcac800faafc7/python/sglang/srt/layers/attention/triton_ops/decode_attention.py
-  note: >-
-    Standalone extraction of sglang's RadixAttention native two-stage flash-decoding
-    Triton kernels (decode_attention_fwd dispatching the normal MHA stage1
-    _fwd_kernel_stage1 or the grouped GQA/MQA/MLA stage1 _fwd_grouped_kernel_stage1,
-    followed by the split-KV softmax-reduce stage2 _fwd_kernel_stage2). Single-query
-    decode attention with paged page size = 1: each batch's KV range (gathered from
-    k_buffer/v_buffer via kv_indices/kv_indptr) is split into num_kv_splits chunks;
-    stage 1 computes a partial softmax-weighted V and chunk LSE per (batch, head,
-    split), stage 2 recombines them with the numerically stable log-sum-exp merge.
-    fp32 accumulation; grouped-query attention shares a KV head across BLOCK_H query
-    heads; the MLA path (has_mla, Lk in {288,576}) reuses K as V via the BLOCK_DPE
-    rope-PE split. The is_hip probe is inlined (gfx942/gfx950 => _is_hip True, with
-    the AMD-tuned BLOCK_N / num_warps / waves_per_eu / matrix_instr_nonkdim / kpack /
-    num_stages); `logging` is dropped; the optional PDL hooks stay behind USE_PDL
-    (default False). The harness exercises MHA + GQA + MQA (has_mla False) and builds
-    a faithful inline torch softmax SDPA reference (GQA-expanded, fp32), gating on the
-    convention's bf16 normalized worst-element band. k_scale = v_scale = 1.0.
-    Depends only on `triton` and `torch`.
-prompt:
-  source_code: null
-  instructions: |
-    Translate the Triton two-stage flash-decoding attention kernels into equivalent
-    FlyDSL kernels for AMD GPUs (gfx942/gfx950), preserving the public entry
-    signature and numerical correctness.
-
-    The source (`decode_attention.py`) is a STANDALONE extraction from sglang
-    (python/sglang/srt/layers/attention/triton_ops/decode_attention.py). It depends
-    only on `triton` and `torch`. For single-query decode attention, each batch's KV
-    range (gathered from k_buffer/v_buffer via kv_indices/kv_indptr, paged page
-    size = 1) is split into num_kv_splits chunks: stage 1 computes a partial
-    softmax-weighted V plus chunk LSE per (batch, head, split) into attn_logits /
-    attn_lse, and stage 2 recombines the splits with the numerically stable
-    log-sum-exp merge into o [batch, head, Lv]. Grouped-query attention shares a KV
-    head across query heads. fp32 accumulation. sm_scale * k_scale applied to logits.
-
-    Your FlyDSL implementation MUST:
-    - Expose an entry point with the same signature as
-      `decode_attention_fwd(q, k_buffer, v_buffer, o, kv_indptr, kv_indices,
-      attn_logits, attn_lse, num_kv_splits, max_kv_splits, sm_scale, k_scale,
-      v_scale, logit_cap=0.0, sinks=None, ...)` writing o.
-    - Match a torch fp32 softmax SDPA reference (GQA-expanded) within the bf16
-      normalized worst-element band (1.5e-2).
-    - Be written in FlyDSL targeting AMD Instinct -- do NOT simply re-tune the
-      Triton kernel and do NOT rewrite it in HIP/CUDA.
-
-    Validation:
-    - `python3 test_kernel_harness.py --compile`        must PASS.
-    - `python3 test_kernel_harness.py --correctness`    must PASS (all shapes).
-    - `python3 test_kernel_harness.py --full-benchmark` must run and write the report.
-  task_type: null
-  cheatsheet: null
+- decode_attention_fwd
+- _fwd_kernel_stage1
+- _fwd_grouped_kernel_stage1
+- _fwd_kernel_stage2
+compile_command:
+- python3 test_kernel_harness.py --compile
+correctness_command:
+- python3 test_kernel_harness.py --correctness
+performance_command:
+- python3 test_kernel_harness.py --full-benchmark
+task_type: triton2flydsl
 task_result_template: null

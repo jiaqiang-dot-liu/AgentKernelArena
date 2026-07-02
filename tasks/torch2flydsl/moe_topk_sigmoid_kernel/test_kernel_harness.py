@@ -216,7 +216,7 @@ def run_correctness(verbose=True):
     return True
 
 
-def run_benchmark(warmup=5, iters=20, verbose=True):
+def run_benchmark(warmup=10, iters=100, verbose=True):
     import torch
     import aiter
 
@@ -249,14 +249,14 @@ def run_benchmark(warmup=5, iters=20, verbose=True):
                 s = torch.cuda.Event(enable_timing=True); e = torch.cuda.Event(enable_timing=True)
                 s.record(); run_fused(); e.record(); torch.cuda.synchronize()
                 ktimes.append(s.elapsed_time(e))
-            fused_ms = sorted(ktimes)[len(ktimes) // 2]
+            fused_ms = sum(ktimes) / len(ktimes)
 
             rtimes = []
             for _ in range(iters):
                 s = torch.cuda.Event(enable_timing=True); e = torch.cuda.Event(enable_timing=True)
                 s.record(); model(gating); e.record(); torch.cuda.synchronize()
                 rtimes.append(s.elapsed_time(e))
-            ref_ms = sorted(rtimes)[len(rtimes) // 2]
+            ref_ms = sum(rtimes) / len(rtimes)
 
         speedup = ref_ms / fused_ms if fused_ms > 0 else 1.0
         latencies.append(fused_ms); speedups.append(speedup)
@@ -290,8 +290,8 @@ if __name__ == "__main__":
     parser.add_argument("--correctness", action="store_true")
     parser.add_argument("--benchmark", action="store_true")
     parser.add_argument("--full-benchmark", action="store_true")
-    parser.add_argument("--warmup", type=int, default=5)
-    parser.add_argument("--iterations", type=int, default=20)
+    parser.add_argument("--warmup", type=int, default=10)
+    parser.add_argument("--iterations", type=int, default=100)
     args = parser.parse_args()
 
     print("=" * 60)

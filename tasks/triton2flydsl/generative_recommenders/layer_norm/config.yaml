@@ -1,79 +1,15 @@
-task_type: triton2flydsl
 source_file_path:
-  - layer_norm.py
-harness_path: test_kernel_harness.py
-compile_command:
-  - python3 test_kernel_harness.py --compile
-correctness_command:
-  - python3 test_kernel_harness.py --correctness
-performance_command:
-  - python3 test_kernel_harness.py --full-benchmark
+- layer_norm.py
 target_kernel_functions:
-  - triton_layer_norm
-  - triton_weighted_layer_norm_fwd
-  - _layer_norm_fwd
-  - _weighted_layer_norm_fwd
-source_origin:
-  repo: Meta generative-recommenders
-  commit: 456ff31a76d7a96aa18f0723436897150adb8734
-  path:
-    - generative_recommenders/ops/triton/triton_layer_norm.py
-  url: https://github.com/meta-recsys/generative-recommenders/blob/main/generative_recommenders/ops/triton/triton_layer_norm.py
-  note: >-
-    Standalone, FORWARD-only extraction of Meta generative-recommenders' multi-row
-    LayerNorm. Ports the two forward kernels `_layer_norm_fwd` (unweighted,
-    mean-subtract + rstd-scale) and `_weighted_layer_norm_fwd` (affine
-    y = (x-mean)*rstd*w + b), plus a host wrapper `triton_weighted_layer_norm_fwd`
-    and the forward-only public entry `triton_layer_norm`. Each program normalizes
-    BLOCK_N rows of a [N, D] activation over the feature dim D (<= 64KB/element),
-    computing mean/rstd in fp32 via tl.make_block_ptr. The autograd Function
-    classes, all backward kernels, the RMSNorm/Swish paths, and the
-    maybe_register_custom_op wrapper are dropped. The
-    generative_recommenders.common / ops.utils deps (triton_autotune,
-    switch_to_contiguous_if_needed, is_sm100_plus, is_sm90) are inlined; the SM
-    checks return False so the CDNA-appropriate autotune configs are chosen. The
-    libdevice rsqrt import is preserved with a CUDA/math fallback.
-prompt:
-  source_code: null
-  instructions: |
-    Translate the Triton multi-row LayerNorm forward kernels into an equivalent
-    FlyDSL kernel for AMD GPUs, preserving the public entry signature and
-    numerical correctness.
-
-    The source (`layer_norm.py`) is a STANDALONE, FORWARD-only extraction from Meta
-    generative-recommenders (generative_recommenders/ops/triton/triton_layer_norm.py)
-    depending only on `triton` and `torch`. It normalizes a [N, D] activation over
-    the feature dim D:
-      - `_layer_norm_fwd`: unweighted, y = (x - mean) / sqrt(var + eps).
-      - `_weighted_layer_norm_fwd`: affine, y = (x - mean) / sqrt(var + eps) * w + b.
-    Each program handles BLOCK_N rows, loading a [BLOCK_N, BLOCK_D] tile via
-    tl.make_block_ptr, reducing mean and variance in fp32, and storing the
-    normalized tile. The host wrapper `triton_weighted_layer_norm_fwd(x, weight,
-    bias, eps)` picks the weighted vs unweighted kernel based on whether weight is
-    provided, computes BLOCK_D = next_power_of_2(D), and launches a 1D grid over
-    cdiv(N, BLOCK_N). `triton_layer_norm(x, weight, bias, eps)` returns just the
-    normalized activation y.
-
-    Key features of the op:
-    - fp32 mean/variance reduction over the feature dim; bf16/fp16/fp32 in/out.
-    - Feature dim D must fit in 64KB per element (BLOCK_D = next_power_of_2(D)).
-    - Optional affine (weight, bias) applied after normalization.
-    - FORWARD-only: the autograd backward and RMSNorm/Swish variants are dropped.
-
-    Your FlyDSL implementation MUST:
-    - Expose an entry point with the same signature as
-      `triton_layer_norm(x, weight, bias, eps)` (weight/bias may be None).
-    - Match the Triton kernels (the reference; forward-only). The harness runs the
-      Triton forward on all TEST_SHAPES (weighted and unweighted, aligned and
-      unaligned D) and checks finite output and closeness to an inline fp32 torch
-      reference at the bf16 tolerance.
-    - Be written in FlyDSL targeting AMD Instinct -- do NOT re-tune the Triton
-      kernel and do NOT rewrite it in HIP/CUDA.
-
-    Validation:
-    - python3 test_kernel_harness.py --compile        must PASS.
-    - python3 test_kernel_harness.py --correctness    must PASS (all shapes).
-    - python3 test_kernel_harness.py --full-benchmark must run and write the report.
-  task_type: null
-  cheatsheet: null
+- triton_layer_norm
+- triton_weighted_layer_norm_fwd
+- _layer_norm_fwd
+- _weighted_layer_norm_fwd
+compile_command:
+- python3 test_kernel_harness.py --compile
+correctness_command:
+- python3 test_kernel_harness.py --correctness
+performance_command:
+- python3 test_kernel_harness.py --full-benchmark
+task_type: triton2flydsl
 task_result_template: null

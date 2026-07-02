@@ -44,7 +44,7 @@ TEST_SHAPES = [
 
 ACTIVATIONS = ["gelu_tanh", "silu_exp2", "relu", None]
 SEED = 0  # ff tests call torch.manual_seed(0)
-WARMUP, ITERS = 10, 50
+WARMUP, ITERS = 10, 100
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -162,7 +162,7 @@ def run_benchmark(verbose=True):
             e.record()
             torch.cuda.synchronize()
             times.append(s.elapsed_time(e))
-        ms = sorted(times)[len(times) // 2]
+        ms = sum(times) / len(times)
         latencies.append(ms)
         flops = 4.0 * shape["batch"] * shape["hidden"] * shape["intermediate"]
         report.append(

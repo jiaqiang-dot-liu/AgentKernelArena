@@ -35,8 +35,8 @@ TEST_SHAPES = [
     {"seqs": [100, 100], "head": 16, "kv_head": 2, "d": 128, "causal": True},
     {"seqs": [333], "head": 8, "kv_head": 1, "d": 128, "causal": True},  # MQA, T%block!=0
 ]
-WARMUP_ITERATIONS = 5
-BENCHMARK_ITERATIONS = 20
+WARMUP_ITERATIONS = 10
+BENCHMARK_ITERATIONS = 100
 MAX_OOM_RETRIES = 5
 
 

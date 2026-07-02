@@ -1,46 +1,13 @@
-task_type: torch2flydsl
 source_file_path:
-  - model.py
-harness_path: test_kernel_harness.py
-compile_command:
-  - python3 test_kernel_harness.py --compile
-correctness_command:
-  - python3 test_kernel_harness.py --correctness
-performance_command:
-  - python3 test_kernel_harness.py --full-benchmark
+- kernel.py
 target_kernel_functions:
-  - flydsl_fused_add_rmsnorm
-  - build_fused_add_rmsnorm_module
-source_origin:
-  repo: AITER (local)
-  commit: e773193041689602e5431e110ef39db0390e7015
-  path:
-    - aiter/aiter/ops/rmsnorm.py
-    - aiter/op_tests/test_rmsnorm2d.py
-  note: >-
-    Model-only task (no kernel.py): aiter has no clean standalone FlyDSL kernel
-    for residual-add + rmsnorm, so FlyDSL is GEAK's target. model.py is the
-    pure-torch (b)-faithful reference (bf16, fp32 reduction) that adds a residual,
-    then RMS-normalizes the sum with a per-channel weight, returning both the
-    normalized output and the pre-norm residual sum, mirroring
-    op_tests/test_rmsnorm2d.py:run_torch(..., residual=...). The harness validates
-    model.py against the REAL runtime op aiter.rmsnorm2d_fwd_with_add as ground
-    truth at the bf16 tight gate. Shapes: m in {1,8,32,64,128,256}, n in
-    {4096,8192,16384} (n>8192 exercises the CK path).
-prompt:
-  source_code: null
-  instructions: |
-    Author a FlyDSL kernel in kernel.py that computes the same result as the
-    PyTorch `Model.forward` in model.py: fused residual-add then 2D RMSNorm —
-    residual_out = input + residual; out = residual_out * rsqrt(mean(
-    residual_out^2, dim=-1) + eps) * weight — with bf16 in/out and an fp32
-    reduction, returning both `out` and `residual_out`.
-    Expose `flydsl_fused_add_rmsnorm(input, weight, residual, eps)` as the entry
-    point (build the device kernel via `build_fused_add_rmsnorm_module`). Keep the
-    kernel in FlyDSL — do NOT rewrite it in HIP, CUDA, or Triton.
-    Correctness and performance are checked with:
-      python3 test_kernel_harness.py --correctness
-      python3 test_kernel_harness.py --full-benchmark
-  task_type: null
-  cheatsheet: null
+- flydsl_fused_add_rmsnorm
+- build_fused_add_rmsnorm_module
+compile_command:
+- python3 -c "import model, kernel; print('compile ok')"
+correctness_command:
+- python3 test_kernel_harness.py --correctness
+performance_command:
+- python3 test_kernel_harness.py --full-benchmark
+task_type: torch2flydsl
 task_result_template: null

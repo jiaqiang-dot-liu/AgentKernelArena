@@ -48,8 +48,8 @@ TEST_SHAPES = [
     (1, 256, 8, 8, 64, True, 0),    # 4 blocks, causal
     (2, 128, 8, 8, 64, True, 32),   # causal sliding window (32 keys)
 ]
-WARMUP_ITERATIONS = 5
-BENCHMARK_ITERATIONS = 50
+WARMUP_ITERATIONS = 10
+BENCHMARK_ITERATIONS = 100
 
 
 def load_module():

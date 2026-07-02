@@ -41,8 +41,8 @@ TEST_SHAPES = [
     (1, 512, 256, 128, False),   # single long segment
     (8, 64, 64, 96, True),       # many small segments, elementwise bias
 ]
-WARMUP_ITERATIONS = 5
-BENCHMARK_ITERATIONS = 50
+WARMUP_ITERATIONS = 10
+BENCHMARK_ITERATIONS = 100
 
 MAX_OOM_RETRIES = 5
 

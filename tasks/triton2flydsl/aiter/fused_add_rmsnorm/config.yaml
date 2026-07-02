@@ -1,61 +1,13 @@
-task_type: triton2flydsl
 source_file_path:
-  - fused_add_rmsnorm.py
-harness_path: test_kernel_harness.py
-compile_command:
-  - python3 test_kernel_harness.py --compile
-correctness_command:
-  - python3 test_kernel_harness.py --correctness
-performance_command:
-  - python3 test_kernel_harness.py --full-benchmark
+- fused_add_rmsnorm.py
 target_kernel_functions:
-  - rmsnorm2d_fwd_with_add
-  - _fused_add_rmsnorm_kernel
-source_origin:
-  repo: AITER (local)
-  commit: e773193041689602e5431e110ef39db0390e7015
-  path:
-    - aiter/ops/triton/normalization/rmsnorm.py
-    - aiter/ops/triton/_triton_kernels/normalization/rmsnorm.py
-  note: >-
-    Standalone extraction of AITER's fused residual-add + RMSNorm forward Triton
-    kernel (rmsnorm2d_fwd_with_add -> _fused_add_rmsnorm_kernel). The quant /
-    backward paths are dropped and get_num_sms is inlined, so the module depends
-    only on triton + torch. The harness runs the Triton kernel over real shapes
-    and validates finiteness plus closeness to the fp32-reduce torch reference
-    (residual_out = x + residual_in, then rmsnorm) at the bf16/fp16 tolerance
-    (1e-2); the flydsl-vs-triton comparison is added when the FlyDSL target lands.
-prompt:
-  source_code: null
-  instructions: |
-    Translate the Triton fused residual-add + RMSNorm forward kernel into an
-    equivalent FlyDSL kernel for AMD GPUs (gfx942/gfx950), preserving the public
-    entry signature and numerical correctness.
-
-    The source (`fused_add_rmsnorm.py`) is a STANDALONE extraction from AITER. It
-    depends only on `triton` and `torch`. It implements the canonical pre-norm
-    transformer-block residual step:
-      - `_fused_add_rmsnorm_kernel` : per row, adds residual_in to input, writes
-        the sum to residual_out (input dtype), then computes
-        rsqrt(mean(sum^2) + eps) in fp32 and writes rmsnorm(sum) * g to the
-        output. A persistent (USE_BLOCKED) variant streams wide rows in BLOCK_SIZE
-        column chunks.
-      - `rmsnorm2d_fwd_with_add(out, input, residual_in, residual_out, weight,
-        epsilon)` : allocates the rsigma scratch and launches the kernel.
-
-    Your FlyDSL implementation MUST:
-    - Expose an entry point with the same signature as `rmsnorm2d_fwd_with_add`.
-    - Match the Triton kernel (the reference). The harness runs the Triton kernel
-      on all TEST_SHAPES and checks finiteness + closeness to the torch reference
-      (both output and residual_out); the flydsl-vs-triton comparison is added
-      when the FlyDSL target lands.
-    - Be written in FlyDSL targeting AMD Instinct -- do NOT simply re-tune the
-      Triton kernel and do NOT rewrite it in HIP/CUDA.
-
-    Validation:
-    - `python3 test_kernel_harness.py --compile`        must PASS.
-    - `python3 test_kernel_harness.py --correctness`    must PASS (all shapes).
-    - `python3 test_kernel_harness.py --full-benchmark` must run and write the report.
-  task_type: null
-  cheatsheet: null
+- rmsnorm2d_fwd_with_add
+- _fused_add_rmsnorm_kernel
+compile_command:
+- python3 test_kernel_harness.py --compile
+correctness_command:
+- python3 test_kernel_harness.py --correctness
+performance_command:
+- python3 test_kernel_harness.py --full-benchmark
+task_type: triton2flydsl
 task_result_template: null

@@ -1,58 +1,13 @@
-task_type: triton2flydsl
 source_file_path:
-  - softmax.py
-harness_path: test_kernel_harness.py
-compile_command:
-  - python3 test_kernel_harness.py --compile
-correctness_command:
-  - python3 test_kernel_harness.py --correctness
-performance_command:
-  - python3 test_kernel_harness.py --full-benchmark
+- softmax.py
 target_kernel_functions:
-  - softmax
-  - _softmax_kernel_online
-source_origin:
-  repo: AITER (local)
-  commit: e773193041689602e5431e110ef39db0390e7015
-  path:
-    - aiter/ops/triton/softmax.py
-    - aiter/ops/triton/_triton_kernels/softmax.py
-  note: >-
-    Standalone extraction of AITER's row-wise online-softmax Triton kernel
-    (softmax / _softmax_kernel_online). The constexpr-aware kernel-naming helper
-    (make_kernel_repr) is inlined; the module depends only on triton + torch. The
-    harness runs the Triton kernel over real shapes and validates finiteness plus
-    closeness to torch.softmax at the bf16/fp16 tolerance (1e-2); the
-    flydsl-vs-triton comparison is added when the FlyDSL target lands.
-prompt:
-  source_code: null
-  instructions: |
-    Translate the Triton row-wise softmax kernel into an equivalent FlyDSL kernel
-    for AMD GPUs (gfx942/gfx950), preserving the public entry signature and
-    numerical correctness.
-
-    The source (`softmax.py`) is a STANDALONE extraction from AITER. It depends
-    only on `triton` and `torch`. It implements:
-      - `_softmax_kernel_online` : one program per row computes softmax along the
-        last dimension using a one-pass online reduction (running max + rescaled
-        running sum), then a second pass exponentiates and normalizes. A
-        block-strided loop lets a single program handle a full row regardless of
-        n_cols.
-      - `softmax(x)` : allocates the output and launches the kernel for a 2D
-        input (n_rows, n_cols).
-
-    Your FlyDSL implementation MUST:
-    - Expose an entry point with the same signature as `softmax(x)`.
-    - Match the Triton kernel (the reference). The harness runs the Triton kernel
-      on all TEST_SHAPES and checks finiteness + closeness to torch.softmax; the
-      flydsl-vs-triton comparison is added when the FlyDSL target lands.
-    - Be written in FlyDSL targeting AMD Instinct -- do NOT simply re-tune the
-      Triton kernel and do NOT rewrite it in HIP/CUDA.
-
-    Validation:
-    - `python3 test_kernel_harness.py --compile`        must PASS.
-    - `python3 test_kernel_harness.py --correctness`    must PASS (all shapes).
-    - `python3 test_kernel_harness.py --full-benchmark` must run and write the report.
-  task_type: null
-  cheatsheet: null
+- softmax
+- _softmax_kernel_online
+compile_command:
+- python3 test_kernel_harness.py --compile
+correctness_command:
+- python3 test_kernel_harness.py --correctness
+performance_command:
+- python3 test_kernel_harness.py --full-benchmark
+task_type: triton2flydsl
 task_result_template: null

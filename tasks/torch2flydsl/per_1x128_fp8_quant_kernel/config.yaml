@@ -1,50 +1,13 @@
-task_type: torch2flydsl
 source_file_path:
-  - model.py
-harness_path: test_kernel_harness.py
-compile_command:
-  - python3 test_kernel_harness.py --compile
-correctness_command:
-  - python3 test_kernel_harness.py --correctness
-performance_command:
-  - python3 test_kernel_harness.py --full-benchmark
+- kernel.py
 target_kernel_functions:
-  - flydsl_per_1x128_fp8_quant
-  - build_per_1x128_fp8_quant_module
-source_origin:
-  repo: AITER (local)
-  commit: e773193041689602e5431e110ef39db0390e7015
-  path:
-    - aiter/aiter/ops/quant.py
-    - aiter/op_tests/test_quant.py
-  note: >-
-    Model-only task (no kernel.py): aiter exposes per-1x128 FP8 quant through
-    runtime backends (HIP/Triton) but not as a clean standalone FlyDSL device
-    kernel, so FlyDSL is GEAK's target. model.py is the pure-torch (b)-faithful
-    reference: split each row into contiguous 128-element groups and quantize
-    each group to FP8 (E4M3) with a dynamic per-group amax scale (scale =
-    amax/448, all-zero block -> 1), returning [m, n] fp8 and [m, n/128] fp32
-    scales. Mirrors get_torch_quant(QuantType.per_1x128) (per_block_quant_wrapper
-    over pertoken_quant). The harness validates model.py against the REAL runtime
-    op get_hip_quant(QuantType.per_1x128) at the tight quantized gate (fp8 codes
-    within 1 ULP + near-exact per-group scale). Shapes: m in {1,16,128,256,1024,
-    4096}, n in {4096,8192} (n divisible by 128).
-prompt:
-  source_code: null
-  instructions: |
-    Author a FlyDSL kernel in kernel.py that computes the same result as the
-    PyTorch `Model.forward` in model.py: FP8 dynamic per-1x128 (per-group) quant.
-    For a row-major [m, n] bf16 input (n divisible by 128), split each row into
-    contiguous groups of 128 elements; for each group compute scale =
-    amax(|x_block|)/448 (all-zero block -> 1) and quantize to FP8 (E4M3) by
-    x_block / scale with round-to-nearest-even. Return the [m, n] fp8 output and
-    the [m, n/128] fp32 per-group scales.
-    Expose `flydsl_per_1x128_fp8_quant(input)` returning (output_fp8,
-    scale_fp32), plus `build_per_1x128_fp8_quant_module(...)`.
-    Keep the kernel in FlyDSL — do NOT rewrite it in HIP, CUDA, or Triton.
-    Correctness and performance are checked with:
-      python3 test_kernel_harness.py --correctness
-      python3 test_kernel_harness.py --full-benchmark
-  task_type: null
-  cheatsheet: null
+- flydsl_per_1x128_fp8_quant
+- build_per_1x128_fp8_quant_module
+compile_command:
+- python3 -c "import model, kernel; print('compile ok')"
+correctness_command:
+- python3 test_kernel_harness.py --correctness
+performance_command:
+- python3 test_kernel_harness.py --full-benchmark
+task_type: torch2flydsl
 task_result_template: null

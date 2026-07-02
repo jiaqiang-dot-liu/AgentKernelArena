@@ -1,53 +1,13 @@
-task_type: torch2flydsl
 source_file_path:
-  - model.py
-harness_path: test_kernel_harness.py
-compile_command:
-  - python3 test_kernel_harness.py --compile
-correctness_command:
-  - python3 test_kernel_harness.py --correctness
-performance_command:
-  - python3 test_kernel_harness.py --full-benchmark
+- kernel.py
 target_kernel_functions:
-  - flydsl_swiglu_and_mul
-  - build_swiglu_and_mul_module
-source_origin:
-  repo: AITER (local)
-  commit: e773193041689602e5431e110ef39db0390e7015
-  path:
-    - aiter/ops/activation.py
-    - csrc/kernels/activation_kernels.cu
-  note: >-
-    Model-only task. model.py is the pure-torch reference for the fused
-    swiglu_and_mul gated activation using the GPT-OSS clamped SwiGLU: input
-    [m, 2*d] split into gate x and linear y halves, with
-    gate = min(x, 7.0), linear = clamp(y, -7.0, 7.0) and
-    out = gate * sigmoid(1.702 * gate) * (linear + 1). The alpha=1.702 and
-    limit=7.0 constants are hard-coded in the aiter.swiglu_and_mul device kernel
-    (swiglu_act_and_mul_kernel), which takes no limit argument; the reference
-    mirrors it with bf16 in/out, fp32 compute and bf16 store. No standalone
-    FlyDSL activation kernel exists in aiter (only the MoE-fused swiglu_and_mul
-    preshuffle variant), so kernel.py is left for the agent to author. The
-    harness validates model.py against the real aiter.swiglu_and_mul output at
-    the bf16 tight gate. Real m x n shapes are taken from
-    op_tests/test_activation.py.
-prompt:
-  source_code: null
-  instructions: |
-    Author a FlyDSL kernel in kernel.py that computes the fused swiglu_and_mul
-    gated activation defined by the PyTorch `Model.forward` in model.py: the
-    input is a row-major [m, 2*d] bf16 tensor split along the last dim into a
-    gate half x and a linear half y; the output is [m, d] bf16 computed with the
-    GPT-OSS clamped SwiGLU
-    gate = min(x, 7.0); linear = clamp(y, -7.0, 7.0);
-    out = gate * sigmoid(1.702 * gate) * (linear + 1),
-    using fp32 compute and bf16 store.
-    Expose `flydsl_swiglu_and_mul(input)` returning the [m, d] bf16 output, plus
-    `build_swiglu_and_mul_module(...)` used to build the kernel.
-    Keep the kernel in FlyDSL — do NOT rewrite it in HIP, CUDA, or Triton.
-    Correctness and performance are checked with:
-      python3 test_kernel_harness.py --correctness
-      python3 test_kernel_harness.py --full-benchmark
-  task_type: null
-  cheatsheet: null
+- flydsl_swiglu_and_mul
+- build_swiglu_and_mul_module
+compile_command:
+- python3 -c "import model, kernel; print('compile ok')"
+correctness_command:
+- python3 test_kernel_harness.py --correctness
+performance_command:
+- python3 test_kernel_harness.py --full-benchmark
+task_type: torch2flydsl
 task_result_template: null

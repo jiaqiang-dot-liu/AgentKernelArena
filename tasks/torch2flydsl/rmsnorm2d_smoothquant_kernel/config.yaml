@@ -1,55 +1,13 @@
-task_type: torch2flydsl
 source_file_path:
-  - model.py
-harness_path: test_kernel_harness.py
-compile_command:
-  - python3 test_kernel_harness.py --compile
-correctness_command:
-  - python3 test_kernel_harness.py --correctness
-performance_command:
-  - python3 test_kernel_harness.py --full-benchmark
+- kernel.py
 target_kernel_functions:
-  - flydsl_rmsnorm2d_smoothquant
-  - build_rmsnorm2d_smoothquant_module
-source_origin:
-  repo: AITER (local)
-  commit: e773193041689602e5431e110ef39db0390e7015
-  path:
-    - aiter/aiter/ops/rmsnorm.py
-    - aiter/aiter/ops/quant.py
-    - aiter/op_tests/test_rmsnorm2dFusedAddQuant.py
-    - aiter/op_tests/test_smoothquant.py
-  note: >-
-    Model-only task (no kernel.py): aiter has no clean standalone FlyDSL kernel
-    for fused RMSNorm + SmoothQuant, so FlyDSL is GEAK's target. model.py is the
-    pure-torch (b)-faithful reference: 2D RMSNorm (fp32 mean-of-squares reduction
-    and weight multiply kept entirely in fp32, NO intermediate bf16 truncation,
-    matching the fused CK kernel), then per-channel smoothing (hidden = normed *
-    x_scale, x_scale [n] fp32) and dynamic per-token INT8 quant (scale =
-    amax(|hidden|)/127, all-zero row -> 1; truncate toward zero, saturate to
-    [-128,127]), as in op_tests/test_rmsnorm2dFusedAddQuant.py (mode 3,
-    smoothquant) / test_smoothquant.py. The harness validates model.py against
-    the REAL runtime op aiter.rmsnorm2d_fwd_with_smoothquant as ground truth at
-    the tight quantized gate (int8 codes within 1 ULP + near-exact per-token
-    fp32 scale). Shapes: m in {1,16,256,2048}, n in {4096,5120,8192}.
-prompt:
-  source_code: null
-  instructions: |
-    Author a FlyDSL kernel in kernel.py that computes the same result as the
-    PyTorch `Model.forward` in model.py: fused 2D RMSNorm + SmoothQuant per-token
-    INT8. For a row-major [m, n] bf16 input, an [n] fp32 per-channel smoothing
-    scale x_scale, and an [n] bf16 weight, compute normed = rms_norm(x) * weight
-    (fp32 mean-of-squares reduction over the last dim, eps), hidden = normed *
-    x_scale, then quantize each row to INT8 with a per-row amax scale
-    (scale = amax(|hidden|)/127, all-zero row -> 1; truncate toward zero,
-    saturate to [-128,127]), returning the [m, n] int8 output and the [m, 1]
-    fp32 scale.
-    Expose `flydsl_rmsnorm2d_smoothquant(input, x_scale, weight, eps)` returning
-    (output_int8, scale_fp32), plus `build_rmsnorm2d_smoothquant_module(...)`.
-    Keep the kernel in FlyDSL — do NOT rewrite it in HIP, CUDA, or Triton.
-    Correctness and performance are checked with:
-      python3 test_kernel_harness.py --correctness
-      python3 test_kernel_harness.py --full-benchmark
-  task_type: null
-  cheatsheet: null
+- flydsl_rmsnorm2d_smoothquant
+- build_rmsnorm2d_smoothquant_module
+compile_command:
+- python3 -c "import model, kernel; print('compile ok')"
+correctness_command:
+- python3 test_kernel_harness.py --correctness
+performance_command:
+- python3 test_kernel_harness.py --full-benchmark
+task_type: torch2flydsl
 task_result_template: null

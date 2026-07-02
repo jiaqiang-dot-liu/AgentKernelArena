@@ -1,66 +1,14 @@
-task_type: triton2flydsl
 source_file_path:
-  - dynamic_mxfp8_quant.py
-harness_path: test_kernel_harness.py
-compile_command:
-  - python3 test_kernel_harness.py --compile
-correctness_command:
-  - python3 test_kernel_harness.py --correctness
-performance_command:
-  - python3 test_kernel_harness.py --full-benchmark
+- dynamic_mxfp8_quant.py
 target_kernel_functions:
-  - dynamic_mxfp8_quant
-  - _dynamic_mxfp8_quant_kernel
-  - _mxfp8_quant_op
-source_origin:
-  repo: AITER (local)
-  commit: e773193041689602e5431e110ef39db0390e7015
-  path:
-    - aiter/ops/triton/quant/quant.py
-    - aiter/ops/triton/_triton_kernels/quant/quant.py
-  note: >-
-    Standalone extraction of AITER's per-1x32 MXFP8 quantization Triton kernel
-    (dynamic_mxfp8_quant -> _dynamic_mxfp8_quant_kernel + the shared scale-derivation
-    helper _mxfp8_quant_op): one program per row derives a uint8 e8m0 block scale
-    (1 scale per 32 K elements) via an integer bit-trick (round amax up to a power of
-    2, log2.floor()-8) and FP8 e4m3fn quantized values. The two device kernels depend
-    only on triton and are copied verbatim; the host wrapper depends only on triton +
-    torch (no aiter imports). This is a pure quant op (no scaled-dot), so it runs on
-    gfx942 and gfx950. The harness runs the kernel over real MXFP8 shapes (incl.
-    non-power-of-2 M and a folded 3D input) and validates finiteness plus a bit-faithful
-    match to the fp32 torch reference: e8m0 scales BIT-EXACT and FP8 values within 1
-    ULP on the uint8 view (matches the upstream gate); the flydsl-vs-triton comparison
-    is added when the FlyDSL target lands.
-prompt:
-  source_code: null
-  instructions: |
-    Translate the Triton per-1x32 MXFP8 quantization kernel into an equivalent FlyDSL
-    kernel for AMD GPUs (gfx942/gfx950), preserving the public entry signature and
-    numerical correctness.
-
-    The source (`dynamic_mxfp8_quant.py`) is a STANDALONE extraction from AITER. It
-    depends only on `triton` and `torch`. It implements:
-      - `_mxfp8_quant_op` : per-group e8m0 scale derivation (bit-trick: bitcast amax
-        to int32, +0x200000, mask 0xFF800000, bitcast back; log2.floor()-8 unbiased
-        exponent) returning (scale_e8m0, quant_scale).
-      - `_dynamic_mxfp8_quant_kernel` : one program per row, computes per-1x32 e8m0
-        scales and FP8 e4m3 values for the whole row.
-      - `dynamic_mxfp8_quant(x, scale=None, quant_dtype=torch.float8_e4m3fn)` : folds
-        higher dims into M and launches.
-
-    Your FlyDSL implementation MUST:
-    - Expose an entry point with the same signature as `dynamic_mxfp8_quant(x, ...)`
-      returning (y_fp8, s_e8m0).
-    - Match the Triton kernel (the reference). The harness runs the Triton kernel on
-      all TEST_SHAPES and checks finiteness + a bit-faithful match to the fp32 torch
-      reference (e8m0 scales bit-exact, FP8 values within 1 ULP).
-    - Be written in FlyDSL targeting AMD Instinct -- do NOT simply re-tune the Triton
-      kernel and do NOT rewrite it in HIP/CUDA.
-
-    Validation:
-    - `python3 test_kernel_harness.py --compile`        must PASS.
-    - `python3 test_kernel_harness.py --correctness`    must PASS (all shapes).
-    - `python3 test_kernel_harness.py --full-benchmark` must run and write the report.
-  task_type: null
-  cheatsheet: null
+- dynamic_mxfp8_quant
+- _dynamic_mxfp8_quant_kernel
+- _mxfp8_quant_op
+compile_command:
+- python3 test_kernel_harness.py --compile
+correctness_command:
+- python3 test_kernel_harness.py --correctness
+performance_command:
+- python3 test_kernel_harness.py --full-benchmark
+task_type: triton2flydsl
 task_result_template: null

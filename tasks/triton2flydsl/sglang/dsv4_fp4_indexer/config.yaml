@@ -1,68 +1,15 @@
-task_type: triton2flydsl
 source_file_path:
-  - dsv4_fp4_indexer.py
-harness_path: test_kernel_harness.py
-compile_command:
-  - python3 test_kernel_harness.py --compile
-correctness_command:
-  - python3 test_kernel_harness.py --correctness
-performance_command:
-  - python3 test_kernel_harness.py --full-benchmark
+- dsv4_fp4_indexer.py
 target_kernel_functions:
-  - quantize_fp4_indexer_tensor
-  - store_fp4_index_k_cache
-  - _quantize_fp4_indexer_kernel
-  - _store_fp4_index_k_cache_kernel
-source_origin:
-  repo: sglang
-  commit: 9bb9d17e1ab26d50b91e5672b7ffcac800faafc7
-  path: python/sglang/srt/layers/attention/dsv4/fp4_indexer.py
-  url: https://github.com/sgl-project/sglang/blob/9bb9d17e1ab26d50b91e5672b7ffcac800faafc7/python/sglang/srt/layers/attention/dsv4/fp4_indexer.py
-  note: >-
-    Standalone extraction of sglang's DeepSeek-V4 (dsv4) FP4 indexer quantizer
-    Triton kernels (quantize_fp4_indexer_tensor -> _quantize_fp4_indexer_kernel and
-    store_fp4_index_k_cache -> _store_fp4_index_k_cache_kernel, plus the e2m1/ue8m0
-    @triton.jit helpers). Per 128-wide token row, 4 groups of 32 give UE8M0
-    (power-of-two) block scales packed into one int32, and each value scaled by
-    2^(exp-127) is e2m1-encoded to a 4-bit code, two codes packed per int8 byte
-    (64 bytes/token); the store kernel pages the codes + 4 scale bytes into a KV
-    cache. ARCH NOTE: although DeepSeek-V4 FP4 is "gfx950-class", this indexer
-    quantizer is pure integer/bitwise e2m1 + ue8m0 packing -- it does NOT use
-    tl.dot_scaled / scaled-MFMA -- so it compiles and runs on gfx942 (CDNA3) too and
-    is built/validated here as a gfx942 task (NOT a gfx950 skip-guard). The kernels
-    are copied verbatim (already free of sglang deps). The harness validates the
-    packed FP4 codes, the packed UE8M0 scales, and the paged cache store BIT-EXACTLY
-    against a torch reference (the convention's integer/exact gate). Depends only on
-    `triton` and `torch`.
-prompt:
-  source_code: null
-  instructions: |
-    Translate the Triton DeepSeek-V4 FP4 indexer quantizer kernels into equivalent
-    FlyDSL kernels for AMD GPUs (gfx942/gfx950), preserving the public entry
-    signatures and numerical correctness.
-
-    The source (`dsv4_fp4_indexer.py`) is a STANDALONE extraction from sglang
-    (python/sglang/srt/layers/attention/dsv4/fp4_indexer.py). It depends only on
-    `triton` and `torch`. quantize_fp4_indexer_tensor(x[..., 128]) returns
-    (x_fp4 [N, 64] int8, x_sf [N] int32): each 128-wide token row is split into 4
-    groups of 32; per group sf = max(amax/6, 1e-4) is rounded up to a UE8M0
-    exponent; the 4 exponents pack into one int32, and each value scaled by
-    2^(exp-127) is e2m1-encoded to a 4-bit code, two codes per int8 byte.
-    store_fp4_index_k_cache pages the packed codes + 4 scale bytes into a KV cache.
-
-    Your FlyDSL implementation MUST:
-    - Expose entry points with the same signatures as
-      `quantize_fp4_indexer_tensor(x)` and
-      `store_fp4_index_k_cache(input, cache, loc, *, page_size)`.
-    - Match the torch reference BIT-EXACTLY (packed FP4 codes, packed UE8M0 scales,
-      and the paged cache bytes).
-    - Be written in FlyDSL targeting AMD Instinct -- do NOT simply re-tune the
-      Triton kernel and do NOT rewrite it in HIP/CUDA.
-
-    Validation:
-    - `python3 test_kernel_harness.py --compile`        must PASS.
-    - `python3 test_kernel_harness.py --correctness`    must PASS (all shapes).
-    - `python3 test_kernel_harness.py --full-benchmark` must run and write the report.
-  task_type: null
-  cheatsheet: null
+- quantize_fp4_indexer_tensor
+- store_fp4_index_k_cache
+- _quantize_fp4_indexer_kernel
+- _store_fp4_index_k_cache_kernel
+compile_command:
+- python3 test_kernel_harness.py --compile
+correctness_command:
+- python3 test_kernel_harness.py --correctness
+performance_command:
+- python3 test_kernel_harness.py --full-benchmark
+task_type: triton2flydsl
 task_result_template: null

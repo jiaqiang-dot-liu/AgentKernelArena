@@ -1,73 +1,14 @@
-task_type: triton2flydsl
 source_file_path:
-  - sglang_fused_moe.py
-harness_path: test_kernel_harness.py
-compile_command:
-  - python3 test_kernel_harness.py --compile
-correctness_command:
-  - python3 test_kernel_harness.py --correctness
-performance_command:
-  - python3 test_kernel_harness.py --full-benchmark
+- sglang_fused_moe.py
 target_kernel_functions:
-  - fused_moe_kernel
-  - invoke_fused_moe_kernel
-  - fused_moe
-source_origin:
-  repo: sglang
-  path: python/sglang/srt/layers/moe/moe_runner/triton_utils/fused_moe_triton_kernels.py
-  url: https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/layers/moe/moe_runner/triton_utils/fused_moe_triton_kernels.py
-  note: >-
-    Standalone extraction of sglang's Triton fused MoE grouped-GEMM kernel
-    (fused_moe_kernel) plus the host launcher (invoke_fused_moe_kernel) and the
-    two-GEMM expert-FFN sequence (gate/up GEMM, host SiLU-and-mul, down GEMM,
-    top-k combine) from fused_moe.py::_fused_moe_kernel_sequence. This is the
-    editable Triton kernel that the Qwen3.5-35B-A3B MoE expert FFN lowers to when
-    aiter is OFF (SGLANG_USE_AITER=0 + --moe-runner-backend triton); with aiter ON
-    the same compute runs on the non-editable CK kernels (ck::kernel_moe_gemm /
-    aiter::ck_moe_stage1/2), which dominate GPU time on the serving path. Only the
-    bf16/fp16 unquantized path used by Qwen3.5-35B-A3B is kept; the fp8/int8/int4,
-    TMA-descriptor, bias and EP-filter branches remain in fused_moe_kernel (gated
-    by constexpr flags) but are driven to no-op by the trimmed launcher, so the
-    source depends only on `triton` and `torch`. moe_align_block_size (a sgl_kernel
-    C++ op upstream) is reimplemented in pure torch as host-side setup.
-prompt:
-  source_code: null
-  instructions: |
-    Translate the Triton fused MoE grouped-GEMM kernel into an equivalent FlyDSL
-    kernel for AMD GPUs (gfx950), preserving the public entry signature and
-    numerical correctness.
-
-    The source (`sglang_fused_moe.py`) is a STANDALONE extraction from sglang
-    (moe_runner/triton_utils/fused_moe_triton_kernels.py). It depends only on
-    `triton` and `torch`. The editable kernel `fused_moe_kernel` is a token-sorted
-    grouped GEMM over a stacked expert weight tensor B[E, N, K]: tokens are sorted
-    and padded per expert (`moe_align_block_size`) so each BLOCK_SIZE_M tile maps
-    to a single expert, and each tile computes A_tile @ B[expert].T with an fp32
-    accumulator, optionally multiplying the router weight before writing C.
-
-    The `fused_moe(hidden_states, w1, w2, topk_weights, topk_ids)` host driver runs
-    the full expert FFN exactly as sglang's `_fused_moe_kernel_sequence`:
-      1. GEMM1 (gate/up): C1[M*topk, 2I] = fused_moe_kernel(hidden[M,K], w1[E,2I,K])
-      2. SiLU-and-mul:    C2[M*topk, I]  = silu(C1[:, :I]) * C1[:, I:]   (host-side)
-      3. GEMM2 (down):    C3[M, topk, K] = fused_moe_kernel(C2, w2[E,K,I]),
-                          multiplying the router weight (MUL_ROUTED_WEIGHT)
-      4. combine:         out[M, K]      = sum over topk of C3
-    All operands are bf16; GEMM accumulation is fp32, results cast to bf16 between
-    stages. Real Qwen3.5-35B-A3B config: K=2048, I=512, E=256, topk=8.
-
-    Your FlyDSL implementation MUST:
-    - Expose an entry point with the same signature as
-      `fused_moe(hidden_states, w1, w2, topk_weights, topk_ids, activation="silu")`
-      returning the combined `[M, K]` output.
-    - Match the torch fp32 reference within bf16 tolerance
-      (<=2% mismatched elems at atol=3e-2, rtol=1e-2).
-    - Be written in FlyDSL (FlyDSL Python DSL) targeting AMD Instinct (gfx950) --
-      do NOT simply re-tune the Triton kernel and do NOT rewrite it in HIP/CUDA.
-
-    Validation:
-    - `python3 test_kernel_harness.py --compile`        must PASS.
-    - `python3 test_kernel_harness.py --correctness`    must PASS (all shapes).
-    - `python3 test_kernel_harness.py --full-benchmark` must run and write the report.
-  task_type: null
-  cheatsheet: null
+- fused_moe_kernel
+- invoke_fused_moe_kernel
+- fused_moe
+compile_command:
+- python3 test_kernel_harness.py --compile
+correctness_command:
+- python3 test_kernel_harness.py --correctness
+performance_command:
+- python3 test_kernel_harness.py --full-benchmark
+task_type: triton2flydsl
 task_result_template: null

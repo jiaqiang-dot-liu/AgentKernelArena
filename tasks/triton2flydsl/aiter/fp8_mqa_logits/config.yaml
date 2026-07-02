@@ -1,80 +1,13 @@
-task_type: triton2flydsl
-
 source_file_path:
-  - fp8_mqa_logits.py
-
-harness_path: test_kernel_harness.py
-
-compile_command:
-  - python3 test_kernel_harness.py --compile
-
-correctness_command:
-  - python3 test_kernel_harness.py --correctness
-
-performance_command:
-  - python3 test_kernel_harness.py --full-benchmark
-
+- fp8_mqa_logits.py
 target_kernel_functions:
-  - fp8_mqa_logits
-  - _fp8_mqa_logits_kernel
-
-source_origin:
-  repo: AITER (local)
-  path: aiter/ops/triton/attention/fp8_mqa_logits.py
-  note: >-
-    Standalone extraction of AITER's FP8 MQA-logits kernel. The public wrapper
-    (attention/fp8_mqa_logits.py) and the @triton.jit kernel
-    (_triton_kernels/attention/fp8_mqa_logits.py) are inlined into
-    fp8_mqa_logits.py with `import aiter` removed; it depends only on triton and
-    torch. The arch-gated Gluon kernel (_gluon_kernels, gfx950/gfx1250) is NOT
-    inlined (cannot be detached from that package); the wrapper always launches
-    the Triton path, which is the target of this port.
-
+- fp8_mqa_logits
+- _fp8_mqa_logits_kernel
+compile_command:
+- python3 test_kernel_harness.py --compile
+correctness_command:
+- python3 test_kernel_harness.py --correctness
+performance_command:
+- python3 test_kernel_harness.py --full-benchmark
+task_type: triton2flydsl
 task_result_template: null
-
-prompt:
-  source_code: null
-  task_type: null
-  cheatsheet: null
-  instructions: |
-    Translate the Triton FP8 MQA-logits kernel into an equivalent FlyDSL kernel
-    for AMD GPUs (gfx950), preserving the public entry signature and numerical
-    correctness.
-
-    The source (`fp8_mqa_logits.py`) is a STANDALONE extraction from AITER. It
-    depends only on `triton` and `torch`. It computes the logits consumed by a
-    downstream top-k for sparse (multi-query) attention. For each query row `s`
-    and each shared-KV column `k` in the per-row window
-    `[cu_starts[s], cu_ends[s])`:
-
-        logits[s, k] = sum_h relu( (Q[s, h, :] . KV[k, :]) * kv_scales[k] ) * weights[s, h]
-
-    Tensor contract (public entry `fp8_mqa_logits`):
-      - Q:         [seq_len, NUM_HEADS, HEAD_SIZE], fp8 e4m3
-      - KV:        [seq_len_kv, HEAD_SIZE],         fp8 e4m3 (shared across heads = MQA)
-      - kv_scales: [seq_len_kv],                    fp32 (per-KV-column dequant scale)
-      - weights:   [seq_len, NUM_HEADS],            fp32 (per-(row, head) weight)
-      - cu_starts: [seq_len], int32   (per-row window start)
-      - cu_ends:   [seq_len], int32   (per-row window end)
-      - returns logits: [seq_len, seq_len_kv], fp32; positions outside the per-row
-        window are -inf (causal masking).
-
-    Key features of the op:
-    - One program per query row; the Q.KV dot is fp8 x fp8 with fp32 accumulate
-      ([NUM_HEADS, HEAD_SIZE] x [HEAD_SIZE, BLOCK_KV] -> [NUM_HEADS, BLOCK_KV]).
-    - Per-column kv_scales multiply, ReLU, per-head weights multiply, then a
-      reduction over the head axis to [BLOCK_KV].
-    - Tiled KV loop over BLOCK_KV (128) with a masked tail; per-row window masking
-      via cu_starts/cu_ends. NUM_HEADS and HEAD_SIZE are powers of 2.
-
-    Your FlyDSL implementation MUST:
-    - Expose an entry point with the same signature as `fp8_mqa_logits(...)`.
-    - Produce outputs matching the Triton kernel within
-      atol=1e-2, rtol=1e-2 across all TEST_SHAPES in the harness.
-    - Be written in FlyDSL targeting AMD Instinct (gfx950) — do NOT simply
-      re-tune the Triton kernel and do NOT rewrite it in HIP/CUDA.
-
-    Validation:
-    - `python3 test_kernel_harness.py --compile`        must PASS.
-    - `python3 test_kernel_harness.py --correctness`    must PASS (all shapes).
-    - `python3 test_kernel_harness.py --full-benchmark` must run and write the report.

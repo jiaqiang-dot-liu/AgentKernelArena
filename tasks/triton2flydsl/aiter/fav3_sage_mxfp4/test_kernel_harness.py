@@ -51,8 +51,8 @@ TEST_SHAPES = [
     (1, 256, 8, 8, 128, False),   # non-causal (full) attention
     (1, 384, 4, 4, 128, True),    # 3 K blocks, causal
 ]
-WARMUP_ITERATIONS = 5
-BENCHMARK_ITERATIONS = 50
+WARMUP_ITERATIONS = 10
+BENCHMARK_ITERATIONS = 100
 
 
 def _block_r(head_dim):

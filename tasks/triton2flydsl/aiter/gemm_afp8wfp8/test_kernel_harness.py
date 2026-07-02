@@ -50,7 +50,7 @@ TEST_SHAPES = [
 ]
 
 SEED = 0  # match upstream test (torch.manual_seed(0))
-WARMUP, ITERS = 10, 50
+WARMUP, ITERS = 10, 100
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -182,7 +182,7 @@ def run_benchmark(verbose=True):
             e.record()
             torch.cuda.synchronize()
             times.append(s.elapsed_time(e))
-        ms = sorted(times)[len(times) // 2]
+        ms = sum(times) / len(times)
         latencies.append(ms)
         flops = 2.0 * shape["M"] * shape["N"] * shape["K"]
         report.append(

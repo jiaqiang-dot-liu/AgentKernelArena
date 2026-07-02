@@ -49,7 +49,7 @@ TEST_SHAPES = [
      "section": [16, 24, 24], "interleaved": False, "neox": True},  # single token
 ]
 WARMUP_ITERATIONS = 10
-BENCHMARK_ITERATIONS = 50
+BENCHMARK_ITERATIONS = 100
 MAX_OOM_RETRIES = 5
 
 

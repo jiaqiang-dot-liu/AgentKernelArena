@@ -1,37 +1,16 @@
-task_type: torch2flydsl
 source_file_path:
-  - model.py
-harness_path: test_kernel_harness.py
-compile_command:
-  - python3 -c "import torch; from kernel import build_hgemm_module; build_hgemm_module('bf16', 256, 5120, tile_m=128, tile_n=128, tile_k=64, split_k=1, block_m_warps=2, block_n_warps=2); print('compile ok')"
-correctness_command:
-  - python3 test_kernel_harness.py --correctness
-performance_command:
-  - python3 test_kernel_harness.py --full-benchmark
+- kernel.py
 target_kernel_functions:
-  - flydsl_hgemm
-  - build_hgemm_module
-  - compile_hgemm_kernel
-source_origin:
-  repo: AITER (local)
-  commit: 075c95f28383e6ca05fd829a21edb67083acb01c
-  path: aiter/ops/flydsl/kernels/splitk_hgemm.py
-  note: >-
-    PyTorch reference in model.py. The FlyDSL kernel in kernel.py is a split-K
-    HGEMM (out = a @ b.T, fp32 accumulate, bf16/f16 in and out) with MFMA
-    wave-level matmul and double-buffered LDS.
-prompt:
-  source_code: null
-  instructions: |
-    Translate the PyTorch `Model.forward` in model.py into a FlyDSL kernel in
-    kernel.py that computes the same result: out = a @ b.T with fp32
-    accumulation, bf16/f16 in and out, where `a` is [M, K] and `b` is [N, K].
-    Expose `flydsl_hgemm(a, b, ...)` as the entry point (build the device kernel
-    via `build_hgemm_module`). Keep the kernel in FlyDSL — do NOT rewrite it in
-    HIP, CUDA, or Triton.
-    Correctness and performance are checked with:
-      python3 test_kernel_harness.py --correctness
-      python3 test_kernel_harness.py --full-benchmark
-  task_type: null
-  cheatsheet: null
+- flydsl_hgemm
+- build_hgemm_module
+- compile_hgemm_kernel
+compile_command:
+- python3 -c "import torch; from kernel import build_hgemm_module; build_hgemm_module('bf16',
+  256, 5120, tile_m=128, tile_n=128, tile_k=64, split_k=1, block_m_warps=2, block_n_warps=2);
+  print('compile ok')"
+correctness_command:
+- python3 test_kernel_harness.py --correctness
+performance_command:
+- python3 test_kernel_harness.py --full-benchmark
+task_type: torch2flydsl
 task_result_template: null

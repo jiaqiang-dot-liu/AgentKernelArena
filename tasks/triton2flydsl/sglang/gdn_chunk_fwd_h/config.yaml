@@ -1,70 +1,13 @@
-task_type: triton2flydsl
 source_file_path:
-  - gdn_chunk_fwd_h.py
-harness_path: test_kernel_harness.py
-compile_command:
-  - python3 test_kernel_harness.py --compile
-correctness_command:
-  - python3 test_kernel_harness.py --correctness
-performance_command:
-  - python3 test_kernel_harness.py --full-benchmark
+- gdn_chunk_fwd_h.py
 target_kernel_functions:
-  - chunk_gated_delta_rule_fwd_h
-  - chunk_gated_delta_rule_fwd_kernel_h_blockdim64
-source_origin:
-  repo: sglang
-  path: python/sglang/srt/layers/attention/fla/chunk_delta_h.py
-  url: https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/layers/attention/fla/chunk_delta_h.py
-  note: >-
-    Standalone, forward-only extraction of sglang's GDN chunked recurrent STATE
-    kernel (chunk_gated_delta_rule_fwd_h + the blockdim64 @triton.jit kernel).
-    Hottest editable Triton kernel in the Gated Delta Net chunk-prefill pipeline
-    on the Qwen3.5-35B-A3B serving path (~15.8% of GDN prefill GPU time).
-    `fla.op.exp`/`safe_exp` are inlined (exp=tl.exp), `prepare_chunk_indices` /
-    `prepare_chunk_offsets` are inlined, and the commented-out autotune config
-    lists (referencing is_nvidia_hopper) are dropped. Depends only on `triton`
-    and `torch`. Both IS_VARLEN and regular branches are kept in the kernel; the
-    harness exercises the regular (non-varlen) path, whose per-chunk recurrence is
-    identical to varlen.
-prompt:
-  source_code: null
-  instructions: |
-    Translate the Triton GDN chunked recurrent STATE kernel into an equivalent
-    FlyDSL kernel for AMD GPUs (gfx950), preserving the public entry signature
-    and numerical correctness.
-
-    The source (`gdn_chunk_fwd_h.py`) is a STANDALONE extraction from sglang
-    (python/sglang/srt/layers/attention/fla/chunk_delta_h.py). It depends only on
-    `triton` and `torch`. Per (sequence n, value-head h), qk-head
-    hg = h // (H // Hg), it carries a [V, K] recurrent state S across chunks
-    (BT=64), tiling K in blocks of 64 (K<=256):
-      h_out[n, chunk] = S                          # state at the START of each chunk
-      v_corr = u_chunk - w_chunk @ S^T             # delta correction (S cast to bf16)
-      v_new[n, chunk] = v_corr                     # saved BEFORE gating
-      if USE_G:
-        v_corr *= safe_exp(g_last - g_chunk)[:,None]   # g_last = g at last token of chunk
-        S      *= exp(g_last)
-      S += v_corr_bf16^T @ k_chunk                 # rank-BT update (bf16 inputs, fp32 accum)
-    where safe_exp(x) = exp(x) if x<=0 else 0. At the end S is written back in
-    place into `initial_state` at `initial_state_indices[n]` (INPLACE_UPDATE), and
-    the per-chunk states are written to `h`. g is fp32; k/w/u/state are bf16.
-
-    Your FlyDSL implementation MUST:
-    - Expose an entry point with the same signature as
-      `chunk_gated_delta_rule_fwd_h(k, w, u, g=None, gk=None, initial_state=None,
-      initial_state_indices=None, save_new_value=True, cu_seqlens=None,
-      chunk_indices=None)` returning (h[B,NT,H,V,K], v_new[B,T,H,V]) and updating
-      initial_state in place.
-    - Match the torch fp32 reference (h, v_new, AND updated state) within bf16
-      tolerance (<=5% mismatched elems at atol=5e-2, rtol=1e-2; the deep recurrent
-      state accumulates bf16 drift that grows with the number of chunks).
-    - Be written in FlyDSL (FlyDSL Python DSL) targeting AMD Instinct (gfx950) --
-      do NOT simply re-tune the Triton kernel and do NOT rewrite it in HIP/CUDA.
-
-    Validation:
-    - `python3 test_kernel_harness.py --compile`        must PASS.
-    - `python3 test_kernel_harness.py --correctness`    must PASS (all shapes).
-    - `python3 test_kernel_harness.py --full-benchmark` must run and write the report.
-  task_type: null
-  cheatsheet: null
+- chunk_gated_delta_rule_fwd_h
+- chunk_gated_delta_rule_fwd_kernel_h_blockdim64
+compile_command:
+- python3 test_kernel_harness.py --compile
+correctness_command:
+- python3 test_kernel_harness.py --correctness
+performance_command:
+- python3 test_kernel_harness.py --full-benchmark
+task_type: triton2flydsl
 task_result_template: null

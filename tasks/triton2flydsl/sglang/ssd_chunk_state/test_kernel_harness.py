@@ -35,8 +35,8 @@ TEST_SHAPES = [
     {"b": 2, "H": 8, "P": 64, "G": 2, "N": 128, "cs": 128, "C": 2, "dtype": "fp16"},
     {"b": 1, "H": 8, "P": 96, "G": 1, "N": 80, "cs": 128, "C": 2, "dtype": "fp32"},  # non-pow2 dims
 ]
-WARMUP_ITERATIONS = 5
-BENCHMARK_ITERATIONS = 20
+WARMUP_ITERATIONS = 10
+BENCHMARK_ITERATIONS = 100
 MAX_OOM_RETRIES = 5
 _DTYPES = {"bf16": "bfloat16", "fp16": "float16", "fp32": "float32"}
 

@@ -36,8 +36,8 @@ TEST_SHAPES = [
     {"seqs": [1000], "head": 8, "kv_head": 8, "Lk": 128, "Lv": 128},  # MHA long (splits)
     {"seqs": [100, 33], "head": 28, "kv_head": 4, "Lk": 128, "Lv": 128},  # GQA ragged
 ]
-WARMUP_ITERATIONS = 5
-BENCHMARK_ITERATIONS = 20
+WARMUP_ITERATIONS = 10
+BENCHMARK_ITERATIONS = 100
 MAX_OOM_RETRIES = 5
 
 

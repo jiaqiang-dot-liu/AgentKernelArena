@@ -1,60 +1,13 @@
-task_type: triton2flydsl
 source_file_path:
-  - chunk_scaled_dot_kkt_fwd.py
-harness_path: test_kernel_harness.py
-compile_command:
-  - python3 test_kernel_harness.py --compile
-correctness_command:
-  - python3 test_kernel_harness.py --correctness
-performance_command:
-  - python3 test_kernel_harness.py --full-benchmark
+- chunk_scaled_dot_kkt_fwd.py
 target_kernel_functions:
-  - chunk_scaled_dot_kkt_fwd
-  - chunk_scaled_dot_kkt_fwd_kernel
-source_origin:
-  repo: sglang
-  commit: 9bb9d17e1ab26d50b91e5672b7ffcac800faafc7
-  path: python/sglang/srt/layers/attention/fla/chunk_scaled_dot_kkt.py
-  url: https://github.com/sgl-project/sglang/blob/9bb9d17e1ab26d50b91e5672b7ffcac800faafc7/python/sglang/srt/layers/attention/fla/chunk_scaled_dot_kkt.py
-  note: >-
-    Standalone extraction of sglang's GDN scaled-dot K@K^T kernel
-    (chunk_scaled_dot_kkt_fwd + chunk_scaled_dot_kkt_fwd_kernel). Computes the
-    strictly-lower-triangular, gate- and beta-scaled intra-chunk affinity matrix
-    A = tril_strict(beta * (K K^T) * safe_exp(g_diff)) for the Gated Delta Net
-    chunk-prefill pipeline (Qwen3-Next / Kimi-Linear). `safe_exp` (= exp(x) if
-    x<=0 else 0) and `prepare_chunk_indices` are inlined and the commented-out
-    autotune config list is dropped. k is loaded in bf16 with fp32-accumulated
-    K@K^T. Both IS_VARLEN and regular branches are kept; the harness exercises the
-    regular path. Depends only on `triton` and `torch`.
-prompt:
-  source_code: null
-  instructions: |
-    Translate the Triton GDN scaled-dot K@K^T kernel into an equivalent FlyDSL
-    kernel for AMD GPUs (gfx950), preserving the public entry signature and
-    numerical correctness.
-
-    The source (`chunk_scaled_dot_kkt_fwd.py`) is a STANDALONE extraction from
-    sglang (python/sglang/srt/layers/attention/fla/chunk_scaled_dot_kkt.py). It
-    depends only on `triton` and `torch`. For each chunk (size BT=64) and head h
-    (qk-head hg = h // (H // Hg)):
-      A = beta[:,None] * (k_c @ k_c^T)
-      if USE_G: A *= safe_exp(g_c[:,None] - g_c[None,:])   # exp(x) if x<=0 else 0
-      A = tril_strict(A)                                   # row > col (strict lower)
-    k is bf16 with fp32 accumulation; output A is fp32 of shape [B, T, H, BT].
-
-    Your FlyDSL implementation MUST:
-    - Expose an entry point with the same signature as
-      `chunk_scaled_dot_kkt_fwd(k, beta, g_cumsum=None, cu_seqlens=None,
-      chunk_size=64, output_dtype=torch.float32)` returning A [B, T, H, BT].
-    - Match the torch fp32 reference within bf16 tolerance (<=2% mismatched elems
-      at atol=3e-2, rtol=1e-2).
-    - Be written in FlyDSL (FlyDSL Python DSL) targeting AMD Instinct (gfx950) --
-      do NOT simply re-tune the Triton kernel and do NOT rewrite it in HIP/CUDA.
-
-    Validation:
-    - `python3 test_kernel_harness.py --compile`        must PASS.
-    - `python3 test_kernel_harness.py --correctness`    must PASS (all shapes).
-    - `python3 test_kernel_harness.py --full-benchmark` must run and write the report.
-  task_type: null
-  cheatsheet: null
+- chunk_scaled_dot_kkt_fwd
+- chunk_scaled_dot_kkt_fwd_kernel
+compile_command:
+- python3 test_kernel_harness.py --compile
+correctness_command:
+- python3 test_kernel_harness.py --correctness
+performance_command:
+- python3 test_kernel_harness.py --full-benchmark
+task_type: triton2flydsl
 task_result_template: null

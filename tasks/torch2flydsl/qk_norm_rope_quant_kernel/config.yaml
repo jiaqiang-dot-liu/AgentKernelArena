@@ -1,48 +1,15 @@
-task_type: torch2flydsl
 source_file_path:
-  - model.py
-harness_path: test_kernel_harness.py
-compile_command:
-  - python3 -c "import torch; from kernel import build_qk_norm_rope_quant_module; build_qk_norm_rope_quant_module(num_q_heads=16, head_dim=512, rope_head_dim=64, quant=False, group_size=64); print('compile ok')"
-correctness_command:
-  - python3 test_kernel_harness.py --correctness
-performance_command:
-  - python3 test_kernel_harness.py --full-benchmark
+- kernel.py
 target_kernel_functions:
-  - flydsl_qk_norm_rope_quant
-  - build_qk_norm_rope_quant_module
-  - compile_flydsl_qk_norm_rope_quant
-source_origin:
-  repo: AITER (local)
-  commit: 075c95f28383e6ca05fd829a21edb67083acb01c
-  path:
-    - aiter/ops/flydsl/kernels/qk_norm_rope_quant.py
-    - aiter/ops/flydsl/kernels/tensor_shim.py
-  note: >-
-    PyTorch reference in model.py (bf16 fused per-token RMSNorm + GPT-J RoPE for
-    Q and KV). The FlyDSL kernel in kernel.py computes the same result.
-    build_qk_norm_rope_quant_module builds the kernel; flydsl_qk_norm_rope_quant
-    is the launcher (host-side layout prep — Q view, strided KV, 2D cos/sin,
-    grid-Y chunking). The bf16 path (quant=False) is gated; the kernel also
-    supports an FP8 + fp32/e8m0 block-scale quant path (quant=True). Shapes:
-    D=512/VEC=8, RD=64, group_size in {32,64,128}, H in {16,128}, T sweep.
-prompt:
-  source_code: null
-  instructions: |
-    Translate the PyTorch `Model.forward` in model.py into a FlyDSL kernel in
-    kernel.py that computes the same result: fused per-token RMSNorm (scope =
-    head_dim D, eps=1e-6, per-channel gamma on KV) + GPT-J pair-interleaved
-    RoPE on the last rope_head_dim elements, for Q [T, H, D] and KV [T, D] in a
-    single kernel launch, bf16 in and out.
-    Expose `flydsl_qk_norm_rope_quant(q, kv, kv_weight, cos_cache, sin_cache,
-    positions, *, num_q_heads, head_dim, rope_head_dim, ...)` as the entry point
-    (build the device kernel via `build_qk_norm_rope_quant_module`). The kernel
-    supports an optional fused FP8 + block-scale quant path (quant=True), but
-    the bf16 path (quant=False) is what is gated. Keep the kernel in FlyDSL — do
-    NOT rewrite it in HIP, CUDA, or Triton.
-    Correctness and performance are checked with:
-      python3 test_kernel_harness.py --correctness
-      python3 test_kernel_harness.py --full-benchmark
-  task_type: null
-  cheatsheet: null
+- flydsl_qk_norm_rope_quant
+- build_qk_norm_rope_quant_module
+- compile_flydsl_qk_norm_rope_quant
+compile_command:
+- python3 -c "import torch; from kernel import build_qk_norm_rope_quant_module; build_qk_norm_rope_quant_module(num_q_heads=16,
+  head_dim=512, rope_head_dim=64, quant=False, group_size=64); print('compile ok')"
+correctness_command:
+- python3 test_kernel_harness.py --correctness
+performance_command:
+- python3 test_kernel_harness.py --full-benchmark
+task_type: torch2flydsl
 task_result_template: null

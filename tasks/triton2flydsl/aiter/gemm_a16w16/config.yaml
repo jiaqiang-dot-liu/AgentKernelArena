@@ -1,63 +1,13 @@
-task_type: triton2flydsl
 source_file_path:
-  - gemm_a16w16.py
-harness_path: test_kernel_harness.py
-compile_command:
-  - python3 test_kernel_harness.py --compile
-correctness_command:
-  - python3 test_kernel_harness.py --correctness
-performance_command:
-  - python3 test_kernel_harness.py --full-benchmark
+- gemm_a16w16.py
 target_kernel_functions:
-  - gemm_a16w16
-  - _gemm_a16_w16_kernel
-source_origin:
-  repo: AITER (local)
-  commit: e773193041689602e5431e110ef39db0390e7015
-  path:
-    - aiter/ops/triton/gemm/basic/gemm_a16w16.py
-    - aiter/ops/triton/_triton_kernels/gemm/basic/gemm_a16w16.py
-  note: >-
-    Standalone extraction of AITER's 16-bit GEMM Triton kernel (gemm_a16w16 ->
-    _gemm_a16_w16_kernel), Y = X @ W^T with fp32 accumulation and an XCD-balanced
-    + grouped pid remap. Only the non-split-K (NUM_KSPLIT == 1) triton path is
-    kept (the gluon/gfx1250 backend and the split-K reduce pass are dropped); the
-    on-disk tuned-config lookup is replaced by a static bf16 tile config, and
-    remap_xcd / pid_grid / make_kernel_repr are inlined, so the module depends
-    only on triton + torch. The harness runs the Triton kernel over real model
-    GEMM shapes (DSR1 router, GPT-OSS-120B projections) and validates finiteness
-    plus closeness to torch F.linear at the bf16 tolerance (atol=1e-1, rtol=1e-2);
-    the flydsl-vs-triton comparison is added when the FlyDSL target lands.
-prompt:
-  source_code: null
-  instructions: |
-    Translate the Triton 16-bit (bf16/fp16) GEMM kernel into an equivalent FlyDSL
-    kernel for AMD GPUs (gfx942/gfx950), preserving the public entry signature and
-    numerical correctness.
-
-    The source (`gemm_a16w16.py`) is a STANDALONE extraction from AITER. It
-    depends only on `triton` and `torch`. It implements:
-      - `_gemm_a16_w16_kernel` : tiled matmul C = A @ B (B is W transposed to
-        [K, N]) with fp32 accumulation, grouped pid ordering + XCD-balanced pid
-        remap for L2 reuse, EVEN_K / EVEN_MN heuristics for masked vs unmasked
-        loads, and an optional fused activation / bias (unused on the default
-        path). Only the NUM_KSPLIT == 1 path is exercised.
-      - `gemm_a16w16(x, w, bias=None, dtype=torch.bfloat16, ...)` : transposes w,
-        picks a tile config, allocates the output, and launches the kernel.
-
-    Your FlyDSL implementation MUST:
-    - Expose an entry point with the same signature as `gemm_a16w16(x, w, ...)`
-      computing Y = X @ W^T.
-    - Match the Triton kernel (the reference). The harness runs the Triton kernel
-      on all TEST_SHAPES and checks finiteness + closeness to torch F.linear; the
-      flydsl-vs-triton comparison is added when the FlyDSL target lands.
-    - Be written in FlyDSL targeting AMD Instinct -- do NOT simply re-tune the
-      Triton kernel and do NOT rewrite it in HIP/CUDA.
-
-    Validation:
-    - `python3 test_kernel_harness.py --compile`        must PASS.
-    - `python3 test_kernel_harness.py --correctness`    must PASS (all shapes).
-    - `python3 test_kernel_harness.py --full-benchmark` must run and write the report.
-  task_type: null
-  cheatsheet: null
+- gemm_a16w16
+- _gemm_a16_w16_kernel
+compile_command:
+- python3 test_kernel_harness.py --compile
+correctness_command:
+- python3 test_kernel_harness.py --correctness
+performance_command:
+- python3 test_kernel_harness.py --full-benchmark
+task_type: triton2flydsl
 task_result_template: null

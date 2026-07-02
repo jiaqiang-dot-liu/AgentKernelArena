@@ -1,69 +1,14 @@
-task_type: triton2flydsl
 source_file_path:
-  - fused_moe_router.py
-harness_path: test_kernel_harness.py
-compile_command:
-  - python3 test_kernel_harness.py --compile
-correctness_command:
-  - python3 test_kernel_harness.py --correctness
-performance_command:
-  - python3 test_kernel_harness.py --full-benchmark
+- fused_moe_router.py
 target_kernel_functions:
-  - fused_moe_router_shim
-  - fused_moe_router_cudacore_kernel
-  - fused_moe_router_tensorcore_kernel
-source_origin:
-  repo: sglang
-  commit: 9bb9d17e1ab26d50b91e5672b7ffcac800faafc7
-  path: python/sglang/srt/layers/moe/router.py
-  url: https://github.com/sgl-project/sglang/blob/9bb9d17e1ab26d50b91e5672b7ffcac800faafc7/python/sglang/srt/layers/moe/router.py
-  note: >-
-    Standalone extraction of sglang's fused MoE router Triton kernels
-    (fused_moe_router_shim dispatching fused_moe_router_cudacore_kernel and
-    fused_moe_router_tensorcore_kernel). One fused pass computes logits = x @ W^T
-    (fp32), an optional tanh logit-softcap (Gemma-style moe_softcapping), an optional
-    per-expert correction bias, then a top-k selection whose weights are the
-    un-renormalized softmax probabilities of the selected experts; returns
-    (topk_weights [bs, topk] fp32, topk_ids [bs, topk] int32). The shim picks the
-    cudacore kernel (tl.sum reduction, general topk) for small bs / <=8 experts and
-    the tensorcore kernel (tl.dot matmul, topk<=2) for large bs / many experts.
-    `_is_hip` is inlined to True (AMD max-warps cap) and the dp-attention padded-token
-    NaN workaround flag is inlined to False (no dp-attention in the standalone); the
-    `fused_topk` import and the `FusedMoeRouter` nn wrapper are dropped. num_experts
-    must be a power of two and hidden % 256 == 0 for the tensorcore K-block, as in the
-    upstream router. Depends only on `triton` and `torch`.
-prompt:
-  source_code: null
-  instructions: |
-    Translate the Triton fused MoE router kernels into equivalent FlyDSL kernels for
-    AMD GPUs (gfx942/gfx950), preserving the public entry signature and numerical
-    correctness.
-
-    The source (`fused_moe_router.py`) is a STANDALONE extraction from sglang
-    (python/sglang/srt/layers/moe/router.py). It depends only on `triton` and
-    `torch`. In one fused pass it computes:
-      logits = x @ router_weight^T            (fp32 accumulation)
-      if cap != 0: logits = tanh(logits/cap)*cap
-      if bias:     logits = logits + correction_bias
-      topk_ids     = indices of the top-k logits (descending)
-      topk_weights = softmax(logits)[topk_ids]   (over all experts; not renormalized)
-    Two kernels back the shim: cudacore (tl.sum, general topk) and tensorcore
-    (tl.dot, topk<=2); the shim selects by batch size / expert count.
-
-    Your FlyDSL implementation MUST:
-    - Expose an entry point with the same signature as
-      `fused_moe_router_shim(moe_softcapping, hidden_states, gating_output, topk,
-      renormalize, correction_bias=None, enable_deterministic_inference=False)`
-      returning (topk_weights, topk_ids).
-    - Match the torch fp32 reference: topk_ids EXACT, topk_weights within
-      atol=1e-3, rtol=1e-3.
-    - Be written in FlyDSL targeting AMD Instinct -- do NOT simply re-tune the
-      Triton kernel and do NOT rewrite it in HIP/CUDA.
-
-    Validation:
-    - `python3 test_kernel_harness.py --compile`        must PASS.
-    - `python3 test_kernel_harness.py --correctness`    must PASS (all shapes).
-    - `python3 test_kernel_harness.py --full-benchmark` must run and write the report.
-  task_type: null
-  cheatsheet: null
+- fused_moe_router_shim
+- fused_moe_router_cudacore_kernel
+- fused_moe_router_tensorcore_kernel
+compile_command:
+- python3 test_kernel_harness.py --compile
+correctness_command:
+- python3 test_kernel_harness.py --correctness
+performance_command:
+- python3 test_kernel_harness.py --full-benchmark
+task_type: triton2flydsl
 task_result_template: null

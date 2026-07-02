@@ -1,61 +1,13 @@
 source_file_path:
-  - mha.py
-
+- mha.py
 target_kernel_functions:
-  - flash_attn_func
-  - _attn_fwd
-
+- flash_attn_func
+- _attn_fwd
 compile_command:
-  - python3 test_kernel_harness.py --compile
-
+- python3 test_kernel_harness.py --compile
 correctness_command:
-  - python3 test_kernel_harness.py --correctness
-
+- python3 test_kernel_harness.py --correctness
 performance_command:
-  - python3 test_kernel_harness.py --full-benchmark
-
+- python3 test_kernel_harness.py --full-benchmark
 task_type: triton2flydsl
-
 task_result_template: null
-
-prompt:
-  source_code: null
-  instructions: |
-    Translate the Triton multi-head attention (MHA) FORWARD kernel into an
-    equivalent FlyDSL kernel for AMD GPUs, preserving the public entry signature
-    and numerical correctness.
-
-    The source (`source/mha.py`) is a STANDALONE, FORWARD-only extraction from
-    AITER's Triton flash-attention. It depends only on `triton` and `torch`. It
-    implements a flash / online-softmax attention forward pass with a single
-    Triton kernel:
-      - `_attn_fwd`        : flash-attention forward (calls `_attn_fwd_inner`)
-    The host wrapper `flash_attn_func(...)` pads the head dim, builds strides,
-    selects the launch config, and launches `_attn_fwd`.
-
-    Key features of the op:
-    - Dense bshd layout: q/k/v are [batch, seqlen, nheads, head_size]
-      (a varlen thd path via cu_seqlens is also present in the launcher).
-    - Causal masking (bottom-right aligned) and optional sliding window.
-    - GQA / MQA support (num_query_heads divisible by num_kv_heads).
-    - Online-softmax accumulation done in the exp2 (base-2) domain.
-    - XCD-aware program-id remap (`remap_xcd`) for L2 reuse across chiplets.
-    - Optional ALiBi slopes and attention sinks.
-    - The FORWARD-only extraction DROPS: the backward kernels and autograd
-      Function, the `dao_ai` impl, dropout / return-softmax, FP8 host scaling,
-      and the AITER logger; the autotune config JSON is inlined as a dict.
-
-    Your FlyDSL implementation MUST:
-    - Expose an entry point with the same signature as `flash_attn_func(...)`.
-    - Match the Triton kernel (the reference; forward-only). The harness runs the
-      Triton forward on all TEST_SHAPES (causal and non-causal, incl. GQA) and
-      asserts finite output; the flydsl-vs-triton comparison is added when the
-      FlyDSL target lands.
-    - Be written in FlyDSL (FlyDSL Python DSL) targeting AMD Instinct (gfx950) —
-      do NOT simply re-tune the Triton kernel and do NOT rewrite it in HIP/CUDA.
-
-    Validation:
-    - `python3 scripts/task_runner.py compile`     must PASS.
-    - `python3 scripts/task_runner.py correctness` must PASS (all shapes).
-    - `python3 scripts/task_runner.py performance` must run and write the report.
-  cheatsheet: null

@@ -42,7 +42,7 @@ TEST_SHAPES = [
     {"ndim": 4, "B": 2, "T": 256, "H": 8, "S": 64, "reverse": True, "scale": None},
 ]
 WARMUP_ITERATIONS = 10
-BENCHMARK_ITERATIONS = 50
+BENCHMARK_ITERATIONS = 100
 MAX_OOM_RETRIES = 5
 
 
