@@ -74,6 +74,36 @@ The Docker runner currently supports Codex, Claude Code, and Cursor Agent login
 reuse from the host. It preflights the selected config before starting the
 benchmark run.
 
+## Run across multiple GPUs
+
+Use `make docker-parallel-run` when a server has multiple GPUs and the task set
+is large enough to keep them busy. The parallel runner starts one Docker worker
+container per GPU, masks each worker to one GPU, and lets workers claim tasks
+from a shared queue:
+
+```bash
+make docker-parallel-run CONFIG=config.yaml GPU_IDS=0,1,2,3,4,5,6,7
+```
+
+If `GPU_IDS` is omitted, the runner discovers GPU IDs with `rocm-smi --showid`:
+
+```bash
+make docker-parallel-run CONFIG=config.yaml
+```
+
+`RUN_ARGS` works the same way as `docker-run`:
+
+```bash
+make docker-parallel-run \
+  CONFIG=config.yaml \
+  GPU_IDS=0,1 \
+  RUN_ARGS="--run-suffix parallel_smoke"
+```
+
+Parallel runs support optimization agents and `task_validator`. See
+[Run tasks in parallel across multiple GPUs](parallel-run.md) for scheduling,
+GPU isolation, resume behavior, and failure handling.
+
 ## What happens during a run
 
 ```mermaid
@@ -112,6 +142,12 @@ make docker-run CONFIG=config.yaml RUN_ARGS="--resume-run run_20260617_101500"
 make docker-run CONFIG=config.yaml RUN_ARGS="--resume-latest"
 ```
 
+For a parallel run, use the same `RUN_ARGS` with `docker-parallel-run`:
+
+```bash
+make docker-parallel-run CONFIG=config.yaml GPU_IDS=0,1,2,3 RUN_ARGS="--resume-latest"
+```
+
 ## Read the results
 
 A run produces this layout under the workspace directory:
@@ -119,6 +155,11 @@ A run produces this layout under the workspace directory:
 ```text
 workspace_<gpu>_<agent>/
 └── run_<timestamp>/
+    ├── .parallel/              # present for docker-parallel-run
+    │   ├── pending/
+    │   ├── running/
+    │   ├── done/
+    │   └── failed/
     └── <task_name>_<timestamp>/
         ├── task_result.yaml      # per-task result + score
         └── ...                   # agent output, modified kernel, logs

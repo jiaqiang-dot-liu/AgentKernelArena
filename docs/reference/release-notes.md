@@ -35,6 +35,9 @@ AgentKernelArena 0.1.0 includes the following features.
   `src/tools/perf/` and materialize them into task workspaces at runtime.
 - **Resumable runs**: resume an interrupted run and skip completed tasks with
   `--resume-run` or `--resume-latest`.
+- **Multi-GPU parallel runs**: use `make docker-parallel-run` to start one
+  isolated Docker worker per GPU, claim tasks from a shared queue, and aggregate
+  results once after all workers finish.
 - **A/B testing**: run the same task set with and without an agent-side
   capability to measure its real impact.
 - **Task validator**: a dedicated agent that runs 10 automated quality checks on
@@ -46,6 +49,8 @@ AgentKernelArena 0.1.0 includes the following features.
 
 The following limitations are present in this release.
 
-- Agents can hang during task execution and block test completion.
+- A single agent task can still run until its configured timeout, but in
+  `docker-parallel-run` other GPU workers continue processing the remaining
+  queue.
 - The published leaderboard is forthcoming; the live demo is illustrative only.
 - Task suites for several categories are being expanded toward 100+ tasks each.

@@ -22,6 +22,7 @@ AgentKernelArena enables systematic evaluation of AI agents on GPU kernel optimi
 - **Designed for Fair Comparison**: Standardized tasks, environments, prompts, and scoring for leaderboard-style evaluation
 - **A/B Testing for Agent Tools**: Compare whether a new MCP server, skill, prompt, or agent-side tool actually improves outcomes by running the same task set with and without it and comparing standardized scores
 - **Workspace Isolation**: Each task runs in a timestamped duplicate workspace for reproducibility
+- **Multi-GPU Parallel Runs**: On multi-GPU servers, run one isolated Docker worker per GPU so idle GPUs immediately claim the next task from a shared queue
 - **Comprehensive Logging**: Detailed logs with timestamps, prompts, outputs, and results for every task execution
 - **Flexible Configuration**: YAML-based configuration for tasks, agents, and LLM parameters
 
@@ -87,6 +88,12 @@ AgentKernelArena/
 8. **Post-Processing**: Run compilation, correctness tests, performance profiling, and scoring
 9. **Report Generation**: Generate comprehensive evaluation report with metrics
 
+For multi-GPU runs, the host-side Docker runner creates a shared `.parallel/`
+queue under the run directory and starts one long-lived worker container per GPU.
+Each worker claims tasks with an atomic descriptor move, runs one task at a time
+with only one GPU visible, and then claims the next task. Final post-processing
+runs once after all workers finish.
+
 ## Installation
 
 ### Prerequisites
@@ -147,6 +154,30 @@ workspace_directory_prefix: workspace
 
 ```bash
 make docker-run CONFIG=config.yaml
+```
+
+Run the same task set in parallel across multiple GPUs:
+
+```bash
+# Use explicit GPU IDs
+make docker-parallel-run CONFIG=config.yaml GPU_IDS=0,1,2,3,4,5,6,7
+
+# Or omit GPU_IDS to discover GPUs with rocm-smi --showid
+make docker-parallel-run CONFIG=config.yaml
+
+# Label the run directory
+make docker-parallel-run CONFIG=config.yaml GPU_IDS=0,1 RUN_ARGS="--run-suffix parallel_smoke"
+```
+
+`docker-parallel-run` starts one Docker worker per GPU. Each worker gets isolated
+agent state and cache directories, and sees a single logical GPU (`0`) inside the
+container. It supports normal optimization agents and `task_validator`.
+
+Resume a parallel run the same way as a serial run:
+
+```bash
+make docker-parallel-run CONFIG=config.yaml GPU_IDS=0,1,2,3 RUN_ARGS="--resume-latest"
+make docker-parallel-run CONFIG=config.yaml GPU_IDS=0,1,2,3 RUN_ARGS="--resume-run run_20260702_041903_parallel8"
 ```
 
 

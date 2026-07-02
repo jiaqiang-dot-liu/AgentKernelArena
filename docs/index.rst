@@ -26,6 +26,7 @@ repository.
    .. grid-item-card:: How to
 
       * :doc:`Run an evaluation <how-to/run-evaluation>`
+      * :doc:`Run tasks in parallel across multiple GPUs <how-to/parallel-run>`
       * :doc:`Configure agents and models <how-to/agents>`
       * :doc:`Add a task <how-to/add-task>`
       * :doc:`Validate tasks <how-to/task-validator>`

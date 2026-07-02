@@ -38,6 +38,20 @@ Each task workspace receives a `validation_report.yaml` with per-check results,
 and a `validation_summary.yaml` with aggregated statistics is written to the
 workspace root.
 
+For large validation batches on a multi-GPU server, use the parallel Docker
+runner. It starts one validator worker container per GPU and writes the same
+reports:
+
+```bash
+make docker-parallel-run \
+  CONFIG=config.yaml \
+  GPU_IDS=0,1,2,3,4,5,6,7 \
+  RUN_ARGS="--run-suffix validator_parallel8"
+```
+
+Parallel resume skips validator tasks whose workspace already contains
+`validation_report.yaml`.
+
 ## Validator configuration
 
 The validator's own backend and limits are set in

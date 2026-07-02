@@ -9,7 +9,7 @@ python_path: null
 # claude_code: model -> `claude --model`,      effort -> `claude --effort`.
 # Example Claude Sonnet config: backend: claude_code, model: sonnet, effort: max.
 # Valid claude_code effort: low | medium | high | xhigh | max  (max is the maximum).
-model: claude-sonnet-4-6
+model: claude-sonnet-5
 effort: max
 
 # Per-command timeouts (seconds) for each validation check
