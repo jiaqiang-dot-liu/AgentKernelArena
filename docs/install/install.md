@@ -8,7 +8,7 @@ myst:
 # Install AgentKernelArena
 
 AgentKernelArena runs AI coding agents against GPU kernel tasks on an AMD GPU and
-evaluates the results. **Docker is the only supported workflow**: the evaluator runs
+evaluates the results. Docker is the only supported workflow: the evaluator runs
 inside the GPU-arch-specific SGLang Docker image and bind-mounts the local agent CLIs
 plus their login state.
 
