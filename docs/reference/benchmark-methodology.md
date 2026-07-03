@@ -1,16 +1,23 @@
-# Performance benchmark methodology
+---
+myst:
+    html_meta:
+        "description": "Learn how AgentKernelArena measures kernel performance using CUDA-graph and CUDA-event timing, including warmup iterations, sampling, and speedup computation."
+        "keywords": "AgentKernelArena, benchmark, CUDA graph, CUDA event, HIP, Triton, kernel timing, warmup, speedup, performance measurement"
+---
 
-Performance timing in AgentKernelArena is **not uniform across task categories**.
+# Performance benchmark methodology in AgentKernelArena
+
+Performance timing in AgentKernelArena is not uniform across task categories.
 There are two timing implementations; both use 10 warmup iterations and average the
 measured samples, but they differ in how samples are collected.
 
 The shared Triton timing helpers are maintained in `src/tools/perf/`; committed
-task sources contain stubs/markers, and `setup_workspace()` materializes the
+task sources contain stubs and markers, and `setup_workspace()` materializes the
 canonical helpers into each run workspace. See the
 [`src/tools/perf/README.md`](https://github.com/AMD-AGI/AgentKernelArena/blob/main/src/tools/perf/README.md)
 helper workflow for maintenance details.
 
-## 1. CUDA-graph timing (Triton tasks)
+## CUDA-graph timing (Triton tasks)
 
 Used by:
 
@@ -20,7 +27,7 @@ Used by:
 Method:
 
 - 10 warmup iterations.
-- A CUDA graph is captured that replays the kernel `n_repeat` times, where `n_repeat`
+- A CUDA-graph is captured that replays the kernel `n_repeat` times, where `n_repeat`
   is chosen adaptively so one graph replay takes about `target_ms` (≈1 ms), capped at
   `max_graph_repeats`. This amortizes/eliminates per-launch host overhead.
 - The graph replay is timed `repetition` (100) times; each sample is
@@ -30,7 +37,7 @@ Method:
 - If CUDA-graph capture fails, it falls back to per-call CUDA-event timing
   (`benchmark_method: cuda_event_fallback`).
 
-## 2. CUDA-event timing (HIP tasks)
+## CUDA-event timing (HIP tasks)
 
 Used by:
 

@@ -22,10 +22,10 @@ What AgentKernelArena does
 AgentKernelArena gives each agent the same kernel task, runs it in a siloed,
 timestamped workspace, then evaluates the result through a common pipeline:
 
-* **Compile** -- Build the agent's kernel and confirm it compiles cleanly.
-* **Validate** -- Run the task's correctness check against a reference.
-* **Profile** -- Measure GPU execution time and compute speedup over a baseline.
-* **Score** -- Combine the results into a single comparable score.
+* **Compile**: Build the agent's kernel and confirm it compiles cleanly.
+* **Validate**: Run the task's correctness check against a reference.
+* **Profile**: Measure GPU execution time and compute speedup over a baseline.
+* **Score**: Combine the results into a single comparable score.
 
 Key features
 ============

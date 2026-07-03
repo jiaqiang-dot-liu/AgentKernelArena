@@ -1,6 +1,6 @@
 # AgentKernelArena documentation
 
-This directory contains the source for the AgentKernelArena documentation site.
+This directory contains the source for the AgentKernelArena documentation.
 It follows the same structure as other ROCm toolkit component docs and is built
 with [Sphinx](https://www.sphinx-doc.org/) and
 [rocm-docs-core](https://github.com/ROCm/rocm-docs-core). Both Markdown (MyST,
