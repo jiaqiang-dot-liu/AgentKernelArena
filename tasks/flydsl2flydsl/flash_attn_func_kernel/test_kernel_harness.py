@@ -149,9 +149,13 @@ def run_correctness(shapes=None, verbose=True):
             ref_flat = ref.contiguous().view(-1)
 
             max_err = (o_flat.float() - ref_flat.float()).abs().max().item()
-            passed = max_err < ATOL
+            # bf16 output has ~2^-7 (~0.008) ULP near 1.0; kernel and reference
+            # round independently, so up to ~2 ULP (~0.0156) of difference is
+            # expected. Use a dtype-appropriate absolute tolerance.
+            atol = 2e-2 if dtype_str == "bf16" else ATOL
+            passed = max_err < atol
             if not passed:
-                raise AssertionError(f"max_err={max_err:.4e} > {ATOL}")
+                raise AssertionError(f"max_err={max_err:.4e} > {atol}")
 
             results.append({"config": (B, S, H, D, dtype_str), "correct": True})
             if verbose:
