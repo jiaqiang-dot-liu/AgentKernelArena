@@ -18,47 +18,36 @@ single report filename: Arena already searches multiple candidate report files
 falls back to stdout parsing, per task type. So this one driver works for any
 task Arena itself can score — no per-kernel driver and no hardcoded filename.
 
-Environment (set by the Arena forge launcher):
-  FORGE_WORKSPACE    workspace dir (where the task commands run).
-  FORGE_TASK_CONFIG  path to the task's config.yaml.
-  FORGE_ARENA_ROOT   AgentKernelArena repo root (so `src` is importable). The
-                     adapter is copied into the workspace at runtime, so __file__
-                     cannot locate the repo — the launcher passes this instead.
+This module is a LIBRARY: it takes the task paths (workspace / task config /
+Arena repo root) as explicit arguments — NO environment variables. The Arena
+forge launcher generates a tiny ``forge_driver.py`` shim with those paths baked
+in that calls :func:`run`.
 """
 
 import argparse
-import os
 import statistics
 import sys
 from pathlib import Path
 
 import yaml
 
-WORKSPACE = os.environ.get("FORGE_WORKSPACE") or os.getcwd()
-TASK_CONFIG = os.environ.get("FORGE_TASK_CONFIG") or os.path.join(WORKSPACE, "config.yaml")
-ARENA_ROOT = os.environ.get("FORGE_ARENA_ROOT", "")
 
-# Make Arena's `src` package importable so we reuse its evaluation logic.
-if ARENA_ROOT and ARENA_ROOT not in sys.path:
-    sys.path.insert(0, ARENA_ROOT)
-
-
-def _load_task_config() -> dict:
-    with open(TASK_CONFIG, "r") as f:
+def _load_task_config(task_config: str) -> dict:
+    with open(task_config, "r") as f:
         return yaml.safe_load(f) or {}
 
 
-def do_correctness() -> int:
+def do_correctness(workspace: str, task_config: str, arena_root: str = "") -> int:
     """Reuse Arena's correctness evaluation; emit the forge allclose contract."""
     try:
         from src.evaluator import evaluate_correctness
     except Exception as e:  # noqa: BLE001
         print("allclose: False")
-        print(f"error: cannot import Arena evaluator (FORGE_ARENA_ROOT={ARENA_ROOT!r}): {e}")
+        print(f"error: cannot import Arena evaluator (arena_root={arena_root!r}): {e}")
         return 0
 
-    task_config = _load_task_config()
-    passed, err = evaluate_correctness(Path(WORKSPACE), task_config)
+    task_config_data = _load_task_config(task_config)
+    passed, err = evaluate_correctness(Path(workspace), task_config_data)
     if passed:
         print("allclose: True")
     else:
@@ -68,18 +57,18 @@ def do_correctness() -> int:
     return 0
 
 
-def do_bench() -> int:
+def do_bench(workspace: str, task_config: str, arena_root: str = "") -> int:
     """Reuse Arena's performance measurement; emit the forge median_ms contract."""
     try:
         from src.performance import measure_performance
     except Exception as e:  # noqa: BLE001
-        print(f"error: cannot import Arena performance module (FORGE_ARENA_ROOT={ARENA_ROOT!r}): {e}")
+        print(f"error: cannot import Arena performance module (arena_root={arena_root!r}): {e}")
         return 1
 
-    task_config = _load_task_config()
+    task_config_data = _load_task_config(task_config)
     # is_baseline=False: bench whatever kernel is currently in the tree (forge
     # benches the pristine kernel and each edited version the same way).
-    cases = measure_performance(Path(WORKSPACE), task_config, is_baseline=False)
+    cases = measure_performance(Path(workspace), task_config_data, is_baseline=False)
     times = [c.execution_time_ms for c in cases
              if getattr(c, "execution_time_ms", None) and c.execution_time_ms > 0]
     if not times:
@@ -93,19 +82,28 @@ def do_bench() -> int:
     return 0
 
 
-def main() -> int:
+def run(workspace: str, task_config: str, arena_root: str = "", argv: list[str] | None = None) -> int:
+    """Driver entry point. All task paths are passed explicitly (no env).
+
+    Args:
+        workspace: dir where the task commands run (the kernel lives here).
+        task_config: path to the task's config.yaml.
+        arena_root: AgentKernelArena repo root, prepended to sys.path so Arena's
+            ``src`` package (evaluator / performance) is importable.
+        argv: driver args from KernelForge (``--shape`` / ``--mode`` /
+            ``--bench-mode`` / ...); defaults to ``sys.argv[1:]``.
+    """
+    if arena_root and arena_root not in sys.path:
+        sys.path.insert(0, arena_root)
+
     ap = argparse.ArgumentParser()
     ap.add_argument("--shape", default="default")   # task harness owns its shapes
     ap.add_argument("--mode", default="full")        # all modes -> task correctness
     ap.add_argument("--bench-mode", action="store_true")
     ap.add_argument("--warmup", type=int, default=10)
     ap.add_argument("--iters", type=int, default=30)
-    args, _unknown = ap.parse_known_args()
+    args, _unknown = ap.parse_known_args(argv)
 
     if args.bench_mode:
-        return do_bench()
-    return do_correctness()
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
+        return do_bench(workspace, task_config, arena_root)
+    return do_correctness(workspace, task_config, arena_root)

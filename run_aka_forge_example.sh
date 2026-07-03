@@ -21,7 +21,7 @@
 set -euo pipefail
 
 # ── 1. LLM gateway auth (AMD primus-safe, bearer token) ──────────────────────
-export FORGE_API_KEY="${FORGE_API_KEY:-ak-xxxxxx}"
+export FORGE_API_KEY="${FORGE_API_KEY:-ak-xxxxxxx}"
 # The base URL must NOT end in /v1: the claude CLI/SDK appends /v1/messages itself,
 # so a trailing /v1 here yields /v1/v1/messages -> 404.
 export ANTHROPIC_BASE_URL="${ANTHROPIC_BASE_URL:-https://project1.tw325.primus-safe.amd.com/api/v1/llm-proxy}"

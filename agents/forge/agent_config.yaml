@@ -17,15 +17,18 @@ model: claude-opus-4-8
 # fellow regardless of task_type, uncomment:
 # fellow: triton-fellow
 
-# Loop budget. Kept small for a demo run; raise for real optimization.
-max_iters: 20
-max_hours: 1
+# Loop budget. Long-run configuration: time (8h) is the effective cap; max_iters
+# is set high so the loop keeps going until the time budget is spent.
+max_iters: 1000
+max_hours: 8
 
 # Correctness gate (dB) used by the 5-stage validation pipeline.
 snr_threshold: 30.0
 
-# Hard wall-clock cap for the whole forge-loop subprocess (seconds).
-timeout_seconds: 3600
+# Hard wall-clock cap for the whole forge-loop subprocess (seconds). Must exceed
+# max_hours*3600 (=28800) so the loop's own time budget stops it first; give a
+# ~15min buffer for the final validation/bench + report.
+timeout_seconds: 29700
 
 # Claude permission mode. acceptEdits works under root; bypassPermissions is
 # blocked by Claude Code's security policy for root.
