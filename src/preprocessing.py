@@ -127,6 +127,81 @@ def _ensure_repo_cloned(repo_url: str, target_dir: Path, logger: logging.Logger)
     return target_dir, True
 
 
+def _ensure_repo_seeded_from_image(
+    image_path: Path, target_dir: Path, logger: logging.Logger
+) -> bool:
+    """Seed the repo working tree from an in-image source tree (image_kernel tasks).
+
+    Unlike ``_ensure_repo_cloned`` (which fetches a fresh shallow copy from a git
+    URL), this copies a tree that already ships inside the container image — so
+    submodules, third-party headers, and any prebuilt build cache are present and
+    no network/clone/submodule step is needed. ``.git`` is excluded to keep the
+    copy lean (the task edits + rebuilds; upstream git history is not required).
+
+    Copies once and skips if the target is already populated (reused by all runs).
+
+    Returns:
+        True if a fresh copy was performed, False if the target already existed.
+    """
+    if target_dir.exists() and any(target_dir.iterdir()):
+        logger.info(f"Image repo already seeded at {target_dir}, skipping copy")
+        return False
+
+    if not image_path.is_dir():
+        raise RuntimeError(
+            f"image_repo_path does not exist in the image (not a directory): {image_path}"
+        )
+
+    if target_dir.exists():
+        # empty dir or stray file — clear it so copytree can create it cleanly
+        if target_dir.is_dir():
+            shutil.rmtree(target_dir)
+        else:
+            target_dir.unlink()
+
+    target_dir.parent.mkdir(parents=True, exist_ok=True)
+    logger.info(f"Seeding repo from in-image path {image_path} -> {target_dir}")
+    # Prefer copy-on-write (reflink) — an in-image repo can be multi-GB, and CoW
+    # makes seeding near-instant / space-free on filesystems that support it.
+    # Fall back to a regular recursive copy otherwise. `.git` is dropped either way.
+    if not _reflink_copy_tree(image_path, target_dir, logger):
+        shutil.copytree(
+            image_path,
+            target_dir,
+            symlinks=True,
+            ignore=shutil.ignore_patterns(".git"),
+        )
+    return True
+
+
+def _reflink_copy_tree(src: Path, dst: Path, logger: logging.Logger) -> bool:
+    """Copy ``src`` tree to ``dst`` via ``cp -a --reflink=auto`` then drop ``.git``.
+
+    ``--reflink=auto`` uses copy-on-write when the filesystem supports it and
+    silently falls back to a normal copy otherwise, so this is safe everywhere.
+    Returns True on success, False if ``cp`` is unavailable or failed (caller
+    then uses ``shutil.copytree``). ``dst`` must not already exist.
+    """
+    if shutil.which("cp") is None:
+        return False
+    try:
+        subprocess.run(
+            ["cp", "-a", "--reflink=auto", str(src), str(dst)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (subprocess.CalledProcessError, OSError) as e:
+        logger.warning(f"reflink copy failed ({e}); falling back to copytree")
+        if dst.exists():
+            shutil.rmtree(dst, ignore_errors=True)
+        return False
+    git_dir = dst / ".git"
+    if git_dir.exists():
+        shutil.rmtree(git_dir, ignore_errors=True)
+    return True
+
+
 def _normalize_post_clone_install_commands(raw: Any) -> list[str]:
     """Parse post_clone_install from YAML into a list of non-empty shell command strings."""
     if raw is None:
@@ -224,7 +299,18 @@ def setup_repo_from_config(
     """
     with open(task_config_dir, "r") as f:
         task_config = yaml.safe_load(f) or {}
+    image_repo_path = task_config.get("image_repo_path")
     repo_url = task_config.get("repo_url")
+    if image_repo_path:
+        if not isinstance(image_repo_path, str) or not image_repo_path.strip():
+            raise ValueError(
+                f"Invalid image_repo_path in {task_config_dir}: {image_repo_path!r}"
+            )
+        repo_subdir = task_config.get("repo_subdir") or Path(image_repo_path).name
+        repo_dir = workspace_path / repo_subdir
+        did_seed = _ensure_repo_seeded_from_image(Path(image_repo_path), repo_dir, logger)
+        _maybe_post_clone_install(task_config, repo_dir, did_seed, logger)
+        return repo_dir
     if not repo_url:
         return None
     if not isinstance(repo_url, str) or not repo_url.strip():
@@ -286,9 +372,18 @@ def setup_workspace(task_config_dir: str, run_directory: Path, timestamp: str, l
     with open(task_config_path, "r") as f:
         task_config = yaml.safe_load(f) or {}
 
-    # 1. Clone repo into tasks/ directory if needed (only once, reused by all runs)
+    # 1. Materialize the repo into tasks/ if needed (only once, reused by all runs).
+    #    Two sources are supported:
+    #      - image_repo_path: an in-image source tree (image_kernel tasks) → copied
+    #      - repo_url:        a git URL (repository tasks)                 → cloned
+    image_repo_path = task_config.get("image_repo_path")
     repo_url = task_config.get("repo_url")
-    if repo_url:
+    if image_repo_path:
+        repo_subdir = task_config.get("repo_subdir") or Path(image_repo_path).name
+        repo_in_tasks = task_folder / repo_subdir
+        did_seed = _ensure_repo_seeded_from_image(Path(image_repo_path), repo_in_tasks, logger)
+        _maybe_post_clone_install(task_config, repo_in_tasks, did_seed, logger)
+    elif repo_url:
         repo_subdir = task_config.get("repo_subdir") or _extract_repo_name(repo_url)
         repo_in_tasks = task_folder / repo_subdir
         _, did_clone = _ensure_repo_cloned(repo_url, repo_in_tasks, logger)

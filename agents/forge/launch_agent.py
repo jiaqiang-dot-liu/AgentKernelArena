@@ -55,6 +55,58 @@ def _resolve_gpu_arch(eval_config: dict[str, Any]) -> str:
     return _GPU_ARCH_MAP.get(model, "gfx942")
 
 
+def _repo_subdir_name(task_config: dict[str, Any]) -> str | None:
+    """Best-effort name of the repo subdir a repository/image_kernel task lives in."""
+    explicit = task_config.get("repo_subdir")
+    if explicit:
+        return str(explicit)
+    image_repo_path = task_config.get("image_repo_path")
+    if image_repo_path:
+        return Path(str(image_repo_path)).name
+    repo_url = task_config.get("repo_url")
+    if repo_url:
+        url = str(repo_url).rstrip("/")
+        if url.endswith(".git"):
+            url = url[:-4]
+        return url.rsplit("/", 1)[-1]
+    return None
+
+
+def _resolve_kernel_file(workspace: str, source_files: list, task_config: dict[str, Any]) -> Path:
+    """Locate the kernel file the agent must edit, robust to task layout.
+
+    `source_file_path[0]` may be given either workspace-relative (legacy snippet
+    tasks copy the file to the workspace root) or repo-root-relative (repository /
+    image_kernel tasks put the sources under a repo subdir). Resolution order:
+      1. as given, relative to the workspace root (preserves legacy behavior);
+      2. under the repo subdir (repo_subdir / image_repo_path / repo_url basename);
+      3. a unique match anywhere in the workspace whose path ends with the given
+         suffix (last-resort, ignores .git).
+    """
+    rel = str(source_files[0])
+    ws = Path(workspace)
+
+    p = (ws / rel).resolve()
+    if p.exists():
+        return p
+
+    subdir = _repo_subdir_name(task_config)
+    if subdir:
+        p2 = (ws / subdir / rel).resolve()
+        if p2.exists():
+            return p2
+
+    tail = Path(rel)
+    matches = [
+        m for m in ws.rglob(tail.name)
+        if str(m).endswith(rel) and ".git" not in m.parts
+    ]
+    if len(matches) == 1:
+        return matches[0].resolve()
+
+    raise RuntimeError(f"Kernel file not found in workspace: {ws / rel}")
+
+
 # KernelForge fellows available to the single-fellow forge-loop path
 # (see kernel_agents.fellows.base.build_single_fellow_prompt).
 _VALID_FELLOW_BACKENDS = {"ck", "flydsl", "triton", "aiter", "hip", "hipblaslt"}
@@ -250,9 +302,7 @@ def launch_agent(eval_config: dict[str, Any], task_config_dir: str, workspace: s
     source_files = task_config.get("source_file_path") or []
     if not source_files:
         raise RuntimeError(f"Task config has no source_file_path: {task_config_dir}")
-    kernel_file = (Path(workspace) / source_files[0]).resolve()
-    if not kernel_file.exists():
-        raise RuntimeError(f"Kernel file not found in workspace: {kernel_file}")
+    kernel_file = _resolve_kernel_file(workspace, source_files, task_config)
     target_funcs = task_config.get("target_kernel_functions") or []
 
     gpu_arch = _resolve_gpu_arch(eval_config)

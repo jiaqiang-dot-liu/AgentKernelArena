@@ -127,12 +127,13 @@ def _load_cheatsheet(task_type_name: str, target_gpu_model: str, project_root: P
             logger.warning(f"No architecture entry for GPU '{target_gpu_model}' in default_cheatsheet.yaml")
 
         # --- Knowledge section ---
-        # L3 repository tasks: language is configured per task (repository_language → key in default_cheatsheet.yaml).
-        if task_type_name == 'repository':
+        # L3 repository / image_kernel tasks: language is configured per task
+        # (repository_language → key in default_cheatsheet.yaml).
+        if task_type_name in ('repository', 'image_kernel'):
             raw = task_config.get('repository_language')
             if raw is None or str(raw).strip() == '':
                 raise ValueError(
-                    "repository_language is required when task_type is 'repository' "
+                    f"repository_language is required when task_type is '{task_type_name}' "
                     "(e.g. hip, triton). Must match a key under `knowledge` in "
                     "src/prompts/cheatsheet/default_cheatsheet.yaml."
                 )
@@ -147,7 +148,7 @@ def _load_cheatsheet(task_type_name: str, target_gpu_model: str, project_root: P
             knowledge_path = project_root / knowledge_file
             parts.append(knowledge_path.read_text())
             logger.info(f"Loaded knowledge cheatsheet for '{target_language}': {knowledge_path}")
-        elif task_type_name == 'repository':
+        elif task_type_name in ('repository', 'image_kernel'):
             known = sorted(knowledge_map.keys())
             raise ValueError(
                 f"Unknown repository_language '{target_language}': not defined under "
@@ -254,6 +255,8 @@ def prompt_builder(task_config_dir: str, workspace_directory: Path, eval_config:
         task_type_prompt = task_type.flydsl2flydsl_task_type()
     elif task_type_name == 'repository':
         task_type_prompt = task_type.repository_task_type()
+    elif task_type_name == 'image_kernel':
+        task_type_prompt = task_type.image_kernel_task_type()
     else:
         raise ValueError(f"Unknown task type: {task_type_name}")
 
@@ -300,7 +303,7 @@ def prompt_builder(task_config_dir: str, workspace_directory: Path, eval_config:
     prompt_sections.append(cheatsheet_prompt)
 
     # 8. Workspace Directory Information
-    if task_type_name == 'repository':
+    if task_type_name in ('repository', 'image_kernel'):
         workspace_info = f"""
 ### Workspace Directory
 Your working directory is: `{workspace_directory}`
