@@ -55,6 +55,20 @@ def _resolve_gpu_arch(eval_config: dict[str, Any]) -> str:
     return _GPU_ARCH_MAP.get(model, "gfx942")
 
 
+def _forge_max_hours(agent_config: dict[str, Any]) -> float:
+    """Derive the forge-loop ``--max-hours`` budget from the run's timeout.
+
+    bootstrap patches ``timeout_seconds`` from the run (KA_TIMEOUT_SECONDS) but
+    NOT ``max_hours`` — so a static ``max_hours`` would cap the loop long before a
+    larger ``timeout_seconds`` takes effect (e.g. a 32h run was still stopped at
+    the default 8h). Track ``timeout_seconds`` with a small margin so the loop
+    self-stops (BUDGET EXHAUSTED) just before the hard process-wait kill. The
+    default timeout (29700s) yields ~8h, matching the previous static cap.
+    """
+    timeout_s = float(agent_config.get("timeout_seconds", 3600))
+    return round(max(0.1, timeout_s / 3600.0 - 0.25), 3)
+
+
 def _repo_subdir_name(task_config: dict[str, Any]) -> str | None:
     """Best-effort name of the repo subdir a repository/image_kernel task lives in."""
     explicit = task_config.get("repo_subdir")
@@ -358,7 +372,7 @@ def launch_agent(eval_config: dict[str, Any], task_config_dir: str, workspace: s
         "--result-json", str(result_json),
         "--snr-threshold", str(agent_config.get("snr_threshold", 30.0)),
         "--max-iters", str(agent_config.get("max_iters", 2)),
-        "--max-hours", str(agent_config.get("max_hours", 0.1)),
+        "--max-hours", str(_forge_max_hours(agent_config)),
         "--gpu-target", gpu_arch,
         "--fellow", fellow,
         "--git-branch", "forge-optimize",
@@ -396,7 +410,7 @@ def launch_agent(eval_config: dict[str, Any], task_config_dir: str, workspace: s
     logger.info(f"  gpu target:  {gpu_arch}")
     logger.info(f"  model:       {model}")
     logger.info(f"  fellow:      {fellow} (inferred from task_type={task_config.get('task_type')!r})")
-    logger.info(f"  budget:      {agent_config.get('max_iters')} iters / {agent_config.get('max_hours')}h")
+    logger.info(f"  budget:      {agent_config.get('max_iters')} iters / {_forge_max_hours(agent_config)}h")
     logger.info(f"  gateway:     {env.get('ANTHROPIC_BASE_URL', '<unset>')}")
     logger.info(f"Running command: {cmd}")
     logger.info("=" * 80)

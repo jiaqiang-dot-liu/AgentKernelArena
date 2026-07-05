@@ -74,6 +74,22 @@ def test_forge_resolve_missing_raises(tmp_path):
 
 
 # --------------------------------------------------------------------------
+# 1b. forge --max-hours must track the run's timeout budget (bootstrap patches
+#     timeout_seconds but not max_hours), otherwise a long run is capped early.
+# --------------------------------------------------------------------------
+def test_forge_max_hours_tracks_timeout():
+    from agents.forge.launch_agent import _forge_max_hours
+
+    # 32h run -> ~31.75h loop budget (15-min margin under the hard kill)
+    assert _forge_max_hours({"timeout_seconds": 115200}) == 31.75
+    # default timeout (29700s) -> ~8h, matching the previous static cap
+    assert _forge_max_hours({"timeout_seconds": 29700}) == 8.0
+    # never negative / never below the floor
+    assert _forge_max_hours({"timeout_seconds": 60}) >= 0.1
+    assert _forge_max_hours({}) >= 0.1
+
+
+# --------------------------------------------------------------------------
 # 2. preprocessing: image_kernel seeds the repo from an in-image path
 #    (copy, no clone), excluding .git, idempotently.
 # --------------------------------------------------------------------------
