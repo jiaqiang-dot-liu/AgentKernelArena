@@ -233,6 +233,32 @@ def _write_program_md(task_config: dict[str, Any], target_funcs, gpu_arch: str, 
     prompt_cfg = task_config.get("prompt") or {}
     instructions = prompt_cfg.get("instructions") or ""
     funcs = ", ".join(target_funcs) if target_funcs else "the target kernel"
+
+    # Level-3 tasks (repository / image_kernel) give the agent a full source tree,
+    # so the target kernel file is often only an ENTRY POINT: the code that governs
+    # its performance may live in other files it includes/imports. Tell the agent
+    # it may follow the implementation across the workspace and edit those files
+    # too. Snippet tasks copy a single self-contained file, so the note is omitted
+    # there to avoid pointing the agent at unrelated files.
+    task_type = str(task_config.get("task_type") or "").strip().lower()
+    scope_section = ""
+    if task_type in ("repository", "image_kernel"):
+        scope_section = f"""
+## Kernel Scope (the target file may not be self-contained)
+`{funcs}` lives in the target kernel file, but the code that governs its
+performance may span OTHER files in this workspace (headers it includes, modules
+it imports, dispatch/config layers, or JIT template sources). You are NOT limited
+to the single target file:
+1. Before editing, use Grep/Glob/Read to trace the real implementation across the
+   repository (includes, imports, call sites, templates) so you edit where the
+   performance-relevant code actually is.
+2. You MAY edit any source file the kernel depends on when that is where the
+   change belongs. The loop stages every tracked source edit, so a cross-file
+   change is validated, benchmarked, and kept/reverted as one unit.
+3. Do NOT edit the measurement files (the test driver / harness / perf helpers);
+   the loop rejects edits to those.
+"""
+
     dest.write_text(
         f"""# Program: optimize {funcs}
 
@@ -242,9 +268,11 @@ def _write_program_md(task_config: dict[str, Any], target_funcs, gpu_arch: str, 
 ## Objective
 Optimize the body of `{funcs}` for maximum performance on {gpu_arch} while
 keeping numerical results correct (the loop gates on an SNR threshold).
-
+{scope_section}
 ## Modification Rules
-1. Make ONE logical change per iteration with a clear hypothesis.
+1. You MAY make multiple changes across several places in the kernel this
+   iteration (not just one); group them under a clear hypothesis so the
+   iteration's effect stays attributable.
 2. Do NOT change the kernel's function signature or parameter list.
 3. Do NOT remove imports or helper utilities in the file.
 4. Correctness, validation, and benchmarking are run automatically by the loop
