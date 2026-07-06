@@ -47,10 +47,11 @@ _GPU_ARCH_MAP = {
 
 
 def _resolve_gpu_arch(eval_config: dict[str, Any]) -> str:
-    """Map the Arena target_gpu_model to a gfx arch (env override wins)."""
-    env_arch = os.environ.get("AGENT_KERNEL_ARENA_GPU_ARCH") or os.environ.get("AKA_GPU_ARCH")
-    if env_arch:
-        return env_arch
+    """Map the Arena ``target_gpu_model`` to a gfx arch (defaults to gfx942).
+
+    The arch is derived solely from the run's ``target_gpu_model`` (always set by
+    the API / config); no environment override is needed.
+    """
     model = str(eval_config.get("target_gpu_model", "")).upper()
     return _GPU_ARCH_MAP.get(model, "gfx942")
 
@@ -58,12 +59,12 @@ def _resolve_gpu_arch(eval_config: dict[str, Any]) -> str:
 def _forge_max_hours(agent_config: dict[str, Any]) -> float:
     """Derive the forge-loop ``--max-hours`` budget from the run's timeout.
 
-    bootstrap patches ``timeout_seconds`` from the run (KA_TIMEOUT_SECONDS) but
-    NOT ``max_hours`` — so a static ``max_hours`` would cap the loop long before a
-    larger ``timeout_seconds`` takes effect (e.g. a 32h run was still stopped at
-    the default 8h). Track ``timeout_seconds`` with a small margin so the loop
-    self-stops (BUDGET EXHAUSTED) just before the hard process-wait kill. The
-    default timeout (29700s) yields ~8h, matching the previous static cap.
+    ``timeout_seconds`` is the single time budget (the API/bootstrap patches it
+    per-run, e.g. 115200 for a 32h run). ``--max-hours`` tracks it with a small
+    margin so the loop self-stops (BUDGET EXHAUSTED) just before the hard
+    process-wait kill instead of being killed mid-iteration. A fixed hours value
+    would ignore the per-run timeout and cap long runs early (a 32h run would
+    stop at ~8h). The default timeout (29700s) yields ~8h.
     """
     timeout_s = float(agent_config.get("timeout_seconds", 3600))
     return round(max(0.1, timeout_s / 3600.0 - 0.25), 3)
