@@ -4,17 +4,18 @@
 **Benchmark hardware:** AMD MI300X = **gfx942 (CDNA3)**
 **Container image:** `flydsl-v0.2.0-rocm7.2.4.sqsh`
 
-All kernel sources in this task suite are pinned to FlyDSL **v0.2.0**. The arena
-is a *complete catalog* of the v0.2.0 `kernels/` compute kernels: kernels that
-cannot run on MI300X are still included here, but are explicitly marked
-`runnable_on_gfx942: false` / `status: skip` and are excluded from the default
-gfx942 benchmark and validation configs.
+All kernel sources in this task suite are pinned to FlyDSL **v0.2.0**. This suite
+contains the gfx942-relevant subset of the v0.2.0 `kernels/`. Kernels that target
+other architectures (RDNA4/gfx1250, RDNA/RDNA3) are not runnable on MI300X and
+have been removed from this suite; they are preserved unchanged on the
+`flydsl2flydsl-skip-tasks-parked` branch for a later pass. The two CDNA4/gfx950
+FP8 GEMMs remain here, catalogued as `status: skip`.
 
 Each task's `config.yaml` carries a machine-readable `platform_support` block:
 
 ```yaml
 platform_support:
-  required_arch: gfx942        # or gfx1250 / rdna / rdna3
+  required_arch: gfx942        # or gfx950
   runnable_on_gfx942: true     # false => catalogued only, not benchmarked
   status: active               # or skip
   skip_reason: ...             # present when status: skip
@@ -51,28 +52,9 @@ FlyDSL validation image does not ship that dependency, so the task is
 |------|----------------------|------------------------|
 | `pa_decode_fp8_kernel` | pa_decode_fp8.py | Requires external `aiter` runtime; self-containment check intentionally fails without it |
 
-## 🟡 Runnable on gfx942 but NOT yet wrapped (candidates, need a harness) (9)
+## 🔴 NOT runnable on MI300X (gfx942) — catalogued, skipped (2)
 
-These v0.2.0 kernels support gfx942 and could expand the suite; each still needs
-a `test_kernel_harness.py` + `config.yaml`.
-
-| Source (`kernels/…`) | Pattern | arch literals |
-|----------------------|---------|---------------|
-| small_m_hgemm.py | GEMM (small-M / decode) | gfx942 |
-| splitk_hgemm.py | GEMM split-K | gfx942 |
-| preshuffle_gemm.py | GEMM (base preshuffle) | gfx942, gfx950 |
-| moe_gemm_2stage.py | MoE 2-stage GEMM | gfx942, gfx950 |
-| moe_blockscale_2stage.py | MoE blockscale 2-stage | gfx942, gfx950 |
-| mixed_moe_gemm_2stage.py | MoE mixed 2-stage | gfx942, gfx950 |
-| mla_fwd_decode.py | MLA attention decode | gfx942 |
-| mla_fwd_decode_m16x8_fp8_fp8.py | MLA fp8 decode | gfx942, gfx950 |
-| qk_norm_rope_quant.py | fused QK-norm + rope + quant | gfx942, gfx950 |
-| custom_all_reduce.py | multi-GPU collective (needs >1 GPU) | gfx942 |
-
-## 🔴 NOT runnable on MI300X (gfx942) — catalogued, skipped (9)
-
-Present in the arena as `status: skip`. Require CDNA4/gfx950, RDNA4/gfx1250
-(WMMA, fp4) or RDNA.
+Present in this suite as `status: skip`. Require CDNA4/gfx950.
 
 ### Requires CDNA4 (gfx950)
 
@@ -89,25 +71,27 @@ the crash surfaces during `--correctness`. Their `config.yaml` is therefore
 | `fp8_gemm_4wave_kernel` | fp8_gemm_4wave.py | gfx950 | 16B `buffer_load_lds` (CDNA4-only); CDNA3 backend cannot legalize → LLVM codegen abort |
 | `fp8_gemm_8wave_kernel` | fp8_gemm_8wave.py | gfx950 | 16B `buffer_load_lds` (CDNA4-only); CDNA3 backend cannot legalize → LLVM codegen abort |
 
-### Requires RDNA4/gfx1250 or RDNA
+### Parked (RDNA4/gfx1250 or RDNA) — moved out of this PR
 
-| Task | Source (`kernels/…`) | Requires | Why not gfx942 |
-|------|----------------------|----------|----------------|
-| `gemm_fp8fp4_gfx1250_kernel` | gemm_fp8fp4_gfx1250.py | gfx1250 | FP8/FP4 WMMA; fp4 path & WMMA absent on CDNA3 |
-| `wmma_gemm_gfx1250_kernel` | wmma_gemm_gfx1250.py | gfx1250 | WMMA matrix ops (gfx942 uses MFMA) |
-| `moe_gemm_2stage_mxscale_gfx1250_kernel` | moe_gemm_2stage_mxscale_gfx1250.py | gfx1250 | MXFP-scale MoE GEMM, gfx1250 path |
-| `moe_gemm_2stage_wmma_gfx1250_kernel` | moe_gemm_2stage_wmma_gfx1250.py | gfx1250 | WMMA MoE GEMM |
-| `rdna3_f16_gemm_kernel` | rdna3_f16_gemm.py | rdna3 | RDNA3 WMMA f16 GEMM |
-| `rdna_f16_gemm_kernel` | rdna_f16_gemm.py | rdna | RDNA-only f16 GEMM |
-| `rdna_fp8_preshuffle_gemm_kernel` | rdna_fp8_preshuffle_gemm.py | rdna | RDNA-only fp8 preshuffle GEMM |
+The following gfx1250 / RDNA kernels are not runnable on MI300X (gfx942) and have
+been removed from this suite. They are preserved unchanged on the
+`flydsl2flydsl-skip-tasks-parked` branch (along with the shared top-level
+`kernels/` helpers they depend on) and can be revisited in a later pass:
+
+- `gemm_fp8fp4_gfx1250_kernel` (gfx1250 — FP8/FP4 WMMA)
+- `wmma_gemm_gfx1250_kernel` (gfx1250 — WMMA matrix ops)
+- `moe_gemm_2stage_mxscale_gfx1250_kernel` (gfx1250 — MXFP-scale MoE GEMM)
+- `moe_gemm_2stage_wmma_gfx1250_kernel` (gfx1250 — WMMA MoE GEMM)
+- `rdna3_f16_gemm_kernel` (rdna3 — RDNA3 WMMA f16 GEMM)
+- `rdna_f16_gemm_kernel` (rdna — RDNA-only f16 GEMM)
+- `rdna_fp8_preshuffle_gemm_kernel` (rdna — RDNA-only fp8 preshuffle GEMM)
 
 ---
 
 ## Notes
-- Shared helper modules (not standalone benchmark kernels): `kernels_common.py`,
-  `mfma_epilogues.py`, `mfma_preshuffle_pipeline.py`, `moe_common.py`,
-  `layout_utils.py`, `dpp_utils.py`, `fp8_gemm_utils.py`, `pipeline_utils.py`,
-  `tensor_shim.py`, plus the `*_common_gfx1250.py` helpers for the gfx1250 GEMMs.
+- Each task is self-contained: the FlyDSL helper modules it needs are vendored
+  under that task's own `kernels/` subfolder. There is no shared top-level
+  `kernels/` folder in this suite.
 - `gfx950` literals appearing alongside `gfx942` are feature-gates (e.g. HW LDS
   transpose, K16 MFMA, 16B LDS DMA). Most kernels fall back to a gfx942 path and
   still run on MI300X — **but `fp8_gemm_4wave` / `fp8_gemm_8wave` do NOT**: they
