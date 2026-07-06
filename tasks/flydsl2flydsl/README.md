@@ -80,10 +80,13 @@ Examples are grouped by **compute pattern** (not by any other “difficulty” s
 | `preshuffle_gemm_v2_kernel` | Preshuffle GEMM v2 (layout API; fp8/fp16/bf16). |
 | `pa_decode_swa_kernel` | Paged-attention decode for sliding-window (partitioned) paths. |
 
-## Shared vendored modules (`tasks/flydsl2flydsl/kernels/`)
+## Vendored FlyDSL helper modules
 
-FlyDSL helper modules used by several examples (same `kernels.` import path as `kernels_common.py` / `tensor_shim.py`):  
-`mfma_epilogues.py`, `mfma_preshuffle_pipeline.py`, `fp8_gemm_utils.py`, `layout_utils.py`, `moe_common.py`, `dpp_utils.py`, `pa_decode_swa.py`, `preshuffle_gemm.py`.
+Each task is fully self-contained: the FlyDSL helper modules it needs are
+vendored inside that task's own `kernels/` subfolder and imported via the
+`kernels.` path (e.g. `kernels_common.py`, `tensor_shim.py`, `mfma_epilogues.py`,
+`fp8_gemm_utils.py`, `layout_utils.py`, `moe_common.py`). There is no shared
+top-level `kernels/` folder.
 
 ## Benchmark config
 
