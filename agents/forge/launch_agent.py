@@ -153,25 +153,6 @@ def _resolve_fellow(task_config: dict[str, Any], agent_config: dict[str, Any]) -
     return f"{_infer_backend(task_config)}-fellow"
 
 
-def _ensure_rtk_shim() -> str:
-    """Provide a no-op `rtk` passthrough on PATH if rtk is not installed.
-
-    KernelForge's agent prompt instructs prefixing shell commands with `rtk`
-    (a token-filtering proxy). When rtk is absent, those Bash calls would fail
-    with 'command not found' and waste agent turns. A trivial passthrough shim
-    (`exec "$@"`) keeps the commands working. Returns the bin dir to prepend.
-    """
-    if shutil.which("rtk"):
-        return ""
-    shim_dir = Path("/tmp/aka-forge-bin")
-    shim_dir.mkdir(parents=True, exist_ok=True)
-    shim = shim_dir / "rtk"
-    if not shim.exists():
-        shim.write_text('#!/usr/bin/env bash\nexec "$@"\n')
-        shim.chmod(0o755)
-    return str(shim_dir)
-
-
 def _git(workspace: str, *args: str, logger: logging.Logger) -> None:
     """Run a git command in the workspace, tolerating non-zero exit."""
     result = subprocess.run(
@@ -428,9 +409,6 @@ def launch_agent(eval_config: dict[str, Any], task_config_dir: str, workspace: s
     env.setdefault("PYTHONUNBUFFERED", "1")
     # The gateway uses bearer auth; ensure x-api-key auth isn't picked instead.
     env.pop("ANTHROPIC_API_KEY", None)
-    shim_dir = _ensure_rtk_shim()
-    if shim_dir:
-        env["PATH"] = f"{shim_dir}:{env.get('PATH', '')}"
 
     logger.info("Forge Preflight")
     logger.info(f"  forge bin:   {forge_bin}")
