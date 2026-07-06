@@ -144,6 +144,94 @@ def _call_kernel(mod, q, kv_buffer, out, cu_seqlens_q, seqused_k, seq_len_k,
     )
 
 
+# Numerical gate: pass if normalized max error <= this.
+NORM_ERR_TOL = 1e-2
+# Also reported (not gating): allclose(atol=rtol=ALLCLOSE_TOL).
+ALLCLOSE_TOL = 1e-2
+
+
+def _ref_masked_attention(q, k, v, scale):
+    """Ported from test_mla.py::ref_masked_attention (bf16 path, no descale).
+
+    q: [query_len, num_query_heads, qk_head_dim]
+    k: [kv_len, num_kv_heads, qk_head_dim]  (qk_head_dim = kv_lora_rank + rope)
+    v: [kv_len, num_kv_heads, kv_lora_rank]
+    Returns out: [query_len, num_query_heads, kv_lora_rank].
+    """
+    import torch
+
+    query_len = q.shape[0]
+    kv_len = k.shape[0]
+    if q.shape[1] != k.shape[1]:
+        k = torch.repeat_interleave(k, q.shape[1] // k.shape[1], dim=1)
+        v = torch.repeat_interleave(v, q.shape[1] // v.shape[1], dim=1)
+    # GEMM at q.dtype (bf16) precision, accumulated in fp32 (matches reference).
+    attn = torch.einsum("qhd,khd->hqk", q, k).float()
+    attn *= scale
+    empty_mask = torch.ones(query_len, kv_len, device=q.device)
+    # Bottom-right aligned causal mask (identical to torch_mla_extend).
+    mask = torch.triu(empty_mask, diagonal=kv_len - query_len + 1).bool()
+    attn.masked_fill_(mask, float("-inf"))
+    attn = torch.softmax(attn, dim=-1)
+    attn = attn.to(q.dtype)
+    v = v.to(q.dtype)
+    out = torch.einsum("hqk,khd->qhd", attn, v)
+    return out
+
+
+def torch_mla_extend(query, kv_buffer, cu_seqlens_q, seq_lens_kv, block_tables,
+                     qk_lora_rank, scale, o_dtype):
+    """Ported from aiter/op_tests/triton_tests/attention/test_mla.py::
+    torch_mla_extend for the EXACT decode config the harness invokes:
+
+      * bf16 q + bf16 (unshuffled) latent KV cache; q_descale / kv_descale /
+        out_scale all None (harness passes None; mla_decode_fwd defaults
+        shuffled_kv_cache=False, q_scales=None, out_scale=None).
+      * causal=True (mla_decode_fwd asserts causal).
+      * softmax_scale = 1/sqrt(qk_head_dim) with qk_head_dim = kv_lora_rank +
+        qk_rope_head_dim (the harness's `scale`); dot product is over the full
+        packed head dim (nope lora part + rope part concatenated).
+      * v is the lora slice of k ([..., :kv_lora_rank]); output over lora_rank.
+      * paged KV: seq i reads block_tables[i, :ceil(kv_len/block_size)],
+        flattened and truncated to kv_len.
+      * GQA: num_kv_heads (1) repeated to num_query_heads inside _ref_masked_attention.
+    """
+    import torch
+
+    _, block_size, num_kv_heads, qk_head_dim = kv_buffer.shape
+    num_seqs = cu_seqlens_q.shape[0] - 1
+
+    outputs = []
+    for i in range(num_seqs):
+        q = query[cu_seqlens_q[i]:cu_seqlens_q[i + 1]]
+        kv_len = int(seq_lens_kv[i])
+        num_kv_blocks = (kv_len + block_size - 1) // block_size
+        block_indices = block_tables[i, :num_kv_blocks]
+        k = kv_buffer[block_indices].view(-1, num_kv_heads, qk_head_dim)
+        k = k[:kv_len]
+        v = k[..., :qk_lora_rank]
+        out = _ref_masked_attention(q, k, v, scale)
+        outputs.append(out)
+
+    out = torch.cat(outputs, dim=0)
+    return out.to(o_dtype)
+
+
+def _compare(ref, out):
+    """Return (norm_err, max_abs_err, allclose) comparing kernel out vs ref."""
+    import torch
+
+    ref_f = ref.float()
+    out_f = out.float()
+    denom = ref_f.abs().max().item()
+    max_abs = (out_f - ref_f).abs().max().item()
+    norm_err = max_abs / denom if denom > 0 else max_abs
+    allclose = bool(
+        torch.allclose(out_f, ref_f, atol=ALLCLOSE_TOL, rtol=ALLCLOSE_TOL)
+    )
+    return norm_err, max_abs, allclose
+
+
 def run_compile():
     try:
         import ast
@@ -184,16 +272,34 @@ def run_correctness():
             ))
             torch.cuda.synchronize()
 
-            ok = bool(torch.isfinite(result.float()).all().item())
+            finite = bool(torch.isfinite(result.float()).all().item())
+
+            ref = torch_mla_extend(
+                q, kv_buffer, cu_seqlens_q, seqused_k, block_table,
+                lora, scale, o_dtype=result.dtype,
+            )
+            norm_err, max_abs, allclose = _compare(ref, result)
+            numeric_ok = finite and (norm_err <= NORM_ERR_TOL)
+            ok = numeric_ok
             details.append({
                 "shape_id": i + 1,
                 "shape": [ns, nt, nqh, nkvh, lora, rope, bs, slk],
                 "out_shape": list(result.shape),
-                "finite": ok,
+                "finite": finite,
+                "norm_err": norm_err,
+                "max_abs_err": max_abs,
+                "allclose@1e-2": allclose,
                 "passed": bool(ok),
             })
-            if not ok:
+            if not finite:
                 return False, f"Shape {i+1} {TEST_SHAPES[i]}: non-finite output", details
+            if not numeric_ok:
+                return (
+                    False,
+                    f"Shape {i+1} {TEST_SHAPES[i]}: norm_err={norm_err:.3e} "
+                    f"> tol={NORM_ERR_TOL:.1e} (max_abs={max_abs:.3e})",
+                    details,
+                )
         except Exception as e:
             details.append({
                 "shape_id": i + 1,
@@ -296,7 +402,9 @@ def main():
         for d in details:
             if "finite" in d:
                 print(f"  shape {d['shape_id']} {d['shape']} -> out {d['out_shape']}: "
-                      f"finite={d['finite']} -> {'PASS' if d['passed'] else 'FAIL'}")
+                      f"finite={d['finite']} norm_err={d['norm_err']:.3e} "
+                      f"max_abs={d['max_abs_err']:.3e} allclose@1e-2={d['allclose@1e-2']} "
+                      f"-> {'PASS' if d['passed'] else 'FAIL'}")
             elif "error" in d:
                 print(f"  shape {d['shape_id']} {d['shape']}: ERROR {d['error']}")
         if err:

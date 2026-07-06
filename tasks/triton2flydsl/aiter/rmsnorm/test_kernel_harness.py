@@ -39,6 +39,9 @@ TEST_SHAPES = [
     {"name": "m768_n2048", "M": 768, "N": 2048},
     {"name": "m64_n512", "M": 64, "N": 512},
     {"name": "m16380_n1536", "M": 16380, "N": 1536},
+    # Wide row past the bf16/fp16 block_size cap (65536//2 = 32768) so N>32768
+    # forces the USE_BLOCKED persistent path in _rms_norm_kernel.
+    {"name": "m64_n40960", "M": 64, "N": 40960},
 ]
 
 DTYPES = ["bf16", "fp16"]

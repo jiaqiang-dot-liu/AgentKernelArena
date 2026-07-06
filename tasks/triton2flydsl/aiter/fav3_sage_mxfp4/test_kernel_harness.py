@@ -95,6 +95,111 @@ def _call_kernel(mod, q, k, v, causal, head_dim):
     )
 
 
+# ---------------------------------------------------------------------------
+# Numerical torch reference (ported from aiter op_tests)
+# ---------------------------------------------------------------------------
+# Ported from /workspaces/meta/aiter/op_tests/triton_tests/attention/test_fav3_sage.py
+# (test_sage_mxfp4), which validates the MXFP4 SageAttention kernel against
+# `attention_ref` from aiter.test_mha_common -- i.e. plain full-precision SDPA
+# with causal / GQA support. The MXFP4 path applies a Hadamard rotation and
+# K-smoothing before FP4 quantization; both are mathematically orthogonal to the
+# softmax result (Hadamard is orthonormal, smooth-K subtracts a per-row constant),
+# so the correct numerical reference is un-quantized attention -- exactly what the
+# upstream test uses.
+#
+# The kernel here is invoked with softmax_scale = 1/sqrt(head_dim) (applied
+# internally by the wrapper), per-shape causal, GQA (hq != hk), no sliding
+# window, and layout="bshd"; this reference mirrors that config.
+#
+# NOTE (gfx950-only): MXFP4 tl.dot_scaled (e2m1) requires CDNA4/gfx950. This
+# reference + gate CANNOT be executed on gfx942 and is therefore
+# gfx950-UNVERIFIED. It is byte-compile clean and structurally identical to the
+# verified int8/fp8 fav3_sage reference.
+
+
+def _attention_reference(q, k, v, softmax_scale, causal):
+    """Full-precision SDPA reference matching attention_ref + the harness config.
+
+    q, k, v: bshd high-precision tensors (B, S, H, D). GQA (hq % hk == 0)
+    supported. Causal masking only (no sliding window in the mxfp4 shapes).
+    Returns bshd output like the kernel.
+    """
+    import torch
+    qf = q.float().permute(0, 2, 1, 3)  # (B, Hq, Sq, D)
+    kf = k.float().permute(0, 2, 1, 3)  # (B, Hk, Sk, D)
+    vf = v.float().permute(0, 2, 1, 3)  # (B, Hk, Sk, D)
+
+    hq, hk = qf.shape[1], kf.shape[1]
+    if hq != hk:
+        assert hq % hk == 0, f"GQA ratio must be integer: hq={hq} hk={hk}"
+        g = hq // hk
+        kf = kf.repeat_interleave(g, dim=1)
+        vf = vf.repeat_interleave(g, dim=1)
+
+    seqlen_q, seqlen_k = qf.shape[2], kf.shape[2]
+    scores = torch.matmul(qf, kf.transpose(-1, -2)) * softmax_scale  # (B, Hq, Sq, Sk)
+
+    if causal:
+        # attention_ref with causal collapses window to (-1, 0): standard causal.
+        row_idx = torch.arange(seqlen_q, device=qf.device).unsqueeze(-1)
+        col_idx = torch.arange(seqlen_k, device=qf.device)
+        # position disallowed when col > row + (sk - sq)
+        causal_mask = col_idx > (row_idx + seqlen_k - seqlen_q)
+        scores = scores.masked_fill(causal_mask, float("-inf"))
+
+    attn = torch.softmax(scores, dim=-1)
+    out = torch.matmul(attn, vf)  # (B, Hq, Sq, D)
+    return out.permute(0, 2, 1, 3).contiguous()  # bshd
+
+
+# Tolerance for the MXFP4-quantized output vs the full-precision reference.
+# MXFP4 uses 2-bit-mantissa e2m1 (with per-32 microscales) for Q/K, which is far
+# coarser than the int8/fp8 sage path, so the quantization noise is substantially
+# larger. The upstream test (test_fav3_sage.py::test_sage_mxfp4) relaxes its
+# per-element budget to max_diff_percentage=1.5 (atol=3e-1 / rtol=2.5e-1); we
+# mirror that budget and pair it with a normalized-max-error gate loosened to
+# 1.5e-1 to reflect the wider fp4 noise (the upstream mxfp4 LSE test is likewise
+# ~2x looser than the int8 one: atol 4e-1/rtol 1e-1 vs 2e-1/5e-2). These bounds
+# are gfx950-UNVERIFIED (cannot run on gfx942).
+ATOL_FP8 = 3.0e-1
+RTOL_FP8 = 2.5e-1
+MAX_DIFF_PCT = 1.5
+NORM_MAX_ERR_TOL = 1.5e-1
+
+
+def _fp8_frac_exceeding(current, reference, atol, rtol):
+    """Fraction (%) of elements exceeding both atol and rtol (fp8_assert_close)."""
+    import torch
+    abs_diff = torch.abs(current - reference)
+    rel_diff = abs_diff / torch.abs(reference.clamp(min=1e-6))
+    failed = torch.logical_and(abs_diff > atol, rel_diff > rtol)
+    return failed.sum().item() / failed.numel() * 100.0
+
+
+def _compare(result, reference):
+    """Return a dict of numerical metrics comparing kernel vs reference."""
+    import torch
+    cur = result.float()
+    ref = reference.float()
+    abs_diff = torch.abs(cur - ref)
+    ref_absmax = ref.abs().max().item()
+    norm_max_err = abs_diff.max().item() / (ref_absmax + 1e-12)
+    frac_pct = _fp8_frac_exceeding(cur, ref, ATOL_FP8, RTOL_FP8)
+    ref_flat = ref.reshape(-1)
+    cur_flat = cur.reshape(-1)
+    cos = torch.nn.functional.cosine_similarity(
+        ref_flat.unsqueeze(0), cur_flat.unsqueeze(0)
+    ).item()
+    return {
+        "max_abs_err": abs_diff.max().item(),
+        "mean_abs_err": abs_diff.mean().item(),
+        "ref_absmax": ref_absmax,
+        "norm_max_err": norm_max_err,
+        "frac_exceeding_pct": frac_pct,
+        "cosine_sim": cos,
+    }
+
+
 def run_compile():
     try:
         import ast
@@ -111,9 +216,16 @@ def run_compile():
 
 
 def run_correctness():
-    # Runs the Triton MXFP4 kernel on TEST_SHAPES and asserts finite output. No torch
-    # comparison: the flydsl-vs-triton comparison is added when the FlyDSL target lands
-    # (the Triton kernel is the reference here).
+    # Runs the Triton MXFP4 kernel on TEST_SHAPES and compares against a
+    # full-precision torch attention reference (ported from aiter
+    # test_fav3_sage.py::test_sage_mxfp4), matching the EXACT config the kernel is
+    # invoked with (softmax_scale=1/sqrt(d), causal, GQA, bshd layout). Keeps the
+    # finite check; the numerical gate is a (fp4-loosened) normalized-max-error
+    # bound plus the upstream fp8 element-wise budget.
+    #
+    # gfx950-ONLY: MXFP4 requires CDNA4/gfx950. On gfx942 this path never runs
+    # (the __main__ guard skips before reaching here); if invoked directly the
+    # kernel raises an arch/mxfp4-unsupported error which is captured per shape.
     import torch
     try:
         mod = load_module()
@@ -123,25 +235,53 @@ def run_correctness():
 
     device = "cuda"
     details = []
+    failures = []
 
     for i, (b, s, hq, hk, d, causal) in enumerate(TEST_SHAPES):
         try:
             torch.manual_seed(42 + i)
             q, k, v = make_test_data(b, s, hq, hk, d, device)
+            scale = 1.0 / (d ** 0.5)
 
             result = _call_kernel(mod, q, k, v, causal, d)
             torch.cuda.synchronize()
 
-            ok = bool(torch.isfinite(result).all().item())
+            finite = bool(torch.isfinite(result).all().item())
+
+            reference = _attention_reference(q, k, v, scale, causal)
+            assert tuple(result.shape) == tuple(reference.shape), (
+                f"shape mismatch: kernel {tuple(result.shape)} vs "
+                f"reference {tuple(reference.shape)}"
+            )
+            m = _compare(result, reference)
+
+            num_ok = m["norm_max_err"] <= NORM_MAX_ERR_TOL and (
+                m["frac_exceeding_pct"] <= MAX_DIFF_PCT
+            )
+            passed = bool(finite and num_ok)
+
             details.append({
                 "shape_id": i + 1,
                 "shape": [b, s, hq, hk, d, causal],
                 "out_shape": list(result.shape),
-                "finite": ok,
-                "passed": ok,
+                "finite": finite,
+                "norm_max_err": m["norm_max_err"],
+                "max_abs_err": m["max_abs_err"],
+                "mean_abs_err": m["mean_abs_err"],
+                "ref_absmax": m["ref_absmax"],
+                "frac_exceeding_pct": m["frac_exceeding_pct"],
+                "cosine_sim": m["cosine_sim"],
+                "norm_max_err_tol": NORM_MAX_ERR_TOL,
+                "passed": passed,
             })
-            if not ok:
-                return False, f"Shape {i+1} {TEST_SHAPES[i]}: non-finite output", details
+            if not finite:
+                failures.append(f"Shape {i+1} {TEST_SHAPES[i]}: non-finite output")
+            elif not num_ok:
+                failures.append(
+                    f"Shape {i+1} {TEST_SHAPES[i]}: numerical mismatch "
+                    f"norm_max_err={m['norm_max_err']:.4e} (tol {NORM_MAX_ERR_TOL:.1e}) "
+                    f"frac_exceeding={m['frac_exceeding_pct']:.4f}% (tol {MAX_DIFF_PCT}%)"
+                )
         except Exception as e:
             import traceback
             details.append({
@@ -151,6 +291,8 @@ def run_correctness():
             })
             return False, f"Shape {i+1} {TEST_SHAPES[i]}: exception: {e}\n{traceback.format_exc()}", details
 
+    if failures:
+        return False, "; ".join(failures), details
     return True, None, details
 
 
@@ -238,7 +380,9 @@ def main():
         for dd in details:
             if "finite" in dd:
                 print(f"  shape {dd['shape_id']} {dd['shape']}: out={dd['out_shape']} "
-                      f"finite={dd['finite']} -> {'PASS' if dd['passed'] else 'FAIL'}")
+                      f"finite={dd['finite']} norm_max_err={dd['norm_max_err']:.4e} "
+                      f"frac_exceeding={dd['frac_exceeding_pct']:.4f}% "
+                      f"cos={dd['cosine_sim']:.6f} -> {'PASS' if dd['passed'] else 'FAIL'}")
             elif "error" in dd:
                 print(f"  shape {dd['shape_id']} {dd['shape']}: ERROR {dd['error']}")
         if err:

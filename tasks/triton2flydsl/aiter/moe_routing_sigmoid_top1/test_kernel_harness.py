@@ -60,6 +60,24 @@ def _make_inputs(M, K, N, device="cuda"):
     return x, w
 
 
+def _torch_routing_ref(x, w, N, fused_shared):
+    # Reference for routing_sigmoid_top1: scores = sigmoid(x @ w) over N experts,
+    # top-1 = argmax (tie_break_left), weight = the max sigmoid score. With a
+    # fused shared expert an extra column (id=N, weight=1.0) is appended.
+    import torch
+
+    scores = torch.sigmoid(x.float() @ w.float())  # [M, N], fp32
+    top_w, top_id = scores.max(dim=1)  # first max index for ties
+    top_id = top_id.to(torch.int32)
+    if fused_shared:
+        ref_ids = torch.stack([top_id, torch.full_like(top_id, N)], dim=1)
+        ref_w = torch.stack([top_w, torch.ones_like(top_w)], dim=1)
+    else:
+        ref_ids = top_id[:, None]
+        ref_w = top_w[:, None]
+    return ref_ids, ref_w, scores
+
+
 def run_compile():
     with open(os.path.join(_HERE, SOURCE_FILE)) as f:
         ast.parse(f.read())
@@ -83,12 +101,38 @@ def run_correctness(verbose=True):
             )
             torch.cuda.synchronize()
 
-            ok = torch.isfinite(weights.float()).all().item() and (ids >= 0).all().item()
+            ref_ids, ref_w, ref_scores = _torch_routing_ref(
+                x, w, shape["N"], shape["shared"]
+            )
+            finite = torch.isfinite(weights.float()).all().item()
+            # Numerical gate: the top-1 sigmoid weights must match the fp32
+            # reference within the fp16 tolerance.
+            w_close = torch.allclose(
+                weights.float(), ref_w, atol=1e-2, rtol=1e-2
+            )
+            # Expert-id gate: accept the kernel's pick when it lands on a
+            # (near-)argmax expert — i.e. the reference score at the kernel's
+            # chosen id is within tol of the reference max — so a benign fp16
+            # tie-break flip is not a false failure.
+            col0_ids = ids[:, 0].long().clamp_max(shape["N"] - 1)
+            chosen_scores = ref_scores.gather(1, col0_ids[:, None]).squeeze(1)
+            ref_max = ref_scores.max(dim=1).values
+            id_ok = bool((ref_max - chosen_scores <= 1e-2).all().item())
+            if shape["shared"]:
+                # Shared-expert column must be exactly (id=N, weight=1.0).
+                id_ok = id_ok and bool((ids[:, 1] == shape["N"]).all().item())
+                w_close = w_close and torch.allclose(
+                    weights[:, 1].float(),
+                    torch.ones_like(ref_w[:, 1]),
+                    atol=1e-3,
+                    rtol=1e-3,
+                )
+            ok = finite and w_close and id_ok
             if verbose:
                 print(
                     f"  {'PASS' if ok else 'FAIL'}: {shape['name']} "
                     f"(M={shape['M']},K={shape['K']},N={shape['N']},shared={shape['shared']}) "
-                    f"ids_shape={tuple(ids.shape)} finite_weights={ok}"
+                    f"finite={finite} weights_close={w_close} id_ok={id_ok}"
                 )
             if not ok:
                 failures.append(shape["name"])

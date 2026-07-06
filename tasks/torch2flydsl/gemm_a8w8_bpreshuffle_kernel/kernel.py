@@ -575,6 +575,9 @@ def tile_chunk_coord_i32(
         raise ValueError(f"chunk_i32 must be one of (1,2,4), got {chunk_i32!r}")
     chunk_off_i32 = arith.constant(i * total_threads * chunk_i32, index=True)
     tile_idx_i32 = tx_i32_base + chunk_off_i32
+    # flydsl 0.2.2 widens an `index` idx2crd input to i64, which makes the
+    # extracted i32 coordinate lower to an invalid `arith.extsi (i64)->i32`.
+    tile_idx_i32 = arith.index_cast(T.i32, tile_idx_i32)
     coord_local = fx.idx2crd(tile_idx_i32, layout_tile_div4)
     row_local = fx.get(coord_local, 0)
     col_local_i32 = fx.get(coord_local, 1)
@@ -1712,12 +1715,20 @@ def compile_preshuffle_gemm_a8(
         # ---- Wave / lane decomposition ----
         wave_size = 64
         layout_wave_lane = fx.make_layout((4, wave_size), (64, 1))
-        coord_wave_lane = fx.idx2crd(tx, layout_wave_lane)
+        # flydsl 0.2.2 casts an `index` idx2crd input to i64, so extracting a
+        # scalar coordinate (get_scalar -> i32) lowers to an invalid
+        # `arith.extsi (i64)->i32`. Feed idx2crd an i32 thread id (the same
+        # convention as tile_chunk_coord_i32) so coordinates stay i32.
+        tx_i32 = fx.arith.index_cast(T.i32, tx)
+        coord_wave_lane = fx.idx2crd(tx_i32, layout_wave_lane)
         wave_id = fx.get(coord_wave_lane, 0)
         lane_id = fx.get(coord_wave_lane, 1)
 
         layout_lane16 = fx.make_layout((4, 16), (16, 1))
-        coord_lane16 = fx.idx2crd(lane_id, layout_lane16)
+        # Keep the idx2crd input i32 (see the tx_i32 note above); fx.get returns
+        # an `index` that flydsl 0.2.2 would otherwise widen to i64.
+        lane_id_i32 = fx.arith.index_cast(T.i32, lane_id)
+        coord_lane16 = fx.idx2crd(lane_id_i32, layout_lane16)
         lane_div_16 = fx.get(coord_lane16, 0)
         lane_mod_16 = fx.get(coord_lane16, 1)
 

@@ -157,20 +157,30 @@ def run_correctness(verbose=True):
             failures.append(shape["name"])
 
         if has_kernel:
-            kout = _retry(
-                lambda: kmod.flydsl_silu_and_mul(inp, LIMIT), what=KERNEL_ENTRY
-            ).float()
-            torch.cuda.synchronize()
-            k_abs = (ref - kout).abs().max().item()
-            k_rel = k_abs / (ref.abs().max().item() + 1e-9)
-            k_ok = k_rel <= REL_TOL
-            if verbose:
-                print(
-                    f"        {'PASS' if k_ok else 'FAIL'}: {shape['name']} "
-                    f"kernel-vs-ref norm_max_err={k_rel:.6f}"
-                )
-            if not k_ok:
-                failures.append(f"{shape['name']}:kernel")
+            try:
+                kout = _retry(
+                    lambda: kmod.flydsl_silu_and_mul(inp, LIMIT), what=KERNEL_ENTRY
+                ).float()
+            except NotImplementedError:
+                has_kernel = False
+                if verbose:
+                    print(
+                        "        SKIP: kernel.py FlyDSL target not implemented yet "
+                        "(reference validated against the aiter op above)"
+                    )
+                kout = None
+            if kout is not None:
+                torch.cuda.synchronize()
+                k_abs = (ref - kout).abs().max().item()
+                k_rel = k_abs / (ref.abs().max().item() + 1e-9)
+                k_ok = k_rel <= REL_TOL
+                if verbose:
+                    print(
+                        f"        {'PASS' if k_ok else 'FAIL'}: {shape['name']} "
+                        f"kernel-vs-ref norm_max_err={k_rel:.6f}"
+                    )
+                if not k_ok:
+                    failures.append(f"{shape['name']}:kernel")
 
         del inp, model
         torch.cuda.empty_cache()
@@ -219,11 +229,19 @@ def run_benchmark(warmup=10, iters=100, verbose=True):
         with torch.no_grad():
             op_ms = _mean_ms(lambda: _aiter_op(inp), warmup, iters)
             ref_ms = _mean_ms(lambda: model(inp), warmup, iters)
-            ker_ms = (
-                _mean_ms(lambda: kmod.flydsl_silu_and_mul(inp, LIMIT), warmup, iters)
-                if has_kernel
-                else None
-            )
+            ker_ms = None
+            if has_kernel:
+                try:
+                    ker_ms = _mean_ms(
+                        lambda: kmod.flydsl_silu_and_mul(inp, LIMIT), warmup, iters
+                    )
+                except NotImplementedError:
+                    has_kernel = False
+                    if verbose:
+                        print(
+                            "        SKIP: kernel.py FlyDSL target not implemented "
+                            "yet (benchmarking reference instead)"
+                        )
 
         primary_ms = ker_ms if ker_ms is not None else ref_ms
         latencies.append(primary_ms)

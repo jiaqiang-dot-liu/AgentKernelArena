@@ -2,7 +2,6 @@ source_file_path:
 - kernel.py
 target_kernel_functions:
 - flydsl_gelu_fast
-- build_gelu_fast_module
 compile_command:
 - python3 -c "import model, kernel; print('compile ok')"
 correctness_command:

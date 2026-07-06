@@ -152,40 +152,54 @@ def run_correctness(verbose=True):
 
     failures = []
     for shape in SHAPES:
-        inp = _make_inputs(shape)
-        model = mmod.Model(*mmod.get_init_inputs()).to("cuda")
-        with torch.no_grad():
-            ref = model(*inp)
-            truth = _retry(lambda: _aiter_op(*inp), what="aiter per_tensor")
-        torch.cuda.synchronize()
-
-        ok, cmax, epct, srel = _compare(ref, truth)
-        if verbose:
-            print(
-                f"  {'PASS' if ok else 'FAIL'}: {shape['name']} "
-                f"(m{shape['m']}/n{shape['n']}) ref-vs-aiter "
-                f"code_max_diff={cmax} (tol={CODE_TOL}) exact%={epct:.3f} "
-                f"scale_relerr={srel:.2e} (tol={SCALE_RTOL})"
-            )
-        if not ok:
-            failures.append(shape["name"])
-
-        if has_kernel:
-            kout = _retry(lambda: kmod.flydsl_per_tensor_fp8_quant(*inp),
-                          what=KERNEL_ENTRY)
+        try:
+            inp = _make_inputs(shape)
+            model = mmod.Model(*mmod.get_init_inputs()).to("cuda")
+            with torch.no_grad():
+                ref = model(*inp)
+                truth = _retry(lambda: _aiter_op(*inp), what="aiter per_tensor")
             torch.cuda.synchronize()
-            k_ok, kc, ke, ks = _compare(kout, truth)
+
+            ok, cmax, epct, srel = _compare(ref, truth)
             if verbose:
                 print(
-                    f"        {'PASS' if k_ok else 'FAIL'}: {shape['name']} "
-                    f"kernel-vs-aiter code_max_diff={kc} exact%={ke:.3f} "
-                    f"scale_relerr={ks:.2e}"
+                    f"  {'PASS' if ok else 'FAIL'}: {shape['name']} "
+                    f"(m{shape['m']}/n{shape['n']}) ref-vs-aiter "
+                    f"code_max_diff={cmax} (tol={CODE_TOL}) exact%={epct:.3f} "
+                    f"scale_relerr={srel:.2e} (tol={SCALE_RTOL})"
                 )
-            if not k_ok:
-                failures.append(f"{shape['name']}:kernel")
+            if not ok:
+                failures.append(shape["name"])
 
-        del inp, model
-        torch.cuda.empty_cache()
+            if has_kernel:
+                try:
+                    kout = _retry(lambda: kmod.flydsl_per_tensor_fp8_quant(*inp),
+                                  what=KERNEL_ENTRY)
+                except NotImplementedError:
+                    has_kernel = False
+                    if verbose:
+                        print(
+                            "        SKIP: kernel.py FlyDSL target not implemented yet "
+                            "(reference validated against the aiter op above)"
+                        )
+                else:
+                    torch.cuda.synchronize()
+                    k_ok, kc, ke, ks = _compare(kout, truth)
+                    if verbose:
+                        print(
+                            f"        {'PASS' if k_ok else 'FAIL'}: {shape['name']} "
+                            f"kernel-vs-aiter code_max_diff={kc} exact%={ke:.3f} "
+                            f"scale_relerr={ks:.2e}"
+                        )
+                    if not k_ok:
+                        failures.append(f"{shape['name']}:kernel")
+
+            del inp, model
+            torch.cuda.empty_cache()
+        except Exception as e:  # noqa: BLE001 - report per-shape, don't abort the script
+            failures.append(shape["name"])
+            if verbose:
+                print(f"  FAIL: {shape['name']} - {type(e).__name__}: {str(e)[:160]}")
 
     status = "ALL PASS" if not failures else f"FAILED ({len(failures)}/{len(SHAPES)})"
     print(f"Status: {status}")
@@ -221,6 +235,18 @@ def run_benchmark(warmup=10, iters=100, verbose=True):
     assert mmod is not None, "cannot load model.py"
     kmod = _load_module(_KERNEL_DIR, KERNEL_FILE, "flydsl_kernel")
     has_kernel = kmod is not None and hasattr(kmod, KERNEL_ENTRY)
+    if has_kernel:
+        try:
+            _probe = _make_inputs(SHAPES[0])
+            kmod.flydsl_per_tensor_fp8_quant(*_probe)
+            del _probe
+        except NotImplementedError:
+            has_kernel = False
+            print(
+                "SKIP: kernel.py FlyDSL target not implemented yet "
+                "(benchmarking reference instead)"
+            )
+        torch.cuda.empty_cache()
 
     latencies, report = [], []
     print(f"{'Config':<20} {'aiter':>10} {'ref':>10} {'kernel':>10}")

@@ -71,6 +71,70 @@ def _call_kernel(mod, q, k, v, scale, causal):
     )
 
 
+# Numerical gate: pass if normalized max error <= this.
+NORM_ERR_TOL = 1e-2
+# Also reported (not gating): allclose(atol=rtol=ALLCLOSE_TOL).
+ALLCLOSE_TOL = 1e-2
+
+
+def torch_mha_ref(q, k, v, scale, causal):
+    """fp32-upcast torch reference for the forward MHA the harness invokes.
+
+    Ported from aiter/op_tests/test_mha.py::run_torch -> attention_ref
+    (aiter/aiter/test_mha_common.py::attention_ref) for the EXACT config the
+    harness uses: bshd layout [batch, seqlen, nheads, head_dim], dense (no
+    query/key padding), no bias, no alibi, no dropout, no sink, no sliding
+    window. Only the causal flag, softmax scale, and GQA head-repetition are
+    configurable (mirrors the flash_attn_func call in _call_kernel).
+
+      * scale: the same softmax_scale passed to the kernel (== 1/sqrt(head_dim)),
+        applied as (q * scale) @ k^T -> exactly attention_ref's q/sqrt(d) since
+        head_dim == d.
+      * GQA: k/v have nkvh heads, repeated g = nqh // nkvh times along the head
+        axis (attention_ref uses einops `repeat b s h d -> b s (h g) d`;
+        repeat_interleave on the head dim is the equivalent grouping).
+      * causal: attention_ref maps causal -> window_size=(-1, 0), i.e.
+        mask where col_idx > row_idx + seqlen_k - seqlen_q (bottom-right
+        aligned). seqlen_q == seqlen_k here, so this is the standard lower-tri.
+    """
+    import torch
+
+    q_ = q.float()
+    k_ = k.float()
+    v_ = v.float()
+    b, sq, hq, d = q_.shape
+    _, sk, hk, dv = v_.shape
+    g = hq // hk
+    if g != 1:
+        k_ = k_.repeat_interleave(g, dim=2)
+        v_ = v_.repeat_interleave(g, dim=2)
+
+    scores = torch.einsum("bthd,bshd->bhts", q_ * scale, k_)
+    if causal:
+        row = torch.arange(sq, device=q.device).view(sq, 1)
+        col = torch.arange(sk, device=q.device).view(1, sk)
+        local_mask = col > (row + sk - sq)
+        scores = scores.masked_fill(local_mask, float("-inf"))
+    attn = torch.softmax(scores, dim=-1)
+    out = torch.einsum("bhts,bshd->bthd", attn, v_)
+    return out.to(q.dtype)
+
+
+def _compare(ref, out):
+    """Return (norm_err, max_abs_err, allclose) comparing kernel out vs ref."""
+    import torch
+
+    ref_f = ref.float()
+    out_f = out.float()
+    denom = ref_f.abs().max().item()
+    max_abs = (out_f - ref_f).abs().max().item()
+    norm_err = max_abs / denom if denom > 0 else max_abs
+    allclose = bool(
+        torch.allclose(out_f, ref_f, atol=ALLCLOSE_TOL, rtol=ALLCLOSE_TOL)
+    )
+    return norm_err, max_abs, allclose
+
+
 def _with_oom_retry(fn):
     """Retry on transient CUDA OOM (other workers share the GPU)."""
     import torch
@@ -125,16 +189,31 @@ def run_correctness():
             result = _with_oom_retry(lambda: _call_kernel(mod, q, k, v, scale, causal))
             torch.cuda.synchronize()
 
-            ok = bool(torch.isfinite(result).all().item())
+            finite = bool(torch.isfinite(result).all().item())
+
+            ref = torch_mha_ref(q, k, v, scale, causal)
+            norm_err, max_abs, allclose = _compare(ref, result)
+            numeric_ok = finite and (norm_err <= NORM_ERR_TOL)
+            ok = numeric_ok
             details.append({
                 "shape_id": i + 1,
                 "shape": [batch, seqlen, nqh, nkvh, hs, causal],
                 "out_shape": list(result.shape),
-                "finite": ok,
+                "finite": finite,
+                "norm_err": norm_err,
+                "max_abs_err": max_abs,
+                "allclose@1e-2": allclose,
                 "passed": ok,
             })
-            if not ok:
+            if not finite:
                 return False, f"Shape {i+1} {TEST_SHAPES[i]}: non-finite output", details
+            if not numeric_ok:
+                return (
+                    False,
+                    f"Shape {i+1} {TEST_SHAPES[i]}: norm_err={norm_err:.3e} "
+                    f"> tol={NORM_ERR_TOL:.1e} (max_abs={max_abs:.3e})",
+                    details,
+                )
         except Exception as e:
             details.append({
                 "shape_id": i + 1,
@@ -231,7 +310,9 @@ def main():
         for d in details:
             if "finite" in d:
                 print(f"  shape {d['shape_id']} {d['shape']}: out={d['out_shape']} "
-                      f"finite={d['finite']} -> {'PASS' if d['passed'] else 'FAIL'}")
+                      f"finite={d['finite']} norm_err={d['norm_err']:.3e} "
+                      f"max_abs={d['max_abs_err']:.3e} allclose@1e-2={d['allclose@1e-2']} "
+                      f"-> {'PASS' if d['passed'] else 'FAIL'}")
             elif "error" in d:
                 print(f"  shape {d['shape_id']} {d['shape']}: ERROR {d['error']}")
         if err:

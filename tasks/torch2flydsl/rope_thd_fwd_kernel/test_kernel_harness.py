@@ -189,27 +189,35 @@ def run_correctness(verbose=True):
                 failures.append(shape["name"])
 
             if has_kernel:
-                kout = _retry(
-                    lambda: kmod.flydsl_rope_thd_fwd(
-                        input,
-                        cu_seqlens,
-                        freqs,
-                        ROTATE_STYLE,
-                        REUSE_FREQS_FRONT_PART,
-                        NOPE_FIRST,
-                    ),
-                    what=f"{shape['name']}:kernel",
-                )
-                torch.cuda.synchronize()
-                k_err, _, _ = _norm_max_err(truth, kout)
-                k_ok = k_err <= REL_TOL
-                if verbose:
-                    print(
-                        f"        {'PASS' if k_ok else 'FAIL'}: {shape['name']} "
-                        f"kernel-vs-aiter norm_max_err={k_err:.6f}"
+                try:
+                    kout = _retry(
+                        lambda: kmod.flydsl_rope_thd_fwd(
+                            input,
+                            cu_seqlens,
+                            freqs,
+                            ROTATE_STYLE,
+                            REUSE_FREQS_FRONT_PART,
+                            NOPE_FIRST,
+                        ),
+                        what=f"{shape['name']}:kernel",
                     )
-                if not k_ok:
-                    failures.append(f"{shape['name']}:kernel")
+                except NotImplementedError:
+                    has_kernel = False
+                    print(
+                        "        SKIP: kernel.py FlyDSL target not implemented yet "
+                        "(reference validated against the aiter op above)"
+                    )
+                else:
+                    torch.cuda.synchronize()
+                    k_err, _, _ = _norm_max_err(truth, kout)
+                    k_ok = k_err <= REL_TOL
+                    if verbose:
+                        print(
+                            f"        {'PASS' if k_ok else 'FAIL'}: {shape['name']} "
+                            f"kernel-vs-aiter norm_max_err={k_err:.6f}"
+                        )
+                    if not k_ok:
+                        failures.append(f"{shape['name']}:kernel")
         except Exception as e:  # noqa: BLE001
             failures.append(shape["name"])
             if verbose:

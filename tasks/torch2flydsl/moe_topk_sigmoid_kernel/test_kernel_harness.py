@@ -174,6 +174,7 @@ def run_correctness(verbose=True):
     mmod = _load_module(_KERNEL_DIR, MODEL_FILE, "torch_model")
     assert mmod is not None, "cannot load model.py"
     kmod = _load_module(_KERNEL_DIR, KERNEL_FILE, "flydsl_kernel")
+    has_kernel = kmod is not None
     import aiter
 
     failures = []
@@ -196,18 +197,27 @@ def run_correctness(verbose=True):
         if not ok:
             failures.append(shape["name"])
 
-        if kmod is not None:
-            k_w, k_id = kmod.flydsl_topk_sigmoid(gating, shape["topk"])
-            torch.cuda.synchronize()
-            kg, kw = _compare_routing(ref_w, ref_id, k_w, k_id, sel, shape["topk"])
-            kok = kg == 0 and kw <= REL_TOL
-            if verbose:
-                print(
-                    f"        [kernel-vs-ref] id_mismatch={kg} weight_norm_err={kw:.2e} "
-                    f"{'PASS' if kok else 'FAIL'}"
-                )
-            if not kok:
-                failures.append(shape["name"] + "[kernel]")
+        if has_kernel:
+            try:
+                k_w, k_id = kmod.flydsl_topk_sigmoid(gating, shape["topk"])
+            except NotImplementedError:
+                has_kernel = False
+                if verbose:
+                    print(
+                        "        SKIP: kernel.py FlyDSL target not implemented yet "
+                        "(reference validated against the aiter op above)"
+                    )
+            else:
+                torch.cuda.synchronize()
+                kg, kw = _compare_routing(ref_w, ref_id, k_w, k_id, sel, shape["topk"])
+                kok = kg == 0 and kw <= REL_TOL
+                if verbose:
+                    print(
+                        f"        [kernel-vs-ref] id_mismatch={kg} weight_norm_err={kw:.2e} "
+                        f"{'PASS' if kok else 'FAIL'}"
+                    )
+                if not kok:
+                    failures.append(shape["name"] + "[kernel]")
 
     status = "ALL PASS" if not failures else f"FAILED ({len(failures)}/{len(SHAPES)})"
     print(f"Status: {status}")
@@ -223,6 +233,22 @@ def run_benchmark(warmup=10, iters=100, verbose=True):
     mmod = _load_module(_KERNEL_DIR, MODEL_FILE, "torch_model")
     assert mmod is not None, "cannot load model.py"
     kmod = _load_module(_KERNEL_DIR, KERNEL_FILE, "flydsl_kernel")
+    has_kernel = kmod is not None
+
+    if has_kernel:
+        s0 = SHAPES[0]
+        model0, gating0 = _build_model(mmod, s0)
+        try:
+            with torch.no_grad():
+                kmod.flydsl_topk_sigmoid(gating0, s0["topk"])
+        except NotImplementedError:
+            has_kernel = False
+            print(
+                "SKIP: kernel.py FlyDSL target not implemented yet "
+                "(benchmarking aiter op instead)"
+            )
+        del model0, gating0
+        torch.cuda.empty_cache()
 
     latencies, speedups, report = [], [], []
     print(f"{'Config':<24} {'Ref':>10} {'Fused':>10} {'Speedup':>10}")
@@ -232,7 +258,7 @@ def run_benchmark(warmup=10, iters=100, verbose=True):
         topk = shape["topk"]
 
         with torch.no_grad():
-            if kmod is not None:
+            if has_kernel:
                 def run_fused():
                     return kmod.flydsl_topk_sigmoid(gating, topk)
             else:

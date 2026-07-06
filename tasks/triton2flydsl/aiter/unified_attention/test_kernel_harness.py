@@ -139,6 +139,116 @@ def run_compile():
         return False, str(e)
 
 
+def ref_paged_attn(
+    query,
+    key_cache,
+    value_cache,
+    query_lens,
+    kv_lens,
+    block_tables,
+    scale,
+    out_dtype,
+    sliding_window=None,
+    soft_cap=None,
+    sinks=None,
+    q_descale=None,
+    k_descale=None,
+    v_descale=None,
+    output_scale=None,
+    causal=1,
+):
+    """Torch reference for paged unified attention.
+
+    Ported verbatim from aiter/op_tests/triton_tests/attention/
+    test_unified_attention.py::ref_paged_attn so it mirrors the exact
+    causal / GQA / sliding-window / softcap semantics the triton kernel
+    implements. All accumulation happens in fp32; output is cast to
+    ``out_dtype`` at the end, matching the kernel's bf16 store path.
+    """
+    import torch
+
+    num_seqs = len(query_lens)
+    block_tables = block_tables.cpu().numpy()
+    _, block_size, num_kv_heads, head_size = key_cache.shape
+    outputs = []
+    start_idx = 0
+    query = query.to(torch.float32)
+    key_cache = key_cache.to(torch.float32)
+    value_cache = value_cache.to(torch.float32)
+    if q_descale is not None:
+        query = query * q_descale
+    if k_descale is not None:
+        key_cache = key_cache * k_descale
+    if v_descale is not None:
+        value_cache = value_cache * v_descale
+    for i in range(num_seqs):
+        query_len = query_lens[i]
+        kv_len = kv_lens[i]
+        q = query[start_idx : start_idx + query_len]
+        q = q * scale
+
+        num_kv_blocks = (kv_len + block_size - 1) // block_size
+        block_indices = block_tables[i, :num_kv_blocks]
+
+        k = key_cache[block_indices].view(-1, num_kv_heads, head_size)
+        k = k[:kv_len]
+        v = value_cache[block_indices].view(-1, num_kv_heads, head_size)
+        v = v[:kv_len]
+
+        if q.shape[1] != k.shape[1]:
+            k = torch.repeat_interleave(k, q.shape[1] // k.shape[1], dim=1)
+            v = torch.repeat_interleave(v, q.shape[1] // v.shape[1], dim=1)
+        attn = torch.einsum("qhd,khd->hqk", q, k).float()
+        empty_mask = torch.ones(query_len, kv_len, device=q.device)
+        mask = torch.triu(empty_mask, diagonal=kv_len - query_len + 1).bool()
+        if sliding_window is not None:
+            sliding_window_mask = (
+                torch.triu(
+                    empty_mask, diagonal=kv_len - (query_len + sliding_window) + 1
+                )
+                .bool()
+                .logical_not()
+            )
+            mask |= sliding_window_mask
+        if soft_cap is not None and soft_cap > 0:
+            attn = soft_cap * torch.tanh(attn / soft_cap)
+        if causal:
+            attn.masked_fill_(mask, float("-inf"))
+        if sinks is not None:
+            s_aux = sinks[:, None, None].repeat_interleave(attn.shape[-2], dim=-2)
+            attn = torch.cat((attn, s_aux), dim=-1)
+        attn = torch.softmax(attn, dim=-1).to(v.dtype)
+        if sinks is not None:
+            attn = attn[..., :-1]
+        out = torch.einsum("hqk,khd->qhd", attn, v)
+        outputs.append(out)
+        start_idx += query_len
+
+    out = torch.cat(outputs, dim=0)
+    if output_scale is not None:
+        out = out / output_scale
+
+    return out.to(out_dtype)
+
+
+def _norm_max_error(ref, out):
+    """Normalized max error: max|ref-out| / max(|ref|, eps), computed in fp32."""
+    import torch
+
+    ref = ref.to(torch.float32)
+    out = out.to(torch.float32)
+    denom = ref.abs().max().item()
+    denom = denom if denom > 1e-12 else 1e-12
+    max_abs = (ref - out).abs().max().item()
+    return max_abs / denom, max_abs, denom
+
+
+# Tight numerical gate (bf16). Do NOT loosen.
+NORM_ERR_TOL = 1e-2
+ALLCLOSE_ATOL = 1e-2
+ALLCLOSE_RTOL = 1e-2
+
+
 def run_correctness():
     import torch
     try:
@@ -149,6 +259,8 @@ def run_correctness():
     device = "cuda"
     dtype = torch.bfloat16
     details = []
+    all_pass = True
+    first_err = None
 
     for i, (num_seqs, seq_len_q, seq_len_k, nqh, nkvh, hs, bs, sliding_window, softcap) in enumerate(TEST_SHAPES):
         try:
@@ -162,15 +274,51 @@ def run_correctness():
             )
             torch.cuda.synchronize()
 
-            ok = bool(torch.isfinite(result.float()).all().item())
+            finite = bool(torch.isfinite(result.float()).all().item())
+
+            # Numerical reference matching the EXACT kernel config:
+            #  causal=True, GQA via repeat_interleave, softmax_scale=1/sqrt(hs),
+            #  paged KV via block_table, sliding window = SLIDING_WINDOW value,
+            #  softcap, bf16, no sinks / no descales (harness passes None).
+            ref = ref_paged_attn(
+                query=q,
+                key_cache=key_cache,
+                value_cache=value_cache,
+                query_lens=[seq_len_q] * num_seqs,
+                kv_lens=[seq_len_k] * num_seqs,
+                block_tables=block_table,
+                scale=scale,
+                out_dtype=dtype,
+                sliding_window=(sliding_window if sliding_window and sliding_window > 0 else None),
+                soft_cap=(softcap if softcap and softcap > 0 else None),
+                causal=1,
+            )
+
+            norm_err, max_abs, denom = _norm_max_error(ref, result)
+            allclose = bool(torch.allclose(
+                result.to(torch.float32), ref.to(torch.float32),
+                atol=ALLCLOSE_ATOL, rtol=ALLCLOSE_RTOL,
+            ))
+            numeric_ok = norm_err <= NORM_ERR_TOL
+            passed = bool(finite and numeric_ok)
+            all_pass = all_pass and passed
+
             details.append({
                 "shape_id": i + 1,
                 "shape": [num_seqs, seq_len_q, seq_len_k, nqh, nkvh, hs, bs, sliding_window, softcap],
-                "finite": ok,
-                "passed": bool(ok),
+                "finite": finite,
+                "norm_max_error": norm_err,
+                "max_abs_error": max_abs,
+                "ref_absmax": denom,
+                "allclose@1e-2": allclose,
+                "passed": passed,
             })
-            if not ok:
-                return False, f"Shape {i+1} {TEST_SHAPES[i]}: non-finite output", details
+            if not passed and first_err is None:
+                if not finite:
+                    first_err = f"Shape {i+1} {TEST_SHAPES[i]}: non-finite output"
+                else:
+                    first_err = (f"Shape {i+1} {TEST_SHAPES[i]}: norm_max_error="
+                                 f"{norm_err:.3e} > {NORM_ERR_TOL:.0e}")
         except Exception as e:
             details.append({
                 "shape_id": i + 1,
@@ -179,7 +327,7 @@ def run_correctness():
             })
             return False, f"Shape {i+1} {TEST_SHAPES[i]}: exception: {e}", details
 
-    return True, None, details
+    return all_pass, first_err, details
 
 
 def run_performance():
@@ -273,6 +421,9 @@ def main():
         for d in details:
             if "finite" in d:
                 print(f"  shape {d['shape_id']} {d['shape']}: finite={d['finite']} "
+                      f"norm_max_err={d['norm_max_error']:.3e} "
+                      f"(max_abs={d['max_abs_error']:.3e}, ref_absmax={d['ref_absmax']:.3e}) "
+                      f"allclose@1e-2={d['allclose@1e-2']} "
                       f"-> {'PASS' if d['passed'] else 'FAIL'}")
             elif "error" in d:
                 print(f"  shape {d['shape_id']} {d['shape']}: ERROR {d['error']}")

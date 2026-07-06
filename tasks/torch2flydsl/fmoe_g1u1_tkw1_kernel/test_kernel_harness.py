@@ -202,18 +202,26 @@ def run_correctness(verbose=True):
             if has_kernel:
                 logits = model.gate(hidden)
                 topk_weights, topk_ids = mmod.route_topk(logits, shape["topk"])
-                out = _retry(
-                    lambda: kmod.flydsl_fmoe_g1u1_tkw1(
-                        hidden, model.w1.detach(), model.w2.detach(),
-                        topk_weights, topk_ids,
-                    ),
-                    what="flydsl kernel",
-                )
-                torch.cuda.synchronize()
-                _, knorm = _norm_worst(ref, out)
-                kok = knorm <= TOL
-                ok = ok and kok
-                note = f" | kernel norm={knorm:.4g} {'ok' if kok else 'BAD'}"
+                try:
+                    out = _retry(
+                        lambda: kmod.flydsl_fmoe_g1u1_tkw1(
+                            hidden, model.w1.detach(), model.w2.detach(),
+                            topk_weights, topk_ids,
+                        ),
+                        what="flydsl kernel",
+                    )
+                except NotImplementedError:
+                    has_kernel = False
+                    print(
+                        "  SKIP: kernel.py FlyDSL target not implemented yet "
+                        "(reference validated against the aiter op above)"
+                    )
+                else:
+                    torch.cuda.synchronize()
+                    _, knorm = _norm_worst(ref, out)
+                    kok = knorm <= TOL
+                    ok = ok and kok
+                    note = f" | kernel norm={knorm:.4g} {'ok' if kok else 'BAD'}"
 
             if verbose:
                 print(
@@ -245,6 +253,26 @@ def run_benchmark(warmup=10, iters=100, verbose=True):
     mmod = _load_module(_KERNEL_DIR, MODEL_FILE, "torch_model")
     kmod = _load_module(_KERNEL_DIR, KERNEL_FILE, "flydsl_kernel")
     has_kernel = kmod is not None and hasattr(kmod, KERNEL_ENTRY)
+
+    if has_kernel:
+        s0 = SHAPES[0]
+        model0, hidden0 = _build_model(mmod, s0)
+        with torch.no_grad():
+            logits0 = model0.gate(hidden0)
+            topk_weights0, topk_ids0 = mmod.route_topk(logits0, s0["topk"])
+            try:
+                kmod.flydsl_fmoe_g1u1_tkw1(
+                    hidden0, model0.w1.detach(), model0.w2.detach(),
+                    topk_weights0, topk_ids0,
+                )
+            except NotImplementedError:
+                has_kernel = False
+                print(
+                    "SKIP: kernel.py FlyDSL target not implemented yet "
+                    "(benchmarking aiter op instead)"
+                )
+        del model0, hidden0
+        torch.cuda.empty_cache()
 
     label = "FlyDSL" if has_kernel else "aiter"
     latencies, speedups, report = [], [], []

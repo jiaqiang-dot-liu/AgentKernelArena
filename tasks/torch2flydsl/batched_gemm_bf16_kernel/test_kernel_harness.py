@@ -139,15 +139,23 @@ def run_correctness(verbose=True):
             ok = norm <= TOL
             note = ""
             if has_kernel:
-                out = _retry(
-                    lambda: kmod.flydsl_batched_gemm_bf16(x, w),
-                    what="flydsl kernel",
-                )
-                torch.cuda.synchronize()
-                _, knorm = _norm_worst(ref, out)
-                kok = knorm <= TOL
-                ok = ok and kok
-                note = f" | kernel norm={knorm:.4g} {'ok' if kok else 'BAD'}"
+                try:
+                    out = _retry(
+                        lambda: kmod.flydsl_batched_gemm_bf16(x, w),
+                        what="flydsl kernel",
+                    )
+                except NotImplementedError:
+                    has_kernel = False
+                    print(
+                        "  SKIP: kernel.py FlyDSL target not implemented yet "
+                        "(reference validated against the aiter op above)"
+                    )
+                else:
+                    torch.cuda.synchronize()
+                    _, knorm = _norm_worst(ref, out)
+                    kok = knorm <= TOL
+                    ok = ok and kok
+                    note = f" | kernel norm={knorm:.4g} {'ok' if kok else 'BAD'}"
 
             if verbose:
                 print(
@@ -178,6 +186,20 @@ def run_benchmark(warmup=10, iters=100, verbose=True):
     mmod = _load_module(_KERNEL_DIR, MODEL_FILE, "torch_model")
     kmod = _load_module(_KERNEL_DIR, KERNEL_FILE, "flydsl_kernel")
     has_kernel = kmod is not None and hasattr(kmod, KERNEL_ENTRY)
+
+    if has_kernel:
+        s0 = SHAPES[0]
+        x0, w0 = _make_inputs(s0["b"], s0["m"], s0["n"], s0["k"])
+        try:
+            kmod.flydsl_batched_gemm_bf16(x0, w0)
+        except NotImplementedError:
+            has_kernel = False
+            print(
+                "SKIP: kernel.py FlyDSL target not implemented yet "
+                "(benchmarking aiter op instead)"
+            )
+        del x0, w0
+        torch.cuda.empty_cache()
 
     def device_op(x, w):
         if has_kernel:

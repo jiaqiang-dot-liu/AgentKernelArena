@@ -118,6 +118,34 @@ def _call_kernel(mod, max_seq_len, seq_offsets, jagged, dense, bias, elementwise
     )
 
 
+def _torch_ref(seq_offsets, jagged, dense, bias, elementwise):
+    """Reference for jagged x dense bmm + broadcast bias-add.
+
+    For each batch ``b`` the segment ``jagged[off[b]:off[b+1]] @ dense[b]``
+    ([M_b, K] @ [K, N]) is added to either a per-row bias ``bias[off[b]:off[b+1]]``
+    (elementwise) or a per-batch broadcast bias ``bias[b]`` ([N]). fp32 matmul,
+    result cast back to the jagged dtype (matching the kernel's fp32 accumulate).
+    """
+    import torch
+
+    B = dense.shape[0]
+    N = dense.shape[2]
+    total_rows = jagged.shape[0]
+    out = torch.zeros((total_rows, N), dtype=jagged.dtype, device=jagged.device)
+    for b in range(B):
+        s = int(seq_offsets[b].item())
+        e = int(seq_offsets[b + 1].item())
+        if e <= s:
+            continue
+        seg = jagged[s:e].float() @ dense[b].float()  # [M_b, N]
+        if elementwise:
+            seg = seg + bias[s:e].float()
+        else:
+            seg = seg + bias[b].float().unsqueeze(0)
+        out[s:e] = seg.to(jagged.dtype)
+    return out
+
+
 def run_compile():
     try:
         import ast
@@ -156,19 +184,34 @@ def run_correctness():
             result = _call_kernel(mod, msl, seq_offsets, jagged, dense, bias, elementwise)
             torch.cuda.synchronize()
 
+            ref = _torch_ref(seq_offsets, jagged, dense, bias, elementwise)
             ok = bool(torch.isfinite(result.float()).all().item())
             shape_ok = list(result.shape) == [total_rows, N]
-            passed = ok and shape_ok
+            # Numerical gate: normalized worst-element error vs the fp32-reduce
+            # torch reference at the bf16 tolerance (NEVER loosen).
+            rf, of = ref.float(), result.float()
+            denom = rf.abs().max().item()
+            norm = (rf - of).abs().max().item() / denom if denom > 0 else 0.0
+            close = torch.allclose(of, rf, atol=1e-2, rtol=1e-2)
+            num_ok = bool(norm <= 1e-2)
+            passed = ok and shape_ok and num_ok
             details.append({
                 "shape_id": i + 1,
                 "shape": [B, max_seq_len, K, N, elementwise],
                 "total_rows": total_rows,
                 "out_shape": list(result.shape),
                 "finite": ok,
+                "norm_max_err": norm,
+                "allclose_1e2": bool(close),
                 "passed": bool(passed),
             })
             if not passed:
-                reason = "non-finite output" if not ok else f"bad out shape {list(result.shape)}"
+                if not ok:
+                    reason = "non-finite output"
+                elif not shape_ok:
+                    reason = f"bad out shape {list(result.shape)}"
+                else:
+                    reason = f"norm_max_err {norm:.3e} > 1e-2 vs torch reference"
                 return False, f"Shape {i+1} {TEST_SHAPES[i]}: {reason}", details
         except Exception as e:
             details.append({
@@ -268,7 +311,8 @@ def main():
         for d in details:
             if "finite" in d:
                 print(f"  shape {d['shape_id']} {d['shape']}: out={d['out_shape']} "
-                      f"finite={d['finite']} -> {'PASS' if d['passed'] else 'FAIL'}")
+                      f"finite={d['finite']} norm_max_err={d.get('norm_max_err', float('nan')):.3e} "
+                      f"(tol=1e-2) -> {'PASS' if d['passed'] else 'FAIL'}")
             elif "error" in d:
                 print(f"  shape {d['shape_id']} {d['shape']}: ERROR {d['error']}")
         if err:

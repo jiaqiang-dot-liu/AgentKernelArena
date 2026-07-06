@@ -106,6 +106,39 @@ def _run_kernel(mod, A, B, topk_ids, topk_weights, top_k, mul_routed_weight):
     return C
 
 
+# --- numerical reference -----------------------------------------------------
+# Ported from aiter/aiter/fused_moe.py::torch_moe (the per-expert GEMM portion).
+# torch_moe runs a full 2-layer MoE (w1 gate/up -> activation -> w2 down) and
+# then combines the top_k slots via `(out * topk_weight).sum(dim=1)`. This
+# harness only exercises the fused GEMM (a single [E,N,K] projection, no
+# activation, no gate/up, no top_k reduction), and keeps the per-slot layout
+# C[M, top_k, N]. So we port ONLY the matching sub-computation:
+#     for each expert E_id: out[mask] = sub_tokens @ w[E_id].T
+# with fp32 compute (torch_moe's `computeType`), plus the optional routing-weight
+# multiply the kernel applies (MUL_ROUTED_WEIGHT), but WITHOUT the top_k sum.
+# The kernel accumulates the bf16 A@B in fp32 then casts to bf16, so we mirror
+# that: fp32 matmul of the exact bf16 values, per-slot.
+def _ref_moe_gemm(A, B, topk_ids, topk_weights, top_k, mul_routed_weight):
+    import torch
+
+    M, K = A.shape
+    E, N, _ = B.shape
+    compute = torch.float32
+    a = A.to(compute)
+    b = B.to(compute)
+    # hidden_states repeated top_k times -> [M, top_k, K] (mirrors torch_moe view/repeat)
+    hidden = a.view(M, 1, K).repeat(1, top_k, 1)
+    out = torch.zeros((M, top_k, N), dtype=compute, device=A.device)
+    for E_id in range(E):
+        mask = topk_ids.long() == E_id  # [M, top_k]
+        if mask.any():
+            sub_tokens = hidden[mask]                 # [n_sel, K]
+            out[mask] = sub_tokens @ b[E_id].transpose(0, 1)  # [n_sel, N]
+    if mul_routed_weight:
+        out = out * topk_weights.to(compute).view(M, top_k, 1)
+    return out
+
+
 def run_compile():
     with open(os.path.join(_HERE, SOURCE_FILE)) as f:
         ast.parse(f.read())
@@ -124,6 +157,10 @@ def run_correctness(verbose=True):
     import torch
 
     mod = _load_source()
+    # bf16 inputs with fp32 accumulation: the only error vs the fp32 reference is
+    # bf16 rounding of the accumulator on write-back (~2^-8) plus MFMA accumulation
+    # order, so we gate on a tight normalized-max-error of 1e-2.
+    NME_TOL = 1e-2
     failures = []
     for shape in TEST_SHAPES:
         for mul in (True, False):
@@ -134,12 +171,23 @@ def run_correctness(verbose=True):
                 )
                 C = _run_kernel(mod, A, B, topk_ids, topk_weights, shape["top_k"], mul)
                 torch.cuda.synchronize()
-                ok = bool(torch.isfinite(C).all().item())
+                finite = bool(torch.isfinite(C).all().item())
+
+                ref = _ref_moe_gemm(A, B, topk_ids, topk_weights, shape["top_k"], mul)
+                a = C.float()
+                b = ref.float()
+                abs_err = (a - b).abs()
+                denom = b.abs().max().item()
+                nme = float((abs_err.max() / denom).item()) if denom > 0 else float(abs_err.max().item())
+                allclose = bool(torch.allclose(a, b, atol=1e-2, rtol=1e-2))
+                numeric_ok = nme <= NME_TOL
+                ok = finite and numeric_ok
                 if verbose:
                     print(
                         f"  {'PASS' if ok else 'FAIL'}: {tag} "
                         f"(M={shape['M']},K={shape['K']},N={shape['N']},E={shape['E']},"
-                        f"top_k={shape['top_k']}) out={tuple(C.shape)} finite={ok}"
+                        f"top_k={shape['top_k']}) out={tuple(C.shape)} finite={finite} "
+                        f"nme={nme:.3e} allclose={allclose}"
                     )
                 if not ok:
                     failures.append(tag)
