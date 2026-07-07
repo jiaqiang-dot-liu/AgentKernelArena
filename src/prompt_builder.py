@@ -204,6 +204,27 @@ def _gpu_arch_precheck_prompt(target_gpu_model: str, gfx_arch: str | None) -> st
 """
 
 
+def _harness_integrity_prompt() -> str:
+    """Tell every agent that harness/test edits are disallowed and enforced."""
+    return """
+### Protected Harness / Test Files
+
+Do **not** modify task harness, test, scoring, or measurement files. These files
+are protected and the run will be rejected if they change:
+
+- `config.yaml` / `config.yml`
+- anything under `scripts/`
+- anything under `test/` or `tests/`
+- `conftest.py`
+- `performance_utils_pytest.py`
+- files ending in `_test.py`, `_test.cpp`, `_test.cu`, or `_test.hip`
+
+Only optimize the kernel implementation and its real source dependencies. Do not
+improve the score by changing inputs, expected outputs, tolerances, iteration
+counts, timing helpers, report writers, or benchmark harness code.
+"""
+
+
 def prompt_builder(task_config_dir: str, workspace_directory: Path, eval_config: dict, logger: logging.Logger) -> str:
     """
     Build the initial prompt for the agent based on task configuration.
@@ -222,9 +243,10 @@ def prompt_builder(task_config_dir: str, workspace_directory: Path, eval_config:
         2. Source Code
         3. GPU Arch Pre-check  ← new: fix mismatched arch before first build
         4. Instructions
-        5. Output Format
-        6. Cheatsheet  (architecture context + language knowledge, combined)
-        7. Workspace Directory
+        5. Harness Integrity
+        6. Output Format
+        7. Cheatsheet  (architecture context + language knowledge, combined)
+        8. Workspace Directory
     """
     # Load task configuration
     task_config_path = Path(task_config_dir)
@@ -291,7 +313,10 @@ def prompt_builder(task_config_dir: str, workspace_directory: Path, eval_config:
 
     prompt_sections.append(instructions_prompt)
 
-    # 6. Output Format Section
+    # 6. Harness Integrity Section
+    prompt_sections.append(_harness_integrity_prompt())
+
+    # 7. Output Format Section
     task_result_template = task_config.get('task_result_template', '')
     task_result_prompt = task_config.get('prompt', {}).get('output_format')
     if task_result_prompt is None:
@@ -299,10 +324,10 @@ def prompt_builder(task_config_dir: str, workspace_directory: Path, eval_config:
 
     prompt_sections.append(task_result_prompt)
 
-    # 7. Cheatsheet Section (architecture + knowledge combined)
+    # 8. Cheatsheet Section (architecture + knowledge combined)
     prompt_sections.append(cheatsheet_prompt)
 
-    # 8. Workspace Directory Information
+    # 9. Workspace Directory Information
     if task_type_name in ('repository', 'image_kernel'):
         workspace_info = f"""
 ### Workspace Directory

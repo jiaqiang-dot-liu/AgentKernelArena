@@ -257,7 +257,11 @@ keeping numerical results correct (the loop gates on an SNR threshold).
    iteration's effect stays attributable.
 2. Do NOT change the kernel's function signature or parameter list.
 3. Do NOT remove imports or helper utilities in the file.
-4. Correctness, validation, and benchmarking are run automatically by the loop
+4. Do NOT edit task harness, test, scoring, or measurement files (`config.yaml`,
+   `scripts/`, `test/`, `tests/`, `conftest.py`, `performance_utils_pytest.py`,
+   `*_test.py`, `*_test.cpp`, `*_test.cu`, `*_test.hip`). The Arena runner
+   hashes these files and rejects the score if they change.
+5. Correctness, validation, and benchmarking are run automatically by the loop
    after your edit — do not invoke build/test/bench tools yourself.
 
 ## Task instructions (from AgentKernelArena)
