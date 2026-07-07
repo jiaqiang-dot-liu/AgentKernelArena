@@ -19,7 +19,6 @@ _HARNESS_DIRS = {
     "scripts",
     "test",
     "tests",
-    "perf",
 }
 _HARNESS_FILE_NAMES = {
     "config.yaml",
