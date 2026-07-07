@@ -11,6 +11,7 @@ from src.module_registration import AgentType, load_agent_launcher, load_post_pr
 from src.evaluator import measure_baseline, evaluate_kernel, write_task_result
 from src.runtime_env import apply_subprocess_python_path
 from src.perf_helper_materialization import materialize_perf_helpers_in_workspace
+from src.harness_guard import snapshot_workspace_harness, verify_workspace_harness
 
 
 parser = argparse.ArgumentParser(description="arguments for AgentKernelArena")
@@ -223,6 +224,8 @@ def main() -> None:
                     logger.info("Measuring baseline performance...")
                     baseline_cases = measure_baseline(workspace_path, task_config, logger)
 
+            harness_snapshot = snapshot_workspace_harness(workspace_path)
+
             # Launch agent (agent should only generate optimized kernel)
             logger.info(f"Launching agent: {agent.value}")
 
@@ -236,6 +239,7 @@ def main() -> None:
             logger.info(f"Agent execution completed")
 
             if not is_validator:
+                verify_workspace_harness(harness_snapshot)
                 # Agents work inside the task workspace and could accidentally
                 # modify generated perf helpers. Re-materialize from src/tools/perf/
                 # immediately before scoring so benchmark methodology stays
