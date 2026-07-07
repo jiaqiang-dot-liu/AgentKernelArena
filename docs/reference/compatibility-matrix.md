@@ -7,11 +7,6 @@ myst:
 
 # AgentKernelArena compatibility matrix
 
-The following versions are the supported and tested configurations for
-AgentKernelArena. Entries marked `TODO (verify)` must be confirmed against a
-tested environment before publication. 
-<!-- are the TODOs something for your team to test? Will we have this content soon? -->
-
 ## Hardware
 
 The following hardware configurations are supported and tested.
