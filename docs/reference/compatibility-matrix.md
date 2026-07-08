@@ -13,8 +13,8 @@ The following hardware configurations are supported and tested.
 
 | Component | Supported | Notes |
 | --- | --- | --- |
-| GPU architecture | AMD Instinct™ MI300 series | `target_gpu_model: MI300`. TODO (verify) other architectures. |
-| GPU architecture | AMD Instinct MI355X | TODO (verify) |
+| GPU architecture | AMD Instinct™ MI300 series | `target_gpu_model: MI300` |
+| GPU architecture | AMD Instinct MI355X | |
 
 ## Software
 
