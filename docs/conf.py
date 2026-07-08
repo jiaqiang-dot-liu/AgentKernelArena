@@ -13,13 +13,14 @@ html_theme_options = {
     "header_link": False,
     "version_list_link": False,
     "nav_secondary_items": {
-        "GitHub": False,
+        "Hyperloom": "https://advanced-micro-devices-demo--660.com.readthedocs.build/projects/hyperloom/en/660",
+        "GitHub": "https://github.com/AMD-AGI/AgentKernelArena",
         "Community": False,
         "Blogs": "https://rocm.blogs.amd.com/",
         "ROCm Developer Hub": "https://www.amd.com/en/developer/resources/rocm-hub.html",
         "Instinct™ Docs": "https://instinct.docs.amd.com/",
         "Infinity Hub": "https://www.amd.com/en/developer/resources/infinity-hub.html",
-        "Support": False,
+        "Support": "https://github.com/AMD-AGI/AgentKernelArena/issues/new/choose",
     },
     "link_main_doc": False,
 }
