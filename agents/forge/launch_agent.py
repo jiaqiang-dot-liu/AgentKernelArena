@@ -128,14 +128,38 @@ _VALID_FELLOW_BACKENDS = {"ck", "flydsl", "triton", "aiter", "hip", "hipblaslt"}
 
 
 def _infer_backend(task_config: dict[str, Any]) -> str:
-    """Infer the target backend from the task's task_type.
+    """Infer the fellow backend (kernel language) from the task config.
 
-    Arena task types are "<source>2<target>" (e.g. triton2triton, hip2hip,
-    cuda2hip, torch2hip, flydsl2flydsl, instruction2triton). The kernel the loop
-    optimizes is in the TARGET language, so the backend is the part after the
-    last '2'. Falls back to a keyword scan, then to triton.
+    Two task families need different signals:
+
+      * Repository / image_kernel tasks ship a whole source tree, not a
+        "<src>2<dst>" pair, so their task_type carries no language. The kernel
+        language is stated explicitly by ``repository_language`` — the
+        authoritative signal. The source REPO (aiter / sglang) must NOT be used
+        as the fellow: there is no kernel-building sglang fellow, and the aiter
+        fellow only INTEGRATES prebuilt operators rather than editing kernel
+        source, so an aiter-repo HIP kernel is optimized by the hip fellow.
+      * Snippet tasks are "<source>2<target>" (triton2triton, cuda2hip,
+        torch2hip, flydsl2flydsl, instruction2triton, ...); the optimized kernel
+        is in the TARGET language, i.e. the part after the last '2'.
+
+    A repo/image task that lacks a usable ``repository_language`` falls through
+    to the generic heuristics (keyword scan, then triton) with a warning: a
+    mislabeled fellow only degrades the run, it never hard-fails it.
     """
     task_type = str(task_config.get("task_type") or "").lower().strip()
+
+    if task_type in ("image_kernel", "repository"):
+        lang = str(task_config.get("repository_language") or "").lower().strip()
+        if lang in _VALID_FELLOW_BACKENDS:
+            return lang
+        logging.getLogger(__name__).warning(
+            "Task type %r has no usable 'repository_language' (got %r); falling "
+            "back to generic backend inference. Set repository_language to one "
+            "of %s to select the correct fellow.",
+            task_type, lang, sorted(_VALID_FELLOW_BACKENDS),
+        )
+
     target = task_type.rsplit("2", 1)[-1] if "2" in task_type else task_type
     if target in _VALID_FELLOW_BACKENDS:
         return target

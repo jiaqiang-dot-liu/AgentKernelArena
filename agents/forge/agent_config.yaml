@@ -8,13 +8,17 @@
 # by the configured Anthropic gateway (ANTHROPIC_BASE_URL/ANTHROPIC_AUTH_TOKEN).
 model: claude-opus-4-8
 
-# Backend expertise (fellow) is INFERRED from the task's task_type by the
-# launcher: the target side of "<src>2<dst>" picks the fellow, e.g.
-#   triton2triton / instruction2triton -> triton-fellow
-#   hip2hip / cuda2hip / torch2hip      -> hip-fellow
-#   flydsl2flydsl                       -> flydsl-fellow
+# Backend expertise (fellow) is INFERRED by the launcher, per task family:
+#   * repository / image_kernel tasks -> from `repository_language`
+#       hip -> hip-fellow, triton -> triton-fellow
+#       (the source repo like aiter/sglang is NOT the fellow: the aiter fellow
+#        only integrates prebuilt ops, so an aiter-repo HIP kernel uses hip)
+#   * snippet "<src>2<dst>" tasks     -> the target side picks the fellow
+#       triton2triton / instruction2triton -> triton-fellow
+#       hip2hip / cuda2hip / torch2hip      -> hip-fellow
+#       flydsl2flydsl                       -> flydsl-fellow
 # (valid: ck, flydsl, triton, aiter, hip, hipblaslt). To force a specific
-# fellow regardless of task_type, uncomment:
+# fellow regardless of the task, uncomment:
 # fellow: triton-fellow
 
 # Loop budget: max_iters is intentionally high so a forge run is bounded by TIME
