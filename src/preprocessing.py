@@ -348,12 +348,15 @@ def is_task_complete(run_directory: Path, task_name: str, timestamp: str) -> boo
 def setup_workspace(task_config_dir: str, run_directory: Path, timestamp: str, logger: logging.Logger,
                     task_name: str = "") -> Path:
     """
-    Setup workspace for agent execution by duplicating task directory.
+    Setup workspace for agent execution by duplicating the task directory.
 
-    For tasks with repo_url:
-      1. Clone repo into tasks/ directory (if not already cloned)
-      2. Optionally run post_clone_install (see task config)
-      3. Copy entire task folder (including repo) to workspace
+    Repo materialization depends on the task's source:
+      - repo_url (repository tasks): clone once into a tasks/ CACHE (reused across
+        runs to avoid re-cloning over the network), then copy into the workspace.
+      - image_repo_path (image_kernel tasks): the in-image tree is already a single
+        shared, read-only source, so it is seeded DIRECTLY into each run's
+        workspace with NO tasks/ cache (avoids multi-GB per-task duplication and
+        keeps the repo tree clean).
 
     Args:
         task_config_dir: Path to task's config.yaml
@@ -372,19 +375,25 @@ def setup_workspace(task_config_dir: str, run_directory: Path, timestamp: str, l
     with open(task_config_path, "r") as f:
         task_config = yaml.safe_load(f) or {}
 
-    # 1. Materialize the repo into tasks/ if needed (only once, reused by all runs).
+    # 1. Determine the repo subdir + source.
     #    Two sources are supported:
-    #      - image_repo_path: an in-image source tree (image_kernel tasks) → copied
-    #      - repo_url:        a git URL (repository tasks)                 → cloned
+    #      - image_repo_path: an in-image source tree (image_kernel tasks)
+    #      - repo_url:        a git URL (repository tasks)
     image_repo_path = task_config.get("image_repo_path")
     repo_url = task_config.get("repo_url")
+    repo_subdir = None
     if image_repo_path:
         repo_subdir = task_config.get("repo_subdir") or Path(image_repo_path).name
-        repo_in_tasks = task_folder / repo_subdir
-        did_seed = _ensure_repo_seeded_from_image(Path(image_repo_path), repo_in_tasks, logger)
-        _maybe_post_clone_install(task_config, repo_in_tasks, did_seed, logger)
     elif repo_url:
         repo_subdir = task_config.get("repo_subdir") or _extract_repo_name(repo_url)
+
+    # repo_url (repository) tasks: keep the tasks/ clone CACHE. Cloning is a network
+    # operation, so clone once and reuse across runs.
+    # image_kernel tasks: do NOT cache. The in-image tree (image_repo_path) is
+    # already a single shared, read-only source used by every image_kernel task, so
+    # a per-task copy under tasks/ is pure duplication (multi-GB) and pollutes the
+    # repo tree. It is seeded DIRECTLY into each run's workspace in step 4 instead.
+    if repo_url and not image_repo_path:
         repo_in_tasks = task_folder / repo_subdir
         _, did_clone = _ensure_repo_cloned(repo_url, repo_in_tasks, logger)
         _maybe_post_clone_install(task_config, repo_in_tasks, did_clone, logger)
@@ -398,15 +407,27 @@ def setup_workspace(task_config_dir: str, run_directory: Path, timestamp: str, l
     workspace_path.mkdir(parents=True, exist_ok=True)
     logger.info(f"Created workspace directory: {workspace_path}")
 
-    # 3. Copy entire task folder (including cloned repo) to workspace
+    # 3. Copy the task folder to the workspace. For image_kernel the repo is seeded
+    #    directly in step 4, so skip its subdir here — this also avoids copying any
+    #    stale per-task cache left by an older version of this code.
+    skip_names = {repo_subdir} if (image_repo_path and repo_subdir) else set()
     for item in task_folder.iterdir():
+        if item.name in skip_names:
+            continue
         dst = workspace_path / item.name
         if item.is_dir():
             shutil.copytree(item, dst, dirs_exist_ok=True)
         else:
             shutil.copy2(item, dst)
-
     logger.info(f"Copied task folder content from {task_folder} to {workspace_path}")
+
+    # 4. image_kernel: seed the in-image source tree DIRECTLY into the workspace
+    #    (no tasks/ cache). One copy per run; nothing persisted under tasks/.
+    if image_repo_path:
+        repo_dir = workspace_path / repo_subdir
+        did_seed = _ensure_repo_seeded_from_image(Path(image_repo_path), repo_dir, logger)
+        _maybe_post_clone_install(task_config, repo_dir, did_seed, logger)
+
     materialize_perf_helpers_in_workspace(workspace_path, logger=logger)
 
     return workspace_path

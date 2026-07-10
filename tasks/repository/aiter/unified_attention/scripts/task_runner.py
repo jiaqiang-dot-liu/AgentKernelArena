@@ -48,7 +48,64 @@ def _run(cmd: list[str], cwd: Path) -> None:
     subprocess.run(cmd, cwd=str(cwd), check=True)
 
 
+# Extra runtime imports the task needs beyond VENV_PACKAGES (the kernel is
+# Triton and always needs torch); relied on the container previously.
+_RUNTIME_IMPORTS = ("torch", "triton")
+# pip package names that differ from their import name.
+_IMPORT_NAME_OVERRIDES = {"pyyaml": "yaml"}
+
+
+def _current_interp_has_deps() -> bool:
+    """True if the active interpreter can already import every dependency.
+
+    In a fully provisioned container the deps are already present, so building a
+    separate venv is redundant. It is also actively BROKEN inside a venv-based
+    container (e.g. /opt/venv): a venv created with system_site_packages=True
+    chains to sys.base_prefix (/usr), NOT the active venv, so torch installed
+    under /opt/venv becomes invisible and `import torch` fails. Running in place
+    avoids that trap.
+    """
+    import importlib.util
+
+    required = list(_RUNTIME_IMPORTS) + [
+        _IMPORT_NAME_OVERRIDES.get(p, p) for p in VENV_PACKAGES
+    ]
+    for name in required:
+        try:
+            if importlib.util.find_spec(name) is None:
+                return False
+        except Exception:
+            return False
+    return True
+
+
+def _active_site_packages() -> list[str]:
+    """site-packages dirs of the ACTIVE interpreter (the running venv, if any)."""
+    import site
+    import sysconfig
+
+    candidates: list[str] = []
+    try:
+        candidates.extend(site.getsitepackages())
+    except Exception:
+        pass
+    purelib = sysconfig.get_path("purelib")
+    if purelib:
+        candidates.append(purelib)
+    result: list[str] = []
+    for p in candidates:
+        if p and p not in result:
+            result.append(p)
+    return result
+
+
 def _ensure_venv() -> None:
+    # Fast path: if the active interpreter already provides every dependency, run
+    # in place — a fresh venv is redundant and would break in a venv-based
+    # container (see _current_interp_has_deps).
+    if _current_interp_has_deps():
+        return
+
     venv_dir = _venv_dir()
     venv_python = _venv_python()
     ready_marker = venv_dir / ".ready"
@@ -78,10 +135,14 @@ def _ensure_venv() -> None:
         env = os.environ.copy()
         env.setdefault("ENABLE_CK", "0")
         env.setdefault("AITER_LOG_LEVEL", "WARNING")
+        # PYTHONPATH for the re-exec'd venv: repo first, then the active
+        # interpreter's site-packages so a venv-based container's torch/triton
+        # (which system_site_packages cannot reach) stay importable.
+        parts = [str(_repo_root()), *_active_site_packages()]
         existing = env.get("PYTHONPATH", "")
-        env["PYTHONPATH"] = (
-            f"{_repo_root()}{os.pathsep}{existing}" if existing else str(_repo_root())
-        )
+        if existing:
+            parts.append(existing)
+        env["PYTHONPATH"] = os.pathsep.join(parts)
         os.execve(
             str(venv_python),
             [str(venv_python), str(script_path), *sys.argv[1:]],

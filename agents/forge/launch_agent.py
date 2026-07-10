@@ -87,18 +87,20 @@ def _repo_subdir_name(task_config: dict[str, Any]) -> str | None:
     return None
 
 
-def _resolve_kernel_file(workspace: str, source_files: list, task_config: dict[str, Any]) -> Path:
-    """Locate the kernel file the agent must edit, robust to task layout.
+def _resolve_one_source_file(workspace: str, rel, task_config: dict[str, Any]) -> Path | None:
+    """Resolve one source_file_path entry to an absolute workspace path.
 
-    `source_file_path[0]` may be given either workspace-relative (legacy snippet
-    tasks copy the file to the workspace root) or repo-root-relative (repository /
-    image_kernel tasks put the sources under a repo subdir). Resolution order:
+    `source_file_path` entries may be given either workspace-relative (legacy
+    snippet tasks copy the file to the workspace root) or repo-root-relative
+    (repository / image_kernel tasks put the sources under a repo subdir).
+    Resolution order:
       1. as given, relative to the workspace root (preserves legacy behavior);
       2. under the repo subdir (repo_subdir / image_repo_path / repo_url basename);
       3. a unique match anywhere in the workspace whose path ends with the given
          suffix (last-resort, ignores .git).
+    Returns None if it cannot be resolved.
     """
-    rel = str(source_files[0])
+    rel = str(rel)
     ws = Path(workspace)
 
     p = (ws / rel).resolve()
@@ -119,7 +121,112 @@ def _resolve_kernel_file(workspace: str, source_files: list, task_config: dict[s
     if len(matches) == 1:
         return matches[0].resolve()
 
-    raise RuntimeError(f"Kernel file not found in workspace: {ws / rel}")
+    return None
+
+
+def _resolve_kernel_file(workspace: str, source_files: list, task_config: dict[str, Any]) -> Path:
+    """Locate the anchor kernel file (source_file_path[0]); raise if not found."""
+    p = _resolve_one_source_file(workspace, source_files[0], task_config)
+    if p is None:
+        raise RuntimeError(f"Kernel file not found in workspace: {Path(workspace) / str(source_files[0])}")
+    return p
+
+
+def _resolve_all_source_files(
+    workspace: str, source_files: list, task_config: dict[str, Any],
+    logger: logging.Logger,
+) -> list[Path]:
+    """Resolve EVERY source_file_path entry to an absolute workspace path.
+
+    The first entry (anchor) must exist; extra entries that cannot be resolved
+    are warned and skipped rather than failing the run (a task may list an
+    optional/relocated file). Order-preserving, de-duplicated.
+    """
+    resolved: list[Path] = []
+    for i, rel in enumerate(source_files):
+        p = _resolve_one_source_file(workspace, rel, task_config)
+        if p is not None:
+            if p not in resolved:
+                resolved.append(p)
+        elif i == 0:
+            raise RuntimeError(
+                f"Anchor kernel file not found in workspace: {Path(workspace) / str(rel)}"
+            )
+        else:
+            logger.warning("forge: source_file_path entry not found, skipping: %s", rel)
+    return resolved
+
+
+def _git_short_head(repo_dir: Path) -> str:
+    """Return the short HEAD commit of a git repo dir, or "" (best-effort)."""
+    if not (repo_dir / ".git").exists():
+        return ""
+    try:
+        r = subprocess.run(
+            ["git", "-C", str(repo_dir), "rev-parse", "--short", "HEAD"],
+            capture_output=True, text=True, check=False,
+        )
+        return r.stdout.strip() if r.returncode == 0 else ""
+    except Exception:  # noqa: BLE001 - best-effort
+        return ""
+
+
+def _repo_head_commit(workspace: str, task_config: dict[str, Any], logger: logging.Logger) -> str:
+    """Return the short HEAD commit to record as the KB framework version.
+
+    Order:
+      1. the workspace repo subdir's own .git (repository tasks: a git clone) —
+         read BEFORE ``_strip_nested_git`` removes it;
+      2. the in-image source tree (``image_repo_path``) for image_kernel tasks,
+         whose seeded workspace copy drops .git but whose in-image checkout still
+         has one.
+    Best-effort: returns "" when no commit can be read (KB then falls back to the
+    installed package version / unknown).
+    """
+    candidates: list[Path] = []
+    subdir = _repo_subdir_name(task_config)
+    if subdir:
+        candidates.append(Path(workspace) / subdir)
+    image_repo_path = task_config.get("image_repo_path")
+    if image_repo_path:
+        candidates.append(Path(str(image_repo_path)))
+    for repo_dir in candidates:
+        commit = _git_short_head(repo_dir)
+        if commit:
+            logger.info(f"forge: recorded repo commit {commit} ({repo_dir.name}) for KB version")
+            return commit
+    return ""
+
+
+def _strip_nested_git(workspace: str, logger: logging.Logger) -> None:
+    """Remove any nested ``.git`` under the workspace (a cloned repo's own history).
+
+    Repository tasks clone the upstream repo WITH its ``.git`` into the workspace.
+    If left in place, forge's outer ``git init`` treats the repo dir as an
+    embedded gitlink and does NOT track the files inside it — so the agent's edits
+    to the real kernels are invisible to ``git add -u`` and keep/revert becomes a
+    no-op. Stripping the nested ``.git`` lets the outer workspace git track the
+    repo's files directly. Only the per-run workspace copy is touched; Arena's
+    cached clone under ``tasks/`` is untouched. Never removes the workspace-root
+    ``.git`` (which forge creates afterwards).
+    """
+    ws = Path(workspace).resolve()
+    removed = 0
+    for git_path in ws.rglob(".git"):
+        if git_path.parent.resolve() == ws:
+            continue  # never the outer workspace git (created later by forge)
+        try:
+            if git_path.is_dir():
+                shutil.rmtree(git_path, ignore_errors=True)
+            else:
+                git_path.unlink()
+            removed += 1
+        except OSError as e:
+            logger.warning(f"forge: failed to strip nested .git {git_path}: {e}")
+    if removed:
+        logger.info(
+            f"forge: stripped {removed} nested .git so keep/revert tracks repo files"
+        )
 
 
 # KernelForge fellows available to the single-fellow forge-loop path
@@ -355,7 +462,11 @@ def launch_agent(eval_config: dict[str, Any], task_config_dir: str, workspace: s
     if not source_files:
         raise RuntimeError(f"Task config has no source_file_path: {task_config_dir}")
     kernel_file = _resolve_kernel_file(workspace, source_files, task_config)
+    # Resolve the FULL editable surface (repository tasks list several files; the
+    # entry file is often only a dispatcher). The anchor is all_source_files[0].
+    all_source_files = _resolve_all_source_files(workspace, source_files, task_config, logger)
     target_funcs = task_config.get("target_kernel_functions") or []
+    task_type = str(task_config.get("task_type") or "").strip()
 
     gpu_arch = _resolve_gpu_arch(eval_config)
     fellow = _resolve_fellow(task_config, agent_config)
@@ -389,6 +500,16 @@ def launch_agent(eval_config: dict[str, Any], task_config_dir: str, workspace: s
     program_md = Path(workspace) / "forge_program.md"
     _write_program_md(task_config, target_funcs, gpu_arch, backend, program_md)
 
+    # Repository / image_kernel tasks bring a cloned repo (with its own nested
+    # .git) into the workspace. Capture the repo commit (for the KB version) FIRST,
+    # then strip .git BEFORE git init so the outer workspace git tracks the repo's
+    # files (otherwise keep/revert is a no-op on the real kernel). No-op / skipped
+    # for single-file snippet tasks.
+    repo_commit = ""
+    if task_type.lower() in ("repository", "image_kernel"):
+        repo_commit = _repo_head_commit(workspace, task_config, logger)
+        _strip_nested_git(workspace, logger)
+
     # The loop needs a git repo for the keep/revert pattern.
     _init_git_workspace(workspace, logger)
 
@@ -417,7 +538,22 @@ def launch_agent(eval_config: dict[str, Any], task_config_dir: str, workspace: s
         "--program-md-file", str(program_md),
         "--model", model,
         "--permission-mode", permission_mode,
+        # Task-shape awareness: lets forge-loop switch on single-file vs repo/
+        # image_kernel and enable multi-file handling only where needed.
+        "--task-type", task_type,
     ]
+    # Full editable source set + target functions (repository tasks span several
+    # files; the entry file is often only a dispatcher). forge-loop uses these
+    # for PMC name hints, the in-session edit budget, and the agent prompt. The
+    # anchor stays --kernel; for single-file tasks --source-files is just it.
+    if all_source_files:
+        cmd_parts += ["--source-files", ",".join(str(p) for p in all_source_files)]
+    if target_funcs:
+        cmd_parts += ["--target-functions", ",".join(str(f) for f in target_funcs)]
+    # Repo commit as the KB framework version (used only when the installed
+    # package version is unknown — e.g. a source-checkout framework).
+    if repo_commit:
+        cmd_parts += ["--framework-version", repo_commit]
     # shapes_json is only meaningful for per-kernel drivers that parse --shape.
     # The generic arena_task_adapter ignores --shape (the task's pytest owns its
     # shapes), so we omit it unless a task explicitly configures one — the
