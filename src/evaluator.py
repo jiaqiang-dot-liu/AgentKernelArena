@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional, List, Tuple
 
 from .evaluator_utils import run_command
+from .jit_rebuild import force_jit_rebuild
 from .performance import measure_performance, measure_baseline
 from .testcases import TestCaseResult, save_performance_results, calculate_average_speedup, collect_benchmark_methods
 
@@ -48,6 +49,7 @@ def evaluate_compilation(
         Tuple of (passed: bool, error_message: Optional[str])
     """
     log = logger or logging.getLogger(__name__)
+    force_jit_rebuild(task_config, log)
     compile_commands = task_config.get('compile_command', [])
     
     if not compile_commands:
@@ -82,6 +84,7 @@ def evaluate_correctness(
         Tuple of (passed: bool, error_message: Optional[str])
     """
     log = logger or logging.getLogger(__name__)
+    force_jit_rebuild(task_config, log)
     correctness_commands = task_config.get('correctness_command', [])
     
     if not correctness_commands:
