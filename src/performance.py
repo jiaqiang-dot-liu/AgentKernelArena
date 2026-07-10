@@ -137,6 +137,9 @@ def parse_execution_time_from_stdout(output: str, logger: Optional[logging.Logge
     
     # Patterns to match (in order of specificity)
     patterns = [
+        # GEAK harness canonical output (highest priority)
+        (r'GEAK_RESULT_LATENCY_MS=([0-9.]+)', 1.0),  # "GEAK_RESULT_LATENCY_MS=0.1460"
+
         # Specific patterns with "Performance:" prefix
         (r'Performance:\s*([0-9.]+)\s*ms', 1.0),  # "Performance: 123.45 ms"
         (r'Performance:\s*([0-9.]+)\s*s(?:econds?)?', 1000.0),  # "Performance: 1.23 s"
@@ -204,12 +207,15 @@ def parse_execution_time(
                 return time_val
         # Note: .pt files (PyTorch tensors) would need special handling if needed
     
-    # Strategy 2: Parse from output text
-    # time_val = parse_execution_time_from_stdout(output, logger)
-    # if time_val > 0:
-    #     log.info(f"Parsed execution time from stdout: {time_val:.4f} ms")
-    #     return time_val
-    
+    # Strategy 2: Parse from output text (handles GEAK_RESULT_LATENCY_MS etc.).
+    # JSON-producing tasks (e.g. HIP + rocprof) already returned at Strategy 1;
+    # only stdout-only tasks (the Triton harnesses) reach here, where the
+    # GEAK_RESULT_LATENCY_MS token is the highest-priority pattern.
+    time_val = parse_execution_time_from_stdout(output, logger)
+    if time_val > 0:
+        log.info(f"Parsed execution time from stdout: {time_val:.4f} ms")
+        return time_val
+
     log.warning("Could not parse execution time from any source")
     return 0.0
 
