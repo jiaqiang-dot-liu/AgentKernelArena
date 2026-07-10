@@ -80,11 +80,20 @@ def run_correctness():
         xyz = torch.randn(B, N, 3, device="cuda", dtype=torch.float32)
         center_xyz = torch.randn(B, M, 3, device="cuda", dtype=torch.float32)
 
-        gpu_idx = ball_query(min_r, max_r, nsample, xyz, center_xyz)
+        gpu_idx = ball_query(min_r, max_r, nsample, xyz, center_xyz).cpu().int()
 
-        # Validate GPU results are within radius
-        if not validate_ball_query(gpu_idx.cpu(), xyz.cpu(), center_xyz.cpu(), min_r, max_r):
-            return False, f"Shape {i+1} failed (B={B},N={N},M={M},r={max_r}): invalid indices outside radius"
+        # Compare against the CPU ball-query reference (mmcv semantics: the first
+        # `nsample` in-range points in index order, with any remaining slots padded
+        # by the first match). Exact comparison — the kernel is deterministic and
+        # scans points in index order, so this matches element-for-element. The
+        # previous within-radius-only check tolerated pt_idx==0 and would pass a
+        # kernel that wrote nothing (output is zero-initialized).
+        ref_idx = cpu_reference(min_r, max_r, nsample, xyz.cpu(), center_xyz.cpu())
+
+        if not torch.equal(gpu_idx, ref_idx):
+            mism = int((gpu_idx != ref_idx).sum().item())
+            return False, (f"Shape {i+1} mismatch (B={B},N={N},M={M},r={max_r},"
+                           f"nsample={nsample}): {mism} index/indices differ from CPU reference")
 
     return True, None
 

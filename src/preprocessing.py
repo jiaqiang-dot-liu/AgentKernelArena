@@ -9,6 +9,8 @@ from pathlib import Path
 import yaml
 from typing import Any, Optional
 
+from src.perf_helper_materialization import materialize_perf_helpers_in_workspace
+
 
 def _resolve_gfx_arch(target_gpu_model: str) -> str | None:
     """
@@ -280,7 +282,18 @@ def _sanitize_task_name(task_name: str) -> str:
     return task_name.replace("/", "_")
 
 
-def is_task_complete(run_directory: Path, task_name: str, timestamp: str) -> bool:
+def get_task_workspace_path(run_directory: Path, task_name: str, timestamp: str) -> Path:
+    """Return the expected task workspace path for a run."""
+    sanitized = _sanitize_task_name(task_name)
+    return run_directory / f"{sanitized}_{timestamp}"
+
+
+def is_task_complete(
+    run_directory: Path,
+    task_name: str,
+    timestamp: str,
+    agent_name: str | None = None,
+) -> bool:
     """
     Check if a task is already completed.
 
@@ -288,13 +301,15 @@ def is_task_complete(run_directory: Path, task_name: str, timestamp: str) -> boo
         run_directory: Run-level directory (e.g., workspace_MI300_cursor/run_20250115_143022/)
         task_name: Full task name (e.g., "hip2hip/gpumode/SiLU")
         timestamp: Timestamp string used in task directory name
+        agent_name: Agent name. task_validator uses validation_report.yaml;
+            all other agents use task_result.yaml.
 
     Returns:
-        True if task directory exists and task_result.yaml exists, False otherwise
+        True if the expected completion report exists, False otherwise
     """
-    sanitized = _sanitize_task_name(task_name)
-    task_dir = run_directory / f"{sanitized}_{timestamp}"
-    result_file = task_dir / "task_result.yaml"
+    task_dir = get_task_workspace_path(run_directory, task_name, timestamp)
+    report_name = "validation_report.yaml" if agent_name == "task_validator" else "task_result.yaml"
+    result_file = task_dir / report_name
     return result_file.exists()
 
 
@@ -351,5 +366,6 @@ def setup_workspace(task_config_dir: str, run_directory: Path, timestamp: str, l
             shutil.copy2(item, dst)
 
     logger.info(f"Copied task folder content from {task_folder} to {workspace_path}")
+    materialize_perf_helpers_in_workspace(workspace_path, logger=logger)
 
     return workspace_path

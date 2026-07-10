@@ -34,6 +34,25 @@ TEST_SHAPES = [
 ]
 WARMUP_ITERATIONS = 10
 BENCHMARK_ITERATIONS = 100
+
+
+# >>> AKA-GENERATED: shared CUDA-graph benchmark helpers - edit src/tools/perf/vllm_cuda_graph_block.py then run `make sync-perf-helpers` >>>
+def _measure_cuda_event_fallback(*args, **kwargs):
+    raise RuntimeError(
+        "CUDA-graph benchmark helpers were not materialized. "
+        "Run this task through AgentKernelArena so setup_workspace() can inject "
+        "src/tools/perf/vllm_cuda_graph_block.py into the workspace."
+    )
+
+
+def _benchmark_cuda_graph_or_events(*args, **kwargs):
+    raise RuntimeError(
+        "CUDA-graph benchmark helpers were not materialized. "
+        "Run this task through AgentKernelArena so setup_workspace() can inject "
+        "src/tools/perf/vllm_cuda_graph_block.py into the workspace."
+    )
+# <<< AKA-GENERATED <<<
+
 def run_correctness():
     import torch
     try: mod = load_module()
@@ -70,6 +89,70 @@ def run_correctness():
                 return False, f"Shape {i+1}: max diff = {diff}"
         except Exception as e:
             return False, f"Shape {i+1}: exception: {e}"
+
+    # Multi-token bad words: exercise the prefix-matching loop (prefix_len >= 1),
+    # which the single-token cases above never trigger. A bad word [t0..t_{L-1}] must
+    # mask its final token t_{L-1} iff the last (L-1) output tokens equal [t0..t_{L-2}].
+    multi_cases = [
+        (4, 256, 2, 2),    # (batch, vocab, num_bad_words, word_len)
+        (8, 512, 3, 2),
+        (6, 1024, 3, 3),
+    ]
+    OUTPUT_LEN = 10
+    PROMPT_LEN = 10
+    for i, (batch, vocab, nbw, word_len) in enumerate(multi_cases):
+        try:
+            torch.manual_seed(1234 + i)
+            prefix_len = word_len - 1
+            logits = torch.randn(batch, vocab, device=device, dtype=torch.float32)
+            idx_mapping = torch.arange(batch, dtype=torch.int32, device=device)
+            local_pos = torch.zeros(batch, dtype=torch.int32, device=device)
+            max_tokens = nbw * word_len
+            bad_word_ids = torch.randint(0, vocab, (batch, max_tokens), dtype=torch.int32, device=device)
+            # Each bad word occupies a contiguous span of length `word_len`.
+            offsets = torch.zeros(batch, nbw + 1, dtype=torch.int32, device=device)
+            for b in range(batch):
+                for j in range(nbw + 1):
+                    offsets[b, j] = j * word_len
+            num_bw = torch.full((batch,), nbw, dtype=torch.int32, device=device)
+            all_token_ids = torch.randint(0, vocab, (batch, 128), dtype=torch.int32, device=device)
+            prompt_len = torch.full((batch,), PROMPT_LEN, dtype=torch.int32, device=device)
+            total_len = torch.full((batch,), PROMPT_LEN + OUTPUT_LEN, dtype=torch.int32, device=device)
+            input_ids = torch.zeros(batch, dtype=torch.int32, device=device)
+            # Force a prefix match for one bad word per request so the match branch
+            # is hit; the other bad words almost surely do not match (no-match branch).
+            for b in range(batch):
+                jj = b % nbw
+                start = jj * word_len
+                for t in range(prefix_len):
+                    seq_pos = PROMPT_LEN + (OUTPUT_LEN - prefix_len + t)
+                    all_token_ids[b, seq_pos] = bad_word_ids[b, start + t]
+
+            # Reference from the intended semantics (pos=0, no spec input).
+            ref = logits.clone()
+            for b in range(batch):
+                for j in range(nbw):
+                    start = j * word_len
+                    matched = True
+                    for t in range(prefix_len):
+                        expected = int(bad_word_ids[b, start + t].item())
+                        actual = int(all_token_ids[b, PROMPT_LEN + (OUTPUT_LEN - prefix_len + t)].item())
+                        if expected != actual:
+                            matched = False
+                            break
+                    if matched:
+                        last_token = int(bad_word_ids[b, start + word_len - 1].item())
+                        ref[b, last_token] = float("-inf")
+
+            mod.apply_bad_words(logits, idx_mapping, bad_word_ids, offsets, num_bw,
+                                all_token_ids, prompt_len, total_len, input_ids, local_pos, nbw)
+            torch.cuda.synchronize()
+            if not torch.allclose(logits, ref, atol=1e-2, rtol=1e-2):
+                diff = (logits - ref).abs().max().item()
+                return False, f"Multi-token case {i+1} (word_len={word_len}): max diff = {diff}"
+        except Exception as e:
+            return False, f"Multi-token case {i+1}: exception: {e}"
+
     return True, None
 
 def run_performance():
@@ -112,10 +195,19 @@ def run_performance():
             torch.cuda.synchronize()
             times = [s.elapsed_time(e) for s, e in zip(start_events, end_events)]
             elapsed_ms = sum(times) / len(times)
+            benchmark_metadata = {
+                "benchmark_method": "cuda_event_fallback",
+                "benchmark_target_ms": 20.0,
+                "benchmark_retries": 1,
+                "benchmark_max_repeats": 1000,
+                "benchmark_effective_repeats": n_iter,
+                "benchmark_fallback_reason": "per_iteration_prepare_or_state_reset",
+            }
 
             test_cases.append({
                 "test_case_id": f"perf{test_idx + 1}",
                 "execution_time_ms": elapsed_ms,
+                **benchmark_metadata,
                 "params": {
                     "batch": batch,
                     "vocab": vocab,

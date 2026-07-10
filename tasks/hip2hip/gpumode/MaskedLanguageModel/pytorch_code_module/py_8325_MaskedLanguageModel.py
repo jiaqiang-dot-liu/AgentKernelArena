@@ -28,15 +28,16 @@ class MaskedLanguageModel(nn.Module):
 def get_inputs():
     """
     Generate multiple test cases with varying sizes
-    HIP kernel requires 4D input [B, S1, S2, H] where H=hidden=4
+    HIP kernel requires 4D input [B, S1, S2, H] where H=hidden (must match hidden).
+    Sizes scaled up so Linear(hidden, vocab)+LogSoftmax is a real GEMM rather than
+    launch-overhead-bound.
     """
     configs = [
-        # (B, S1, S2, H) - 4D tensors where H must be 4 to match hidden=4
-        ([4, 4, 4, 4],),  # B=4, S1=4, S2=4, H=4
-        ([8, 4, 4, 4],),  # B=8, S1=4, S2=4, H=4
-        ([16, 4, 4, 4],),  # B=16, S1=4, S2=4, H=4
-        ([32, 4, 4, 4],),  # B=32, S1=4, S2=4, H=4
-        ([64, 4, 4, 4],),  # B=64, S1=4, S2=4, H=4
+        # (B, S1, S2, H) - H must match hidden=512; rows = B*S1*S2
+        ([64, 4, 4, 512],),   # 1024 rows
+        ([128, 4, 4, 512],),  # 2048 rows
+        ([256, 4, 4, 512],),  # 4096 rows
+        ([512, 4, 4, 512],),  # 8192 rows
     ]
     
     for shape in configs:
@@ -48,4 +49,4 @@ def get_inputs():
 
 
 def get_init_inputs():
-    return [[], {'hidden': 4, 'vocab_size': 4}]
+    return [[], {'hidden': 512, 'vocab_size': 4096}]

@@ -15,12 +15,15 @@ from src.module_registration import AgentType, load_prompt_builder
 from src.runtime_env import build_subprocess_env
 
 
-def integrate_agent_config(prompt: str, agent_config: dict[str, Any]) -> str:
+def integrate_agent_config(
+    prompt: str,
+    agent_config: dict[str, Any],
+    python_path: str | None,
+) -> str:
     """Append agent-specific guidance to the prompt."""
     max_iters = agent_config.get("max_iterations")
     if max_iters is not None:
         prompt = prompt.rstrip() + f"\n\nFor this optimization, you must iterate up to {max_iters} versions."
-    python_path = agent_config.get("python_path")
     if python_path:
         prompt = prompt.rstrip() + (
             f"\n\nUse this Python interpreter: `{python_path}`. "
@@ -30,7 +33,20 @@ def integrate_agent_config(prompt: str, agent_config: dict[str, Any]) -> str:
 
 
 def _format_codex_event(raw_line: str) -> str:
-    """Convert Codex JSON lines into readable log lines."""
+    """Convert Codex JSONL events into readable log lines.
+
+    Modern `codex exec --json` (>=0.x item-based stream) emits a thread/turn/item
+    envelope, e.g.::
+
+        {"type":"item.completed","item":{"type":"agent_message","text":"..."}}
+        {"type":"item.started","item":{"type":"command_execution","command":"...","status":"in_progress"}}
+        {"type":"turn.completed","usage":{...}}
+
+    The assistant's final answer lives at ``item.text`` of an ``item.completed``
+    event whose ``item.type == "agent_message"``. Older binaries used flat
+    ``assistant_message``/``assistant`` events or a nested ``msg`` envelope; those
+    are kept as fallbacks so logs stay readable across Codex versions.
+    """
     try:
         data = json.loads(raw_line)
     except json.JSONDecodeError:
@@ -41,6 +57,63 @@ def _format_codex_event(raw_line: str) -> str:
 
     ev_type = data.get("type", "")
 
+    # --- Current item-based envelope -------------------------------------
+    if ev_type in {"item.started", "item.completed", "item.updated"}:
+        item = data.get("item") or {}
+        if isinstance(item, dict):
+            item_type = item.get("type", "")
+            if item_type == "agent_message":
+                text = item.get("text")
+                if isinstance(text, str) and text.strip():
+                    return f"assistant: {text.strip()}"
+            elif item_type == "reasoning":
+                text = item.get("text")
+                if isinstance(text, str) and text.strip():
+                    return f"reasoning: {text.strip()}"
+            elif item_type == "command_execution":
+                command = item.get("command", "")
+                status = item.get("status", "")
+                exit_code = item.get("exit_code")
+                tail = f" exit={exit_code}" if exit_code is not None else ""
+                return f"command[{status}] {command}{tail}".strip()
+            elif item_type == "mcp_tool_call":
+                server = item.get("server", "")
+                tool = item.get("tool", "")
+                status = item.get("status", "")
+                return f"mcp_tool[{status}] {server}.{tool}".strip()
+            elif item_type == "file_change":
+                return f"file_change[{item.get('status', '')}]".strip()
+            elif item_type == "error":
+                return f"error: {item.get('message', raw_line)}"
+        return raw_line
+
+    if ev_type == "turn.completed":
+        usage = data.get("usage")
+        if isinstance(usage, dict):
+            return (
+                "turn.completed usage "
+                f"in={usage.get('input_tokens')} out={usage.get('output_tokens')}"
+            )
+        return raw_line
+
+    if ev_type in {"turn.failed", "error"}:
+        err = data.get("error") or data.get("message")
+        if isinstance(err, dict):
+            err = err.get("message", err)
+        return f"{ev_type}: {err}" if err else raw_line
+
+    if ev_type in {"thread.started", "turn.started"}:
+        return raw_line
+
+    # --- Legacy fallbacks (older Codex binaries) -------------------------
+    # Nested `msg` envelope: {"msg":{"type":"agent_message","message":"..."}}
+    msg = data.get("msg")
+    if isinstance(msg, dict) and msg.get("type") in {"agent_message", "assistant_message"}:
+        text = msg.get("message") or msg.get("text")
+        if isinstance(text, str) and text.strip():
+            return f"assistant: {text.strip()}"
+
+    # Oldest flat events.
     if ev_type in {"assistant_message", "assistant"}:
         message = data.get("message", {})
         if isinstance(message, dict):
@@ -50,12 +123,6 @@ def _format_codex_event(raw_line: str) -> str:
         text = data.get("text")
         if isinstance(text, str) and text.strip():
             return f"assistant: {text.strip()}"
-
-    if ev_type in {"tool_call", "tool_result"}:
-        return raw_line
-
-    if ev_type in {"error", "warning"}:
-        return raw_line
 
     text = data.get("text")
     if isinstance(text, str) and text.strip():
@@ -107,11 +174,16 @@ def launch_agent(eval_config: dict[str, Any], task_config_dir: str, workspace: s
         agent_config = yaml.safe_load(f) or {}
 
     logger = logging.getLogger(__name__)
+    process_env = build_subprocess_env(agent_config.get("python_path"))
     prompt_builder = load_prompt_builder(AgentType.CODEX, logger)
     prompt = prompt_builder(task_config_dir, workspace, eval_config, logger)
-    prompt = integrate_agent_config(prompt, agent_config)
+    prompt = integrate_agent_config(
+        prompt,
+        agent_config,
+        process_env.get("AGENT_KERNEL_ARENA_PYTHON"),
+    )
     configured_model = agent_config.get("model")
-    process_env = build_subprocess_env(agent_config.get("python_path"))
+    configured_effort = agent_config.get("effort")
 
     cmd = [
         AGENT,
@@ -119,11 +191,18 @@ def launch_agent(eval_config: dict[str, Any], task_config_dir: str, workspace: s
         "--json",
         "--dangerously-bypass-approvals-and-sandbox",
         "--skip-git-repo-check",
+        # Explicitly disable cross-session "Memories" so headless runs never read
+        # or write persistent learned memory (off by default, pinned for safety).
+        "-c",
+        "features.memories=false",
         "--cd",
         workspace,
     ]
     if configured_model:
         cmd.extend(["--model", str(configured_model)])
+    if configured_effort:
+        # Codex has no --effort flag; reasoning effort is a config key.
+        cmd.extend(["-c", f'model_reasoning_effort="{configured_effort}"'])
     cmd.append(prompt)
 
     logger.info("Codex Preflight")
@@ -135,6 +214,7 @@ def launch_agent(eval_config: dict[str, Any], task_config_dir: str, workspace: s
         logger.info(f"  model: {configured_model} (explicit via agents/codex/agent_config.yaml)")
     else:
         logger.info("  model: <codex CLI default/config> (not explicitly set)")
+    logger.info(f"  effort: {configured_effort if configured_effort else '<codex config default>'} (model_reasoning_effort)")
     logger.info(f"Running command: {' '.join(shlex.quote(p) for p in cmd[:8])} ...")
     logger.info("=" * 80)
     logger.info("Agent Output (streaming):")

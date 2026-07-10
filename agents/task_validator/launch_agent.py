@@ -2,6 +2,8 @@
 import subprocess
 import shutil
 import logging
+import os
+import sys
 import threading
 import shlex
 import json
@@ -10,18 +12,27 @@ from typing import Any
 import yaml
 from agents import register_agent
 from agents.task_validator.validation_prompt import build_validation_prompt
+from src.runtime_env import PYTHON_ENV_VAR
 
 
-def _launch_claude_code(prompt: str, workspace: str, timeout_seconds: int, logger: logging.Logger) -> str:
+def _launch_claude_code(
+    prompt: str,
+    workspace: str,
+    timeout_seconds: int,
+    logger: logging.Logger,
+    model: str | None = None,
+    effort: str | None = None,
+) -> str:
     """Launch Claude Code CLI with the validation prompt."""
     AGENT = "claude"
+    # --dangerously-skip-permissions is exactly equivalent to
+    # `--permission-mode bypassPermissions`, so we only pass the latter.
     OPTIONS = (
         "--print "
         "--verbose "
         "--output-format stream-json "
         "--include-partial-messages "
-        "--permission-mode bypassPermissions "
-        "--dangerously-skip-permissions"
+        "--permission-mode bypassPermissions"
     )
 
     if not shutil.which(AGENT):
@@ -29,9 +40,19 @@ def _launch_claude_code(prompt: str, workspace: str, timeout_seconds: int, logge
             f"Command '{AGENT}' not found. Please ensure Claude Code CLI is installed and in your PATH."
         )
 
-    quoted_prompt = shlex.quote(prompt)
-    cmd = f"IS_SANDBOX=1 {AGENT} {OPTIONS} {quoted_prompt}"
+    dynamic_options = OPTIONS
+    if model:
+        dynamic_options += f" --model {shlex.quote(str(model))}"
+    if effort:
+        dynamic_options += f" --effort {shlex.quote(str(effort))}"
 
+    quoted_prompt = shlex.quote(prompt)
+    # CLAUDE_CODE_DISABLE_AUTO_MEMORY=1 turns off auto-memory (ON by default in
+    # CLI >=2.1.59) so headless validation never reads/writes learned memory.
+    cmd = f"IS_SANDBOX=1 CLAUDE_CODE_DISABLE_AUTO_MEMORY=1 {AGENT} {dynamic_options} {quoted_prompt}"
+
+    logger.info(f"Validator Claude Code model: {model if model else '<claude CLI default/config>'}")
+    logger.info(f"Validator Claude Code effort: {effort if effort else '<claude CLI default/config>'}")
     logger.info(f"Running command: {cmd[:200]}...")
 
     process = subprocess.Popen(
@@ -64,11 +85,22 @@ def _launch_claude_code(prompt: str, workspace: str, timeout_seconds: int, logge
                     try:
                         data = json.loads(raw_line)
                         event_type = data.get("type", "")
+                        subtype = data.get("subtype", "")
+                        # High-volume, low-signal events: per-token thinking counters
+                        # and status pings flood the log (~2/3 of all lines). Keep them
+                        # in output_list but do not log them.
+                        if event_type == "system" and subtype in ("thinking_tokens", "status"):
+                            continue
                         if event_type == "stream_event":
                             ev = data.get("event", {})
                             ev_type = ev.get("type", "")
-                            if ev_type in ("content_block_delta",):
-                                # Skip noisy partial deltas in log
+                            # Streaming envelope + partial deltas carry no standalone
+                            # signal (the full content arrives in the top-level
+                            # assistant/user events), so skip them in the log.
+                            if ev_type in (
+                                "content_block_start", "content_block_delta", "content_block_stop",
+                                "message_start", "message_delta", "message_stop",
+                            ):
                                 continue
                         log_func(f"{prefix} {raw_line[:200]}")
                     except (json.JSONDecodeError, AttributeError):
@@ -91,7 +123,10 @@ def _launch_claude_code(prompt: str, workspace: str, timeout_seconds: int, logge
     stderr_thread.start()
 
     try:
-        process.wait(timeout=timeout_seconds)
+        if timeout_seconds > 0:
+            process.wait(timeout=timeout_seconds)
+        else:
+            process.wait()
     except subprocess.TimeoutExpired:
         logger.warning(f"Validator timed out after {timeout_seconds}s; terminating process")
         process.terminate()
@@ -116,7 +151,14 @@ def _launch_claude_code(prompt: str, workspace: str, timeout_seconds: int, logge
     return output
 
 
-def _launch_codex(prompt: str, workspace: str, timeout_seconds: int, logger: logging.Logger) -> str:
+def _launch_codex(
+    prompt: str,
+    workspace: str,
+    timeout_seconds: int,
+    logger: logging.Logger,
+    model: str | None = None,
+    effort: str | None = None,
+) -> str:
     """Launch Codex CLI in non-interactive mode for task validation."""
     AGENT = "codex"
 
@@ -132,10 +174,20 @@ def _launch_codex(prompt: str, workspace: str, timeout_seconds: int, logger: log
         "--json",
         "--dangerously-bypass-approvals-and-sandbox",
         "--skip-git-repo-check",
+        # Disable cross-session "Memories" (off by default, pinned for safety).
+        "-c",
+        "features.memories=false",
         "--cd",
         workspace,
-        prompt,
     ]
+    if model:
+        cmd.extend(["--model", str(model)])
+    if effort:
+        cmd.extend(["-c", f'model_reasoning_effort="{effort}"'])
+    cmd.append(prompt)
+
+    logger.info(f"Validator Codex model: {model if model else '<codex CLI default/config>'}")
+    logger.info(f"Validator Codex effort: {effort if effort else '<codex config default>'}")
     logger.info(f"Running command: {' '.join(shlex.quote(p) for p in cmd[:8])} ...")
 
     process = subprocess.Popen(
@@ -154,6 +206,9 @@ def _launch_codex(prompt: str, workspace: str, timeout_seconds: int, logger: log
     stderr_lines: list[str] = []
 
     def _format_codex_event(raw_line: str) -> str:
+        """Format Codex JSONL events. Modern `codex exec --json` uses an
+        item-based envelope ({"type":"item.completed","item":{"type":
+        "agent_message","text":...}}); older flat/`msg` shapes are fallbacks."""
         try:
             data = json.loads(raw_line)
         except json.JSONDecodeError:
@@ -163,6 +218,55 @@ def _launch_codex(prompt: str, workspace: str, timeout_seconds: int, logger: log
             return raw_line
 
         ev_type = data.get("type", "")
+
+        # Current item-based envelope.
+        if ev_type in {"item.started", "item.completed", "item.updated"}:
+            item = data.get("item") or {}
+            if isinstance(item, dict):
+                item_type = item.get("type", "")
+                if item_type == "agent_message":
+                    text = item.get("text")
+                    if isinstance(text, str) and text.strip():
+                        return f"assistant: {text.strip()}"
+                elif item_type == "reasoning":
+                    text = item.get("text")
+                    if isinstance(text, str) and text.strip():
+                        return f"reasoning: {text.strip()}"
+                elif item_type == "command_execution":
+                    command = item.get("command", "")
+                    status = item.get("status", "")
+                    exit_code = item.get("exit_code")
+                    tail = f" exit={exit_code}" if exit_code is not None else ""
+                    return f"command[{status}] {command}{tail}".strip()
+                elif item_type == "mcp_tool_call":
+                    return f"mcp_tool[{item.get('status', '')}] {item.get('server', '')}.{item.get('tool', '')}".strip()
+                elif item_type == "file_change":
+                    return f"file_change[{item.get('status', '')}]".strip()
+                elif item_type == "error":
+                    return f"error: {item.get('message', raw_line)}"
+            return raw_line
+
+        if ev_type == "turn.completed":
+            usage = data.get("usage")
+            if isinstance(usage, dict):
+                return f"turn.completed usage in={usage.get('input_tokens')} out={usage.get('output_tokens')}"
+            return raw_line
+
+        if ev_type in {"turn.failed", "error"}:
+            err = data.get("error") or data.get("message")
+            if isinstance(err, dict):
+                err = err.get("message", err)
+            return f"{ev_type}: {err}" if err else raw_line
+
+        if ev_type in {"thread.started", "turn.started"}:
+            return raw_line
+
+        # Legacy fallbacks (older Codex binaries).
+        msg = data.get("msg")
+        if isinstance(msg, dict) and msg.get("type") in {"agent_message", "assistant_message"}:
+            text = msg.get("message") or msg.get("text")
+            if isinstance(text, str) and text.strip():
+                return f"assistant: {text.strip()}"
         if ev_type in {"assistant_message", "assistant"}:
             msg = data.get("message", {})
             if isinstance(msg, dict):
@@ -172,10 +276,6 @@ def _launch_codex(prompt: str, workspace: str, timeout_seconds: int, logger: log
             text = data.get("text")
             if isinstance(text, str) and text.strip():
                 return f"assistant: {text.strip()}"
-        if ev_type in {"tool_call", "tool_result"}:
-            return raw_line
-        if ev_type in {"error", "warning"}:
-            return raw_line
         if "text" in data and isinstance(data["text"], str) and data["text"].strip():
             return data["text"].strip()
         return raw_line
@@ -260,12 +360,20 @@ def launch_agent(eval_config: dict[str, Any], task_config_dir: str, workspace: s
 
     backend = agent_config.get("backend", "claude_code")
     timeout_seconds = int(agent_config.get("timeout_seconds", 600))
-    python_path = agent_config.get("python_path")
+    configured_model = agent_config.get("model")
+    configured_effort = agent_config.get("effort")
+    # Resolve interpreter: explicit config -> framework-detected (set by main.py)
+    # -> this process's interpreter. Avoids hardcoding a path that may not exist
+    # inside the Docker container.
+    python_path = (
+        agent_config.get("python_path")
+        or os.environ.get(PYTHON_ENV_VAR)
+        or sys.executable
+    )
 
     # Inject agent_config values into eval_config for the prompt builder
     agent_section = eval_config.setdefault("agent", {})
-    if python_path:
-        agent_section["python_path"] = python_path
+    agent_section["python_path"] = python_path
     agent_section["compile_timeout"] = int(agent_config.get("compile_timeout", 300))
     agent_section["correctness_timeout"] = int(agent_config.get("correctness_timeout", 300))
     agent_section["performance_timeout"] = int(agent_config.get("performance_timeout", 300))
@@ -288,6 +396,8 @@ def launch_agent(eval_config: dict[str, Any], task_config_dir: str, workspace: s
         )
 
     logger.info(f"Task Validator: backend={backend}, timeout={timeout_seconds}s")
+    logger.info(f"Task Validator model: {configured_model if configured_model else '<backend default/config>'}")
+    logger.info(f"Task Validator effort: {configured_effort if configured_effort else '<backend default/config>'}")
     logger.info(f"Task config: {task_config_dir}")
     logger.info(f"Workspace: {workspace}")
 
@@ -297,9 +407,23 @@ def launch_agent(eval_config: dict[str, Any], task_config_dir: str, workspace: s
 
     # Launch the chosen backend
     if backend == "claude_code":
-        output = _launch_claude_code(prompt, workspace, timeout_seconds, logger)
+        output = _launch_claude_code(
+            prompt,
+            workspace,
+            timeout_seconds,
+            logger,
+            model=configured_model,
+            effort=configured_effort,
+        )
     elif backend == "codex":
-        output = _launch_codex(prompt, workspace, timeout_seconds, logger)
+        output = _launch_codex(
+            prompt,
+            workspace,
+            timeout_seconds,
+            logger,
+            model=configured_model,
+            effort=configured_effort,
+        )
     elif backend == "cursor":
         # Placeholder for Cursor backend
         raise NotImplementedError("Cursor backend not yet implemented for task_validator")

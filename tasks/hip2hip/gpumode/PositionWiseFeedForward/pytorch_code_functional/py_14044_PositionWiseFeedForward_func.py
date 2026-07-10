@@ -112,4 +112,4 @@ def get_inputs():
 
 
 def get_init_inputs():
-    return [[], {'d_model': 4, 'hidden_size': 4}]
+    return [[], {'d_model': 512, 'hidden_size': 2048}]

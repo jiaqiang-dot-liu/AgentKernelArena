@@ -5,12 +5,14 @@ import logging
 import threading
 import os
 import shlex
+import sys
 from pathlib import Path
 from datetime import datetime
 from typing import Any
 import yaml
 from agents import register_agent
 from src.module_registration import AgentType, load_prompt_builder
+from src.runtime_env import PYTHON_ENV_VAR
 
 
 def _get_cli_version(agent_cmd: str) -> str:
@@ -29,14 +31,21 @@ def _get_cli_version(agent_cmd: str) -> str:
     return text or "unknown"
 
 
-def integrate_agent_config(prompt, agent_config: dict[str, Any]) -> str:
+def _runtime_python_path(agent_config: dict[str, Any]) -> str:
+    """Return the explicit or current framework Python for agent guidance."""
+    configured = agent_config.get("python_path")
+    if configured:
+        return str(configured)
+    return os.environ.get(PYTHON_ENV_VAR) or sys.executable
+
+
+def integrate_agent_config(prompt, agent_config: dict[str, Any], python_path: str) -> str:
     """
     Integrate agent config into prompt.
     """
     max_iters = agent_config.get("max_iterations")
     if max_iters is not None:
         prompt = prompt.rstrip() + f"\n\nFor this optimization, you must iterate up to {max_iters} versions."
-    python_path = agent_config.get("python_path")
     if python_path:
         prompt = prompt.rstrip() + f"\n\nUse this Python interpreter: `{python_path}`."
     return prompt
@@ -92,7 +101,8 @@ def launch_agent(eval_config: dict[str, Any], task_config_dir: str, workspace: s
     prompt_builder = load_prompt_builder(AgentType.CURSOR, logger)
     prompt = prompt_builder(task_config_dir, workspace, eval_config, logger)
 
-    prompt = integrate_agent_config(prompt, agent_config)
+    runtime_python = _runtime_python_path(agent_config)
+    prompt = integrate_agent_config(prompt, agent_config, runtime_python)
     configured_model = agent_config.get("model")
     quoted_prompt = shlex.quote(prompt)
     dynamic_options = OPTIONS
@@ -104,6 +114,7 @@ def launch_agent(eval_config: dict[str, Any], task_config_dir: str, workspace: s
     logger.info(f"  binary: {agent_bin}")
     logger.info(f"  version: {_get_cli_version(AGENT)}")
     logger.info(f"  workspace: {workspace}")
+    logger.info(f"  python_path: {runtime_python}")
     logger.info(f"  model: {configured_model if configured_model else '<cursor CLI default/config>'}")
     logger.info("  effort: <not a separate Cursor CLI flag; use a thinking model variant, e.g. sonnet-4-thinking>")
 

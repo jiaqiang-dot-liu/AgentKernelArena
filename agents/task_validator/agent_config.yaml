@@ -1,6 +1,16 @@
 backend: claude_code          # claude_code | codex | cursor
 timeout_seconds: 1200         # 0 means no timeout; run until validator backend exits
-python_path: /root/AgentKernelArena/.venv/bin/python3
+# null -> auto-use the framework-detected interpreter (AGENT_KERNEL_ARENA_PYTHON),
+# which is correct inside the Docker container (e.g. /opt/venv/bin/python).
+python_path: null
+
+# Optional model settings for the active backend.
+# codex:       model -> `codex exec --model`, effort -> `model_reasoning_effort`.
+# claude_code: model -> `claude --model`,      effort -> `claude --effort`.
+# Example Claude Sonnet config: backend: claude_code, model: sonnet, effort: max.
+# Valid claude_code effort: low | medium | high | xhigh | max  (max is the maximum).
+model: claude-sonnet-5
+effort: max
 
 # Per-command timeouts (seconds) for each validation check
 compile_timeout: 600

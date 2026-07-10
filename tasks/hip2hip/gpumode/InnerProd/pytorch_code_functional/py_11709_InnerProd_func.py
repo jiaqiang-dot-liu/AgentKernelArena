@@ -122,4 +122,4 @@ def get_inputs():
 
 
 def get_init_inputs():
-    return [[], {'fc_dim': 4}]
+    return [[], {'fc_dim': 512}]

@@ -34,6 +34,25 @@ TEST_SHAPES = [
 ]
 WARMUP_ITERATIONS = 10
 BENCHMARK_ITERATIONS = 100
+
+
+# >>> AKA-GENERATED: shared CUDA-graph benchmark helpers - edit src/tools/perf/vllm_cuda_graph_block.py then run `make sync-perf-helpers` >>>
+def _measure_cuda_event_fallback(*args, **kwargs):
+    raise RuntimeError(
+        "CUDA-graph benchmark helpers were not materialized. "
+        "Run this task through AgentKernelArena so setup_workspace() can inject "
+        "src/tools/perf/vllm_cuda_graph_block.py into the workspace."
+    )
+
+
+def _benchmark_cuda_graph_or_events(*args, **kwargs):
+    raise RuntimeError(
+        "CUDA-graph benchmark helpers were not materialized. "
+        "Run this task through AgentKernelArena so setup_workspace() can inject "
+        "src/tools/perf/vllm_cuda_graph_block.py into the workspace."
+    )
+# <<< AKA-GENERATED <<<
+
 def run_correctness():
     import torch
     try: mod = load_module()
@@ -69,22 +88,18 @@ def run_performance():
             torch.manual_seed(42 + test_idx)
             logits = torch.randn(batch, vocab, device=device, dtype=torch.float32)
             token_ids = torch.randint(0, vocab, (batch,), dtype=torch.int64, device=device)
-            for _ in range(WARMUP_ITERATIONS): mod.compute_ranks(logits, token_ids)
-            torch.cuda.synchronize()
-            n_iter = BENCHMARK_ITERATIONS
-            start_events = [torch.cuda.Event(enable_timing=True) for _ in range(n_iter)]
-            end_events = [torch.cuda.Event(enable_timing=True) for _ in range(n_iter)]
-            for j in range(n_iter):
-                start_events[j].record()
+            def _bench_fn():
                 mod.compute_ranks(logits, token_ids)
-                end_events[j].record()
-            torch.cuda.synchronize()
-            times = [s.elapsed_time(e) for s, e in zip(start_events, end_events)]
-            elapsed_ms = sum(times) / len(times)
+            elapsed_ms, benchmark_metadata = _benchmark_cuda_graph_or_events(
+                _bench_fn,
+                warmup=WARMUP_ITERATIONS,
+                repetition=BENCHMARK_ITERATIONS,
+            )
 
             test_cases.append({
                 "test_case_id": f"perf{test_idx + 1}",
                 "execution_time_ms": elapsed_ms,
+                **benchmark_metadata,
                 "params": {
                     "batch": batch,
                     "vocab": vocab

@@ -7,7 +7,7 @@
 
 # Default — every file requires owner approval
 # (any of the listed contributors satisfies the rule)
-*                            @sinarafati-amd @irvineoy @sharareh-y @chushic @sharonzhou @ppalanga @yueliu14
+*                            @sinarafati-amd @irvineoy @sharareh-y
 
 # Stricter paths — leads must approve
 .github/CODEOWNERS           @sinarafati-amd

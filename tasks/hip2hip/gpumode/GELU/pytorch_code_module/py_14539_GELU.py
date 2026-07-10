@@ -10,7 +10,7 @@ class GELU(nn.Module):
         super(GELU, self).__init__()
 
     def forward(self, x):
-        return F.relu(x, inplace=True)
+        return F.gelu(x)
 
 
 def get_inputs():

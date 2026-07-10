@@ -1,5 +1,4 @@
 .DS_Store
-.venv
 logs
 __pycache__
 .vscode
@@ -12,6 +11,13 @@ agents/geak_optimagentv2/GEAK-agent/
 agents/geak_optimagentv2/GEAK-eval/
 agents/geak_optimagentv2/.geak_setup_complete
 agents/geak_ourllm_kernel2kernel/GEAK-agent
+
+# Persistent pip user-base for in-container `make docker-setup-flydsl`
+.aka-pyuserbase/
+
+# Auto-cloned upstream repos for repository-type tasks (cached clones, created at runtime)
+tasks/repository/aiter/*/aiter/
+tasks/repository/rocprim/*/rocPRIM/
 run.sh
 .run_*.sh
 config_*.yaml
@@ -32,3 +38,7 @@ traj.json
 
 # Generated held-out test data (methodology is in held_out/, data is private)
 held_out_tests/
+
+# Documentation build environment and output
+.docvenv/
+docs/_build/
