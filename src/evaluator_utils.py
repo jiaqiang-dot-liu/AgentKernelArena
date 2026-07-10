@@ -2,6 +2,8 @@
 """
 Utilities for evaluator: command execution and file I/O.
 """
+import os
+import shutil
 import subprocess
 import logging
 import yaml
@@ -34,33 +36,51 @@ def run_command(
     command: str,
     workspace: Path,
     timeout: int = 300,
-    logger: Optional[logging.Logger] = None
+    logger: Optional[logging.Logger] = None,
+    docker_container: Optional[str] = None,
 ) -> Tuple[bool, str, str]:
     """
     Run a shell command in the workspace directory.
-    
+
+    When ``docker_container`` is provided the command is executed inside the
+    named Docker container via ``docker exec``.  The workspace path is
+    assumed to be identical on host and inside the container (bind-mounted).
+
     Args:
         command: Shell command to execute
         workspace: Working directory
         timeout: Command timeout in seconds
         logger: Optional logger for output
-        
+        docker_container: If set, run the command inside this Docker container
+
     Returns:
         Tuple of (success: bool, stdout: str, stderr: str)
     """
     log = logger or logging.getLogger(__name__)
-    
+
     try:
         env = build_subprocess_env()
-        python_path = env.get(PYTHON_ENV_VAR)
-        quoted_python = shlex.quote(python_path) if python_path else None
-        command_to_run = normalize_python_command(command, quoted_python) if quoted_python else command
+        if docker_container:
+            # When running inside a Docker container we can't rewrite "python3" to
+            # the host interpreter path — skip normalize_python_command and wrap
+            # the original command in `docker exec` instead.
+            escaped = command.replace("'", "'\\''")
+            abs_workspace = Path(workspace).resolve()
+            command_to_run = (
+                f"docker exec -w {abs_workspace} {docker_container} "
+                f"bash -c '{escaped}'"
+            )
+            log.info(f"Running in Docker [{docker_container}]: {command_to_run[:200]}")
+        else:
+            python_path = env.get(PYTHON_ENV_VAR)
+            quoted_python = shlex.quote(python_path) if python_path else None
+            command_to_run = normalize_python_command(command, quoted_python) if quoted_python else command
+            log.info(f"Running command: {command_to_run}")
+            if command_to_run != command:
+                log.info(f"Original command: {command}")
 
-        log.info(f"Running command: {command_to_run}")
-        if command_to_run != command:
-            log.info(f"Original command: {command}")
         log.info(f"Working directory: {workspace}")
-        
+
         result = subprocess.run(
             command_to_run,
             shell=True,
@@ -70,7 +90,7 @@ def run_command(
             timeout=timeout,
             env=env,
         )
-        
+
         if result.returncode == 0:
             log.info(f"Command succeeded")
             if result.stdout:
@@ -81,10 +101,89 @@ def run_command(
             if result.stderr:
                 log.warning(f"STDERR: {result.stderr[:500]}")
             return False, result.stdout, result.stderr
-            
+
     except subprocess.TimeoutExpired:
         log.error(f"Command timed out after {timeout} seconds")
         return False, "", f"Command timed out after {timeout} seconds"
     except Exception as e:
         log.error(f"Command execution failed: {e}")
         return False, "", str(e)
+
+
+def checkout_aiter(
+    commit: str,
+    docker_container: str,
+    aiter_path: Optional[str] = None,
+    logger: Optional[logging.Logger] = None,
+) -> bool:
+    """Pinned-commit checkout of the aiter repo.
+
+    aiter_path resolution order:
+      1. explicit ``aiter_path`` argument
+      2. ``AKA_AITER_PATH`` env var
+    No baked-in default — if neither is provided, returns False with a clear
+    error message. (Reviewer note: previously hardcoded to /sgl-workspace/aiter.)
+    """
+    if aiter_path is None:
+        aiter_path = os.environ.get("AKA_AITER_PATH")
+    if not aiter_path:
+        log = logger or logging.getLogger(__name__)
+        log.error(
+            "aiter path is not configured: pass aiter_path explicitly or set "
+            "the AKA_AITER_PATH env var to the absolute path of the aiter repo."
+        )
+        return False
+
+    log = logger or logging.getLogger(__name__)
+
+    # Detect if we're already inside the container (no docker CLI available)
+    inside_container = not shutil.which("docker")
+
+    if not inside_container:
+        # Verify container is running
+        check = subprocess.run(
+            ["docker", "inspect", "-f", "{{.State.Running}}", docker_container],
+            capture_output=True, text=True,
+        )
+        if check.returncode != 0 or "true" not in check.stdout.lower():
+            log.error(f"Docker container '{docker_container}' is not running")
+            return False
+
+    # Checkout the requested commit.
+    # Always reset + clean to avoid stale files conflicting with new commit
+    # (e.g. rope.py file coexisting with rope/ directory after branch switch).
+    # Also clear __pycache__ to avoid stale bytecode.
+    checkout_cmd = (
+        f"cd {aiter_path} && git reset --hard && git clean -fd"
+        f" && git checkout --quiet {commit}"
+        f" && find . -name __pycache__ -type d -exec rm -rf {{}} + 2>/dev/null; true"
+    )
+    if inside_container:
+        result = subprocess.run(
+            ["bash", "-c", checkout_cmd],
+            capture_output=True, text=True, timeout=60,
+        )
+    else:
+        result = subprocess.run(
+            ["docker", "exec", docker_container, "bash", "-c", checkout_cmd],
+            capture_output=True, text=True, timeout=60,
+        )
+    if result.returncode != 0:
+        log.warning(f"git checkout {commit[:12]} failed, trying hard reset")
+        reset_cmd = f"cd {aiter_path} && git reset --hard && git clean -fd && git checkout {commit}"
+        if inside_container:
+            result = subprocess.run(
+                ["bash", "-c", reset_cmd],
+                capture_output=True, text=True, timeout=60,
+            )
+        else:
+            result = subprocess.run(
+                ["docker", "exec", docker_container, "bash", "-c", reset_cmd],
+                capture_output=True, text=True, timeout=60,
+            )
+        if result.returncode != 0:
+            log.error(f"Failed to checkout aiter {commit[:12]}: {result.stderr[:300]}")
+            return False
+
+    log.info(f"aiter checked out to {commit[:12]} in {docker_container}")
+    return True

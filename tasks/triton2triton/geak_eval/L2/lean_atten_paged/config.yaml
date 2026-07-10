@@ -1,0 +1,31 @@
+task_type: triton2triton
+source_file_path:
+- kernel.py
+harness_path: test_kernel_harness.py
+compile_command:
+- python3 -c "import ast; ast.parse(open('kernel.py').read())"
+correctness_command:
+- python3 test_kernel_harness.py --correctness
+performance_command:
+- python3 test_kernel_harness.py --full-benchmark
+target_kernel_functions:
+- _attn_lean_tile
+- la_persistent_paged
+prompt:
+  instructions: >-
+    Optimize the Lean Attention + Paged Attention Triton decode kernel
+    for AMD MI300X GPU. The kernel uses persistent streaming-k with tile-level scheduling.
+
+
+    KEY OPTIMIZATION OPPORTUNITY:
+
+    - The lock buffer used for cross-tile synchronization is currently allocated
+    per kernel launch. Pre-allocating the lock buffer outside the kernel
+    (in the host wrapper) eliminates per-launch allocation overhead.
+
+    - The lock buffer synchronizes across thread blocks during the streaming-k
+    reduction. Moving its allocation to one-time initialization reduces a
+    significant latency source in the launch-critical path.
+
+    - Also consider optimizing the tile scheduling and reduction patterns within
+    the persistent kernel body.

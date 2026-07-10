@@ -9,6 +9,8 @@
 # - codex
 # - claude_code
 # - task_validator
+# - geak_v3            # GEAK-v3 optimizer (HIP kernels, via the `geak` CLI)
+# - geak_v3_triton     # GEAK-v3 optimizer (Triton kernels, via the `geak` CLI)
 agent:
   template: cursor
 

@@ -19,11 +19,22 @@ agents/geak_ourllm_kernel2kernel/GEAK-agent
 tasks/repository/aiter/*/aiter/
 tasks/repository/rocprim/*/rocPRIM/
 run.sh
+.run_*.sh
 config_*.yaml
+!config_geak_triton_all18.yaml
+!config_geak_triton_smoke.yaml
+!config_smoke_hip.yaml
 tmp*
 kill.sh
 saved_results
 .mcp.json
+
+*workspace*
+ws_mem*
+do_task.sh
+traj.json
+**/baseline_metrics.json
+**/profile.json
 
 # Generated held-out test data (methodology is in held_out/, data is private)
 held_out_tests/
