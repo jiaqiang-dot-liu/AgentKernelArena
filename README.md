@@ -355,39 +355,6 @@ Review the generated `validation_report.yaml` in the workspace directory. The ta
 
 See [agents/task_validator/README.md](agents/task_validator/README.md) for the full list of validation checks and requirements.
 
-
-## GEAK Triton Kernel Optimization Runs
-
-Batch optimization of the 18 Triton kernels using the GEAK agent with heterogeneous memory configuration and model ensemble.
-
-All runs use: `GEAK_CONFIG_NAME=heterogeneous_memory_on`
-
-### Config & Command
-
-`config_geak_triton_all18.yaml` covers all 18 kernels (6 L1 + 4 L2 + 8 L3). Pass `GEAK_GPU_IDS` to choose which GPUs to use:
-
-```bash
-GEAK_CONFIG_NAME=heterogeneous_memory_on GEAK_GPU_IDS="0,1,2,3,4,5,6,7" \
-  python3 main.py --config_name config_geak_triton_all18.yaml \
-  > /tmp/all18_run.log 2>&1 &
-```
-
-To shard across two slots, run the same config twice with disjoint `GEAK_GPU_IDS` and different `workspace_directory_prefix` overrides.
-
-### Monitoring
-
-```bash
-# Check processes
-ps aux | grep "main.py" | grep -v grep
-
-# Tail logs
-tail -20 /tmp/all18_run.log
-
-# Check completed results
-find workspace_all18*/ -name "geak_summary.json" -exec echo "=== {} ===" \; -exec cat {} \;
-```
-
-
 ## Next Steps
 
 - Enhance A/B Testing with Better Interactivity and User Experience
