@@ -9,7 +9,7 @@ correctness_command:
 performance_command:
 - python3 test_kernel_harness.py --full-benchmark
 target_kernel_functions:
-- _fused_qk_rope_cosine_cache_llama_kernel
+- _fused_qk_rope_cat_and_cache_mla_kernel
 prompt:
   instructions: Optimize the fused QK RoPE + KV cache Triton kernel for AMD MI300X
     GPU. The kernel fuses query/key RoPE application with KV cache write for MLA attention.
