@@ -31,10 +31,12 @@ is opt-in.
 
 ## Build the dashboard data and serve it
 
-From the `visualization/` directory:
+After a normal AgentKernelArena run, reports land in
+`workspace_<gpu>_<agent>/run_<timestamp>/reports/`. Pass
+`--include-workspace-runs` so the build script picks them up:
 
 ```bash
-python backend/scripts/build_dashboard_data.py
+python backend/scripts/build_dashboard_data.py --include-workspace-runs
 python backend/server.py --host 127.0.0.1 --port 8080
 ```
 
@@ -43,6 +45,9 @@ Then open:
 ```text
 http://127.0.0.1:8080
 ```
+
+Without this flag, the script only scans `visualization/reports/`, which is
+empty by default, and the dashboard shows no data.
 
 ### Serve on port `80`
 
@@ -61,13 +66,8 @@ bash setup.sh
 
 ## Rebuild after new runs
 
-Whenever a run produces new reports, rebuild the dashboard payload:
-
-```bash
-python backend/scripts/build_dashboard_data.py
-```
-
-To also include workspace runs (not just `visualization/reports/`):
+Whenever a run produces new reports, rebuild the dashboard payload with the
+same flag used at first build:
 
 ```bash
 python backend/scripts/build_dashboard_data.py --include-workspace-runs
@@ -76,6 +76,13 @@ bash setup.sh --include-workspace-runs
 ```
 
 The dashboard picks up newly discovered report directories on the next refresh.
+
+If you placed report bundles manually in `visualization/reports/<report_name>/`
+instead, omit the flag:
+
+```bash
+python backend/scripts/build_dashboard_data.py
+```
 
 ## Dashboard implementation notes
 

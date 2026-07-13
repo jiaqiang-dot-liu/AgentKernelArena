@@ -14,6 +14,8 @@ arena for A/B testing.
 
 ## Supported agents
 
+The following agents are available.
+
 | `agent.template` | Description |
 | --- | --- |
 | `cursor` | Cursor Agent CLI |

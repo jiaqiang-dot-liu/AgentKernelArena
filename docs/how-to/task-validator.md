@@ -59,7 +59,7 @@ The validator's own backend and limits are set in
 
 ```yaml
 backend: claude_code          # claude_code | codex | cursor
-timeout_seconds: 600          # max time per task validation (0 disables the timeout)
+timeout_seconds: 1200         # max time per task validation (0 disables the timeout)
 python_path: null             # null uses the framework/container Python
 
 # Optional model settings for the active backend.
@@ -71,7 +71,7 @@ effort: max
 
 ## `task_validator` checks
 
-The `task_validator` runs these checks in order:
+The `task_validator` runs the following checks in order.
 
 | # | Check | What it verifies |
 | --- | --- | --- |

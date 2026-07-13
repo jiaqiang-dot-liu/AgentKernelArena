@@ -12,7 +12,7 @@ myst:
 Initial release of AgentKernelArena, a standardized arena for evaluating AI
 coding agents on GPU kernel optimization tasks on AMD GPUs.
 
-### Features
+### What's included in 0.1.0
 
 AgentKernelArena 0.1.0 includes the following features.
 
@@ -52,5 +52,5 @@ The following limitations are present in this release.
 - A single agent task can still run until its configured timeout, but in
   `docker-parallel-run` other GPU workers continue processing the remaining
   queue.
-- The published leaderboard is forthcoming; the live demo is illustrative only.
+- A live leaderboard is not included in this release. The visualization dashboard is for local run comparison only.
 - Task suites for several categories are being expanded toward 100+ tasks each.

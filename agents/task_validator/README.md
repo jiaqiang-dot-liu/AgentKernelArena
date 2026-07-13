@@ -42,7 +42,7 @@ Edit `agents/task_validator/agent_config.yaml`:
 
 ```yaml
 backend: claude_code          # claude_code | codex | cursor
-timeout_seconds: 600          # max time per task validation (set 0 to disable timeout)
+timeout_seconds: 1200         # max time per task validation (set 0 to disable timeout)
 python_path: null             # null -> auto-use framework-detected interpreter (recommended)
 
 # Optional model settings for the active backend.

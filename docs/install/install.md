@@ -14,6 +14,8 @@ plus their login state.
 
 ## Prerequisites
 
+The following prerequisites are required before running AgentKernelArena.
+
 - **Docker**
 - **AMD GPU with ROCm-compatible Docker access** — the runner mounts `/dev/kfd`,
   `/dev/dri`, and `/dev/mem` when present.

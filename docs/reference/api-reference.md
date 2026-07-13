@@ -49,7 +49,7 @@ The in-container `main.py` entrypoint accepts these flags:
 | `--resume-run <run_dir>` | Resume a specific run directory, skipping completed tasks |
 | `--resume-latest` | Resume the most recent run in the workspace |
 
-These flags are passed to the in-container entrypoint via `make docker-run`
+These flags are passed to the in-container entrypoint through `make docker-run`
 or `make docker-parallel-run` (`CONFIG=` sets `--config_name`; `RUN_ARGS=`
 forwards the rest):
 
@@ -70,6 +70,8 @@ The following flags are internal implementation details used by
 | `--postprocess-only` | Aggregate results once after all workers finish |
 
 ## Docker runner Make targets
+
+The following Make targets are available for running evaluations.
 
 | Target | Description |
 | --- | --- |
