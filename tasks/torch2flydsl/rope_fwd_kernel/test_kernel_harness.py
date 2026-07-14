@@ -1,26 +1,27 @@
 #!/usr/bin/env python3
 # Copyright(C) [2026] Advanced Micro Devices, Inc. All rights reserved.
-"""Test harness for the torch2flydsl rope_fwd (model-only) task.
+"""Harness for the torch2flydsl rope_fwd starter task.
 
-`model.py` is the pure-torch reference (bf16 cached-cos/sin RoPE, sbhd layout,
-fp32 rotation). No `kernel.py` ships: a clean standalone FlyDSL RoPE kernel does
-not exist in aiter (only the already-done fused qk-norm-rope path), so FlyDSL is
-GEAK's target.
+``model.py`` is the pure-torch specification and ``kernel.py`` is the FlyDSL
+starter/target. Correctness always validates the reference against the independent
+AMD runtime oracle ``aiter.rope_cached_fwd`` and also invokes
+``flydsl_rope_cached_fwd``. Once implemented, the target is compared to that same
+oracle. Only the starter's explicit ``NotImplementedError`` is a SKIP; missing
+entry points and all other target errors fail validation.
 
-Model-only correctness: the reference in `model.py` is validated against the REAL
-AMD runtime op `aiter.rope_cached_fwd` (the ground truth). The harness MAY import
-aiter; `model.py` MUST NOT. The normalized worst-element error
-``max|truth - ref| / max|truth|`` must be <= REL_TOL.
+The normalized worst-element gate is
+``max|truth - result| / max|truth| <= REL_TOL``.
 
 The sweep covers both rotate styles (NEOX/GPT-J), full and partial rotary, the
 reuse-freqs-front-part on/off cases, and a nope-first case.
 
 Modes:
-  --compile         import model.py + aiter and report readiness
-  --correctness     assert model.py matches aiter.rope_cached_fwd at the gate
-  --full-benchmark  time the torch reference and aiter op, write perf report
+  --compile         import model.py + kernel.py and run a CPU reference smoke pass
+  --correctness     validate reference and implemented target against AITER truth
+  --full-benchmark  time AITER/reference/target and report target latency when implemented
 """
 import argparse
+import ast
 import importlib.util
 import json
 import math
@@ -31,6 +32,7 @@ from pathlib import Path
 
 KERNEL_FILE = "kernel.py"
 MODEL_FILE = "model.py"
+KERNEL_ENTRY = "flydsl_rope_cached_fwd"
 
 ROTATE_NEOX = 0
 ROTATE_GPTJ = 1
@@ -59,6 +61,55 @@ def _load_module(kernel_dir, filename, alias):
     sys.modules[alias] = mod
     spec.loader.exec_module(mod)
     return mod
+
+
+def _load_target():
+    """Load the required target; absence is a broken task, not a starter SKIP."""
+    kmod = _load_module(_KERNEL_DIR, KERNEL_FILE, "flydsl_kernel")
+    assert kmod is not None, f"cannot load {KERNEL_FILE}"
+    target = getattr(kmod, KERNEL_ENTRY)
+    assert callable(target), f"{KERNEL_ENTRY} must be callable"
+    return target
+
+
+def _is_pure_starter_source(source):
+    """Recognize only an unconditional top-level NotImplementedError stub."""
+    tree = ast.parse(source)
+    matches = [
+        node
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name == KERNEL_ENTRY
+    ]
+    if len(matches) != 1:
+        return False
+    body = matches[0].body
+    if body and isinstance(body[0], ast.Expr):
+        value = body[0].value
+        if isinstance(value, ast.Constant) and isinstance(value.value, str):
+            body = body[1:]
+    body = [node for node in body if not isinstance(node, ast.Pass)]
+    if len(body) != 1 or not isinstance(body[0], ast.Raise):
+        return False
+    exc = body[0].exc
+    if isinstance(exc, ast.Call):
+        exc = exc.func
+    return isinstance(exc, ast.Name) and exc.id == "NotImplementedError"
+
+
+def _is_pure_starter():
+    entry = Path(_KERNEL_DIR) / KERNEL_FILE
+    return _is_pure_starter_source(entry.read_text(encoding="utf-8"))
+
+
+def _probe_target(target, pure_starter, *args):
+    """Catch NotImplementedError only for a statically proven pure starter."""
+    try:
+        return True, target(*args)
+    except NotImplementedError:
+        if not pure_starter:
+            raise
+        return False, None
 
 
 _KERNEL_DIR = _resolve_kernel_dir()
@@ -136,6 +187,8 @@ def run_correctness(verbose=True):
 
     mmod = _load_module(_KERNEL_DIR, MODEL_FILE, "torch_model")
     assert mmod is not None, "cannot load model.py"
+    target = _load_target()
+    pure_starter = _is_pure_starter()
 
     init = mmod.get_init_inputs()
     smoke_model = mmod.Model(*init).to("cuda").eval()
@@ -151,48 +204,88 @@ def run_correctness(verbose=True):
 
     failures = []
     worst = 0.0
+    target_implemented = None
     for shape in SHAPES:
-        try:
-            model = mmod.Model(
-                shape["rotate_style"], shape["reuse"], shape["nope_first"]
-            ).to("cuda").eval()
-            input, cos, sin = _make_inputs(shape)
+        model = mmod.Model(
+            shape["rotate_style"], shape["reuse"], shape["nope_first"]
+        ).to("cuda").eval()
+        input, cos, sin = _make_inputs(shape)
 
-            with torch.no_grad():
-                ref = model(input, cos, sin)
+        with torch.no_grad():
+            ref = model(input, cos, sin)
 
-            truth = _retry(
-                lambda: aiter.rope_cached_fwd(
-                    input, cos, sin,
-                    shape["rotate_style"], shape["reuse"], shape["nope_first"], False,
-                ),
-                what=shape["name"],
+        truth = _retry(
+            lambda: aiter.rope_cached_fwd(
+                input,
+                cos,
+                sin,
+                shape["rotate_style"],
+                shape["reuse"],
+                shape["nope_first"],
+                False,
+            ),
+            what=shape["name"],
+        )
+        torch.cuda.synchronize()
+
+        err, max_abs, _ = _norm_max_err(truth, ref)
+        worst = max(worst, err)
+        pct = (
+            torch.isclose(truth.float(), ref.float(), atol=1e-2, rtol=1e-2)
+            .float()
+            .mean()
+            .item()
+            * 100
+        )
+        ok = err <= REL_TOL
+        if verbose:
+            print(
+                f"  {'PASS' if ok else 'FAIL'}: {shape['name']} "
+                f"(s{shape['s']}/b{shape['b']}/h{shape['h']}/d{shape['d']}) "
+                f"ref-vs-aiter norm_max_err={err:.6f} (tol={REL_TOL}) "
+                f"max_abs={max_abs:.5f} close%@1e-2={pct:.2f}"
             )
+        if not ok:
+            failures.append(shape["name"])
+
+        target_args = (
+            input,
+            cos,
+            sin,
+            shape["rotate_style"],
+            shape["reuse"],
+            shape["nope_first"],
+        )
+        if target_implemented is None:
+            target_implemented, kout = _probe_target(
+                target, pure_starter, *target_args
+            )
+            if not target_implemented and verbose:
+                print(
+                    "        SKIP: kernel.py FlyDSL starter is not implemented "
+                    "(reference was validated against AITER above)"
+                )
+        elif target_implemented:
+            kout = target(*target_args)
+        else:
+            kout = None
+
+        if target_implemented:
+            assert kout is not None, f"{KERNEL_ENTRY} returned None"
             torch.cuda.synchronize()
-
-            err, max_abs, _ = _norm_max_err(truth, ref)
-            worst = max(worst, err)
-            pct = (
-                torch.isclose(truth.float(), ref.float(), atol=1e-2, rtol=1e-2)
-                .float()
-                .mean()
-                .item()
-                * 100
-            )
-            ok = err <= REL_TOL
+            kerr, kmax_abs, _ = _norm_max_err(truth, kout)
+            k_ok = kerr <= REL_TOL
             if verbose:
                 print(
-                    f"  {'PASS' if ok else 'FAIL'}: {shape['name']} "
-                    f"(s{shape['s']}/b{shape['b']}/h{shape['h']}/d{shape['d']}) "
-                    f"norm_max_err={err:.6f} (tol={REL_TOL}) max_abs={max_abs:.5f} "
-                    f"close%@1e-2={pct:.2f}"
+                    f"        {'PASS' if k_ok else 'FAIL'}: {shape['name']} "
+                    f"kernel-vs-aiter norm_max_err={kerr:.6f} "
+                    f"max_abs={kmax_abs:.5f}"
                 )
-            if not ok:
-                failures.append(shape["name"])
-        except Exception as e:  # noqa: BLE001
-            failures.append(shape["name"])
-            if verbose:
-                print(f"  FAIL: {shape['name']} - {str(e)[:160]}")
+            if not k_ok:
+                failures.append(f"{shape['name']}:kernel")
+
+        del model, input, cos, sin
+        torch.cuda.empty_cache()
 
     status = "ALL PASS" if not failures else f"FAILED ({len(failures)}/{len(SHAPES)})"
     print(f"Status: {status}")
@@ -208,10 +301,34 @@ def run_benchmark(warmup=10, iters=100, verbose=True):
 
     mmod = _load_module(_KERNEL_DIR, MODEL_FILE, "torch_model")
     assert mmod is not None, "cannot load model.py"
+    target = _load_target()
+    pure_starter = _is_pure_starter()
+
+    probe_shape = SHAPES[0]
+    probe_input, probe_cos, probe_sin = _make_inputs(probe_shape)
+    target_implemented, probe_output = _probe_target(
+        target,
+        pure_starter,
+        probe_input,
+        probe_cos,
+        probe_sin,
+        probe_shape["rotate_style"],
+        probe_shape["reuse"],
+        probe_shape["nope_first"],
+    )
+    if not target_implemented:
+        print(
+            "SKIP: kernel.py FlyDSL starter is not implemented "
+            "(benchmarking the reference only; no target latency is claimed)"
+        )
+    else:
+        assert probe_output is not None, f"{KERNEL_ENTRY} returned None"
+    del probe_input, probe_cos, probe_sin, probe_output
+    torch.cuda.empty_cache()
 
     latencies, report = [], []
-    print(f"{'Config':<22} {'TorchRef':>12} {'aiter':>12}")
-    print("-" * 50)
+    print(f"{'Config':<22} {'aiter':>12} {'TorchRef':>12} {'target':>12}")
+    print("-" * 64)
     for idx, shape in enumerate(SHAPES):
         s, b, h, d = shape["s"], shape["b"], shape["h"], shape["d"]
         model = mmod.Model(
@@ -227,6 +344,16 @@ def run_benchmark(warmup=10, iters=100, verbose=True):
             return aiter.rope_cached_fwd(
                 input, cos, sin,
                 shape["rotate_style"], shape["reuse"], shape["nope_first"], False,
+            )
+
+        def run_target():
+            return target(
+                input,
+                cos,
+                sin,
+                shape["rotate_style"],
+                shape["reuse"],
+                shape["nope_first"],
             )
 
         _retry(run_truth, what=shape["name"])
@@ -249,14 +376,16 @@ def run_benchmark(warmup=10, iters=100, verbose=True):
 
         ref_ms = _mean(run_ref)
         aiter_ms = _mean(run_truth)
-        latencies.append(ref_ms)
+        target_ms = _mean(run_target) if target_implemented else None
+        primary_ms = target_ms if target_ms is not None else ref_ms
+        latencies.append(primary_ms)
         # bytes moved: input + output (bf16); cos/sin caches are small.
         bytes_total = s * b * h * d * 2 * 2
-        gbps = bytes_total / (ref_ms * 1e-3) / 1e9
+        gbps = bytes_total / (primary_ms * 1e-3) / 1e9
         report.append(
             {
                 "test_case_id": f"test_case_{idx}",
-                "execution_time_ms": ref_ms,
+                "execution_time_ms": primary_ms,
                 "shape": [s, b, h, d],
                 "params": {
                     "s": s, "b": b, "h": h, "d": d,
@@ -267,11 +396,18 @@ def run_benchmark(warmup=10, iters=100, verbose=True):
                     "dtype": "bf16",
                 },
                 "aiter_ms": aiter_ms,
+                "reference_ms": ref_ms,
+                "target_ms": target_ms,
+                "target_implemented": target_implemented,
                 "gbps": gbps,
             }
         )
         if verbose:
-            print(f"{shape['name']:<22} {ref_ms:>10.4f}ms {aiter_ms:>10.4f}ms")
+            target_s = f"{target_ms:>10.4f}ms" if target_ms is not None else f"{'n/a':>12}"
+            print(
+                f"{shape['name']:<22} {aiter_ms:>10.4f}ms "
+                f"{ref_ms:>10.4f}ms {target_s}"
+            )
         del model, input, cos, sin
         torch.cuda.empty_cache()
 
@@ -280,18 +416,20 @@ def run_benchmark(warmup=10, iters=100, verbose=True):
     build_dir.mkdir(exist_ok=True)
     with open(build_dir / "performance_report.json", "w") as f:
         json.dump(report, f, indent=2)
-    print("-" * 50)
-    print(f"Geometric mean torch-reference latency: {geomean_latency:.4f} ms")
+    print("-" * 64)
+    latency_kind = "target" if target_implemented else "reference fallback"
+    print(f"Geometric mean {latency_kind} latency: {geomean_latency:.4f} ms")
     return {"geomean_latency_ms": geomean_latency}
 
 
 def run_compile():
-    import torch  # noqa: F401
-    import aiter  # noqa: F401
-
     mmod = _load_module(_KERNEL_DIR, MODEL_FILE, "torch_model")
     assert mmod is not None, "cannot load model.py"
     assert hasattr(mmod, "Model") and hasattr(mmod, "get_inputs"), "model.py contract"
+    _load_target()
+    inputs = mmod.get_inputs()
+    out = mmod.Model(*mmod.get_init_inputs()).eval()(*inputs)
+    assert out.shape == inputs[0].shape, "CPU reference smoke shape mismatch"
     print("compile ok")
 
 
@@ -306,7 +444,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     print("=" * 60)
-    print("torch2flydsl rope_fwd (cached cos/sin, sbhd, bf16, model-only)")
+    print("torch2flydsl rope_fwd (cached cos/sin, bf16, FlyDSL starter target)")
     print("=" * 60)
 
     if args.compile:

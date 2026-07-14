@@ -31,6 +31,7 @@ KERNEL = "_fused_add_rmsnorm_kernel"
 # (M, N) subset of op_tests/triton_tests/normalization/test_rmsnorm.py::get_vals.
 TEST_SHAPES = [
     {"name": "m1_n4", "M": 1, "N": 4},
+    {"name": "m1_n65536", "M": 1, "N": 65536},  # exercise USE_BLOCKED=True
     {"name": "m256_n4096", "M": 256, "N": 4096},
     {"name": "m4096_n8192", "M": 4096, "N": 8192},
     {"name": "m873_n1245", "M": 873, "N": 1245},
@@ -79,8 +80,8 @@ def _torch_rmsnorm(x, g, out_dtype):
     N = x.shape[1]
     x_f32 = x.float()
     g_f32 = g.float()
-    rms = torch.sqrt(torch.sum(x_f32 * x_f32, dim=-1) * (1.0 / N))
-    rsigma = 1.0 / rms
+    mean_square = torch.sum(x_f32 * x_f32, dim=-1) * (1.0 / N)
+    rsigma = torch.rsqrt(mean_square + EPS)
     out = x_f32 * rsigma.unsqueeze(1) * g_f32
     return out.to(out_dtype)
 

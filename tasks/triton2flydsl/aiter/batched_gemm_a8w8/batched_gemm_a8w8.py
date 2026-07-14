@@ -254,13 +254,17 @@ def _get_config(M: int, N: int, K: int):
     block_m = 128 if M >= 128 else max(16, triton.next_power_of_2(M))
     block_n = 128 if N >= 128 else max(16, triton.next_power_of_2(N))
     block_k = 128 if K >= 128 else max(16, triton.next_power_of_2(K))
+    # Triton 3.6's AMD block-pingpong pass assumes an MFMA encoding that the
+    # 16x16x16 int8 tile does not have on gfx950.  A single pipeline stage
+    # avoids that invalid pass while retaining the two-stage config elsewhere.
+    num_stages = 1 if block_m == block_n == block_k == 16 else 2
     return {
         "BLOCK_SIZE_M": block_m,
         "BLOCK_SIZE_N": block_n,
         "BLOCK_SIZE_K": block_k,
         "GROUP_SIZE_M": 4,
         "num_warps": 4,
-        "num_stages": 2,
+        "num_stages": num_stages,
         "waves_per_eu": 0,
     }
 
