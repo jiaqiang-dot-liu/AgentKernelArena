@@ -159,7 +159,7 @@ Verify that config.yaml contains all required fields:
 - `target_kernel_functions` (list of strings)
 - `compile_command` (list of strings)
 - `correctness_command` (list of strings)
-- `task_type` (string, one of: hip2hip, cuda2hip, triton2triton, torch2hip, instruction2triton, rocprim, flydsl2flydsl, repository)
+- `task_type` (string, one of: hip2hip, cuda2hip, triton2triton, triton2flydsl, torch2hip, torch2flydsl, instruction2triton, rocprim, flydsl2flydsl, repository)
 Also check that optional fields (`performance_command`, `prompt`) are well-formed if present.
 
 **IMPORTANT — `task_type: repository` schema differs.** Repository tasks clone a full upstream
@@ -220,7 +220,27 @@ Use a timeout of {correctness_timeout} seconds per command. Run the command EXAC
 Capture stdout, stderr, and exit code.
 Check if `build/correctness_report.json` is generated.
 If exit code is non-zero but `eval_result.yaml` clearly records `correctness: true`, treat correctness as PASS and explain the inconsistency.
-Status: PASS if correctness evidence is successful (exit code 0 OR correctness_report status ok OR eval_result correctness=true), FAIL otherwise, TIMEOUT if exceeded {correctness_timeout}s, SKIP if compilation failed OR was skipped (e.g. empty generation-placeholder kernel).
+
+**IMPORTANT — `torch2flydsl` starter-stub contract (task-package validation only).** A shipped
+`torch2flydsl` task may intentionally define a declared top-level target whose body contains only an
+optional docstring / `pass` and a direct, unconditional `raise NotImplementedError(...)`. This is a
+non-empty generation starter, not an optimized implementation. If the correctness harness invokes that
+target, catches that specific `NotImplementedError`, clearly reports the target as unimplemented, and
+still successfully validates the PyTorch/model reference against an independent oracle such as AITER,
+set correctness to `SKIP` and explain that the independent oracle passed. This allowance applies only to
+the as-shipped task validator:
+
+- Do not treat a conditional `NotImplementedError` inside an otherwise implemented target as a starter stub.
+- Missing target symbols/files, `AttributeError`, `ImportError`, `RuntimeError`, and every exception other
+  than the explicit starter `NotImplementedError` are real failures and MUST NOT be converted to `SKIP`,
+  even if a harness prints “SKIP” or exits zero.
+- If the independent reference/oracle check fails, correctness is `FAIL`, not `SKIP`.
+- Performance remains `SKIP` for an accepted starter because there is no implemented target to score.
+- The centralized optimization evaluator performs a static guard before correctness and rejects an agent
+  submission that leaves any declared target as this starter stub. A validator `SKIP` never makes an
+  unimplemented optimization submission eligible for scoring.
+
+Status: PASS if correctness evidence is successful (exit code 0 OR correctness_report status ok OR eval_result correctness=true), FAIL otherwise, TIMEOUT if exceeded {correctness_timeout}s, SKIP if compilation failed/was skipped (e.g. empty generation-placeholder kernel) OR the exact `torch2flydsl` starter-stub contract above is satisfied.
 
 ### Check 6: Performance
 Run the performance command(s) from the workspace directory (if any):
@@ -264,6 +284,10 @@ Analyze whether the correctness check is meaningful:
 - Does it use reasonable tolerances (atol, rtol)?
 - Could it trivially pass regardless of kernel output (e.g., always returns 0, no actual comparison)?
 - Does it test with sufficient input shapes/sizes?
+For a `torch2flydsl` starter, catching only the target's explicit `NotImplementedError` while independently
+checking the reference/oracle is acceptable. A broad exception handler or fallback that lets missing
+symbols, import errors, runtime errors, or incorrect implemented targets pass is trivially passing: mark
+this check `FAIL` and set `is_trivially_passing: true`.
 Status: PASS if implementation appears sound, WARN if questionable but functional, FAIL if trivially passing.
 Set `is_trivially_passing: true` if the check would pass even with garbage output.
 
@@ -324,7 +348,8 @@ After completing ALL checks, create a file called `validation_report.yaml` in th
 ```
 
 ### Rules for overall_status:
-- **PASS**: ALL checks passed (no FAIL, no WARN)
+- **PASS**: All applicable checks passed (no FAIL, no WARN); a contract-allowed `SKIP` such as an
+  intentional generation placeholder or confirmed `torch2flydsl` starter does not prevent overall PASS
 - **WARN**: No FAIL checks, but at least one WARN
 - **FAIL**: At least one check has status FAIL
 

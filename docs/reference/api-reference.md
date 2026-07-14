@@ -101,7 +101,8 @@ Each task is defined by a `config.yaml` in its directory. Command fields are
 *lists*.
 
 For isolated-kernel tasks (`hip2hip`, `cuda2hip`, `triton2triton`,
-`instruction2triton`, `torch2hip`, and `flydsl2flydsl`):
+`triton2flydsl`, `instruction2triton`, `torch2hip`, `torch2flydsl`, and
+`flydsl2flydsl`):
 
 | Field | Required | Description |
 | --- | --- | --- |
@@ -109,7 +110,7 @@ For isolated-kernel tasks (`hip2hip`, `cuda2hip`, `triton2triton`,
 | `target_kernel_functions` | Yes | Kernel function names that must be defined in the source |
 | `compile_command` | Yes | Command(s) to compile or build-check |
 | `correctness_command` | Yes | Command(s) to validate correctness |
-| `task_type` | Yes | One of `hip2hip`, `cuda2hip`, `triton2triton`, `instruction2triton`, `torch2hip`, or `flydsl2flydsl` |
+| `task_type` | Yes | One of `hip2hip`, `cuda2hip`, `triton2triton`, `triton2flydsl`, `instruction2triton`, `torch2hip`, `torch2flydsl`, or `flydsl2flydsl` |
 | `performance_command` | No | Command(s) to measure performance |
 | `task_result_template` | No | Override the result template (`null` = default) |
 | `prompt.source_code` | No | Override the prompt's source-code section |

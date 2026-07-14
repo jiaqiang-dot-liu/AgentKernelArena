@@ -2,7 +2,8 @@
 set -euo pipefail
 
 DEFAULT_DOCKER_IMAGE_GFX942="${AKA_DOCKER_IMAGE_GFX942:-lmsysorg/sglang:v0.5.12-rocm720-mi30x}"
-DEFAULT_DOCKER_IMAGE_GFX950="${AKA_DOCKER_IMAGE_GFX950:-lmsysorg/sglang:v0.5.12-rocm720-mi35x}"
+GFX950_V0514_DOCKER_IMAGE="lmsysorg/sglang-rocm:v0.5.14-rocm720-mi35x-20260705"
+DEFAULT_DOCKER_IMAGE_GFX950="${AKA_DOCKER_IMAGE_GFX950:-$GFX950_V0514_DOCKER_IMAGE}"
 CONTAINER_WORKDIR="${AKA_DOCKER_WORKDIR:-/workspace}"
 HOST_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 HOST_HOME="${HOME:?HOME must be set}"
@@ -83,6 +84,10 @@ docker_image_for_arch() {
             die "No Docker image mapping for GPU arch '$arch'. Set AKA_DOCKER_IMAGE or ${env_name}."
             ;;
     esac
+}
+
+uses_gfx950_v0514_runtime() {
+    [[ "$SELECTED_GPU_ARCH" == "gfx950" && "$SELECTED_IMAGE" == "$GFX950_V0514_DOCKER_IMAGE" ]]
 }
 
 read_target_gpu_model() {
@@ -391,6 +396,18 @@ build_docker_args() {
         -e "PATH=${container_path}"
         -w "$CONTAINER_WORKDIR"
     )
+
+    # The pinned gfx950 image ships root-owned AITER/FlyDSL caches, and its
+    # /tmp/aiter_configs directory is not writable by the host UID used below.
+    # Keep these overrides tied to that exact runtime so custom images and
+    # other GPU architectures retain their existing cache behavior.
+    if uses_gfx950_v0514_runtime; then
+        docker_args+=(
+            -e "AITER_JIT_DIR=/tmp/aiter-jit${cache_postfix}"
+            -e "FLYDSL_RUNTIME_CACHE_DIR=/tmp/flydsl-runtime-cache${cache_postfix}"
+            --tmpfs "/tmp/aiter_configs:rw,uid=${HOST_UID},gid=${HOST_GID},mode=1777"
+        )
+    fi
 
     if [[ -n "${AKA_VISIBLE_GPU:-}" ]]; then
         local logical_gpu="${AKA_LOGICAL_GPU:-0}"

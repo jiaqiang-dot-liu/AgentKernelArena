@@ -21,7 +21,7 @@ The following prerequisites are required before running AgentKernelArena.
   `/dev/dri`, and `/dev/mem` when present.
 - **SGLang benchmark image** — `gfx942` uses
   `lmsysorg/sglang:v0.5.12-rocm720-mi30x`; `gfx950` uses
-  `lmsysorg/sglang:v0.5.12-rocm720-mi35x`. The runner selects from
+  `lmsysorg/sglang-rocm:v0.5.14-rocm720-mi35x-20260705`. The runner selects from
   `target_gpu_model` for benchmark runs and from the visible host GPU for shell
   and smoke commands.
 - **Git**
@@ -84,9 +84,10 @@ npm install -g @anthropic-ai/claude-code
 
 ## FlyDSL tasks (optional)
 
-`flydsl2flydsl` tasks need the `flydsl` package inside the container. Most images
-already ship it (`make docker-smoke` prints `flydsl=ok <version>`). If yours does
-not, install it once into the container's persistent pip user-base:
+`flydsl2flydsl`, `torch2flydsl`, and `triton2flydsl` tasks need the `flydsl`
+package inside the container. Most images already ship it (`make docker-smoke`
+prints `flydsl=ok <version>`). If yours does not, install it once into the
+container's persistent pip user-base:
 
 ```bash
 make docker-setup-flydsl
