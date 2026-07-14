@@ -1,0 +1,14 @@
+source_file_path:
+- fused_moe_router.py
+target_kernel_functions:
+- fused_moe_router_shim
+- fused_moe_router_cudacore_kernel
+- fused_moe_router_tensorcore_kernel
+compile_command:
+- python3 test_kernel_harness.py --compile
+correctness_command:
+- python3 test_kernel_harness.py --correctness
+performance_command:
+- python3 test_kernel_harness.py --full-benchmark
+task_type: triton2flydsl
+task_result_template: null

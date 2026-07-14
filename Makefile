@@ -7,6 +7,7 @@
 SHELL := /bin/bash
 
 .PHONY: help docker-shell docker-check-agents docker-smoke docker-run docker-parallel-run docker-setup-flydsl \
+        check-docker-runner check-evaluator \
         sync-perf-helpers check-perf-helpers materialize-perf-workspace \
         materialize-perf-task cleanup-works install-cursor-agent vllm
 
@@ -21,6 +22,8 @@ help:
 	@echo "make docker-parallel-run CONFIG=config.yaml GPU_IDS=0,1 - Run benchmark across one worker container per GPU"
 	@echo "                         Images: gfx942->mi30x, gfx950->mi35x; override with AKA_DOCKER_IMAGE=..."
 	@echo "make docker-setup-flydsl - Install FlyDSL into the container (needed for flydsl2flydsl tasks)"
+	@echo "make check-docker-runner - Check Docker runner syntax and runtime-specific arguments"
+	@echo "make check-evaluator     - Run centralized evaluator unit tests"
 	@echo ""
 	@echo "Maintenance:"
 	@echo "make sync-perf-helpers   - Refresh committed perf-helper stubs in task sources"
@@ -58,6 +61,12 @@ docker-parallel-run:
 # not ship it). Run once per machine/image; needed only for flydsl2flydsl tasks.
 docker-setup-flydsl:
 	@$(DOCKER_RUNNER) setup-flydsl
+
+check-docker-runner:
+	@bash tests/test_docker_benchmark.sh
+
+check-evaluator:
+	@python3 -m unittest discover -s tests -p 'test_evaluator_*.py'
 
 # Refresh committed perf-helper stubs/markers in task sources. Runtime workspaces
 # are materialized from src/tools/perf/ by setup_workspace().

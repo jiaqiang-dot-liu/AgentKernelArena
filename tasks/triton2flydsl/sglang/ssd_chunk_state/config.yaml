@@ -1,0 +1,13 @@
+source_file_path:
+- ssd_chunk_state.py
+target_kernel_functions:
+- _chunk_state_fwd
+- _chunk_state_fwd_kernel
+compile_command:
+- python3 test_kernel_harness.py --compile
+correctness_command:
+- python3 test_kernel_harness.py --correctness
+performance_command:
+- python3 test_kernel_harness.py --full-benchmark
+task_type: triton2flydsl
+task_result_template: null

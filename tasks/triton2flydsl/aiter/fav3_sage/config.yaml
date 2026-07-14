@@ -1,0 +1,14 @@
+source_file_path:
+- fav3_sage.py
+target_kernel_functions:
+- fav3_sage
+- sage_fwd
+- sage_quant_kernel
+compile_command:
+- python3 test_kernel_harness.py --compile
+correctness_command:
+- python3 test_kernel_harness.py --correctness
+performance_command:
+- python3 test_kernel_harness.py --full-benchmark
+task_type: triton2flydsl
+task_result_template: null

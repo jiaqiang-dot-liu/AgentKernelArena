@@ -1,0 +1,14 @@
+source_file_path:
+- dynamic_mxfp8_quant.py
+target_kernel_functions:
+- dynamic_mxfp8_quant
+- _dynamic_mxfp8_quant_kernel
+- _mxfp8_quant_op
+compile_command:
+- python3 test_kernel_harness.py --compile
+correctness_command:
+- python3 test_kernel_harness.py --correctness
+performance_command:
+- python3 test_kernel_harness.py --full-benchmark
+task_type: triton2flydsl
+task_result_template: null

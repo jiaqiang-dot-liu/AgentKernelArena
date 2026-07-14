@@ -1,0 +1,13 @@
+source_file_path:
+- fused_clamp_act_mul.py
+target_kernel_functions:
+- fused_clamp_act_mul
+- _fused_clamp_silu_mul_kernel
+compile_command:
+- python3 test_kernel_harness.py --compile
+correctness_command:
+- python3 test_kernel_harness.py --correctness
+performance_command:
+- python3 test_kernel_harness.py --full-benchmark
+task_type: triton2flydsl
+task_result_template: null

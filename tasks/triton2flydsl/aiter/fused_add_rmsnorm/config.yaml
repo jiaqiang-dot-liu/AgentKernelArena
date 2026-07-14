@@ -1,0 +1,13 @@
+source_file_path:
+- fused_add_rmsnorm.py
+target_kernel_functions:
+- rmsnorm2d_fwd_with_add
+- _fused_add_rmsnorm_kernel
+compile_command:
+- python3 test_kernel_harness.py --compile
+correctness_command:
+- python3 test_kernel_harness.py --correctness
+performance_command:
+- python3 test_kernel_harness.py --full-benchmark
+task_type: triton2flydsl
+task_result_template: null

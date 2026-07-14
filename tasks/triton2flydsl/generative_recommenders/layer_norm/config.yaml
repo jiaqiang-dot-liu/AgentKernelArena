@@ -1,0 +1,15 @@
+source_file_path:
+- layer_norm.py
+target_kernel_functions:
+- triton_layer_norm
+- triton_weighted_layer_norm_fwd
+- _layer_norm_fwd
+- _weighted_layer_norm_fwd
+compile_command:
+- python3 test_kernel_harness.py --compile
+correctness_command:
+- python3 test_kernel_harness.py --correctness
+performance_command:
+- python3 test_kernel_harness.py --full-benchmark
+task_type: triton2flydsl
+task_result_template: null

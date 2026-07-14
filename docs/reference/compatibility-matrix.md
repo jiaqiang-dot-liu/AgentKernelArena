@@ -23,12 +23,13 @@ The following software versions are required or verified.
 | Component | Version | Notes |
 | --- | --- | --- |
 | Docker | Current stable release | Required; serial evaluations run through `make docker-run`; multi-GPU evaluations run through `make docker-parallel-run`. |
-| SGLang benchmark image | `lmsysorg/sglang:v0.5.12-rocm720-mi30x` for `gfx942`; `lmsysorg/sglang:v0.5.12-rocm720-mi35x` for `gfx950` | Override with `AKA_DOCKER_IMAGE`, `AKA_DOCKER_IMAGE_GFX942`, or `AKA_DOCKER_IMAGE_GFX950`. |
+| SGLang benchmark image | `lmsysorg/sglang:v0.5.12-rocm720-mi30x` for `gfx942`; `lmsysorg/sglang-rocm:v0.5.14-rocm720-mi35x-20260705` for `gfx950` | The verified `gfx950` digest is `sha256:b435b508b5aa696abb25c909341ce73e41574c4271cf716bed72418dcea86b78`. Override with `AKA_DOCKER_IMAGE`, `AKA_DOCKER_IMAGE_GFX942`, or `AKA_DOCKER_IMAGE_GFX950`. |
 | ROCm | Bundled in the selected SGLang image | The default images are ROCm 7.2 based. |
 | Python | Provided by the image (for example, 3.10) | Bundled in the SGLang image. |
 | PyTorch | ROCm build bundled in the image | Provided by the SGLang Docker image. |
 | Triton | Bundled with the image's ROCm PyTorch | Required for Triton task categories. |
-| FlyDSL | Provided by the image (or `make docker-setup-flydsl`) | Required for `flydsl2flydsl` tasks. |
+| AITER | `0.1.17.dev110+g9127c94a1` in the verified `gfx950` image | Required by AITER-backed task oracles and kernels. |
+| FlyDSL | `0.2.2` in the verified `gfx950` image (or `make docker-setup-flydsl` when absent) | Required for `flydsl2flydsl`, `torch2flydsl`, and `triton2flydsl` tasks. |
 | hipcc | Matches image ROCm | Required for HIP tasks. |
 | rocprof-compute | Matches image ROCm | Required for HIP performance profiling. |
 

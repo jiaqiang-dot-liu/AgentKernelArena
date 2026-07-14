@@ -99,7 +99,7 @@ runs once after all workers finish.
 ### Prerequisites
 
 - Docker
-- The SGLang Docker image for your GPU arch (`gfx942` uses `lmsysorg/sglang:v0.5.12-rocm720-mi30x`; `gfx950` uses `lmsysorg/sglang:v0.5.12-rocm720-mi35x`)
+- The SGLang Docker image for your GPU arch (`gfx942` uses `lmsysorg/sglang:v0.5.12-rocm720-mi30x`; `gfx950` uses `lmsysorg/sglang-rocm:v0.5.14-rocm720-mi35x-20260705`)
 - Git
 - Host-installed agent CLIs for the agents you plan to evaluate
 
@@ -325,7 +325,7 @@ correctness_command:
 performance_command:
   - python3 scripts/task_runner.py --mode performance
 
-task_type: hip2hip   # one of: hip2hip, cuda2hip, triton2triton, torch2hip, instruction2triton, repository, flydsl2flydsl
+task_type: hip2hip   # one of: hip2hip, cuda2hip, triton2triton, triton2flydsl, torch2hip, torch2flydsl, instruction2triton, repository, flydsl2flydsl
 
 prompt:
   source_code: null

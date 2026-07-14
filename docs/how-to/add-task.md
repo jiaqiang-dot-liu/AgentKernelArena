@@ -23,12 +23,15 @@ The `task_type` field declares what kind of optimization the task represents.
 | `triton2triton` | Optimize an existing Triton kernel |
 | `instruction2triton` | Write a Triton kernel from an instruction/spec |
 | `torch2hip` | Replace a PyTorch reference with a HIP kernel |
+| `torch2flydsl` | Replace a PyTorch reference with a FlyDSL kernel |
+| `triton2flydsl` | Translate a Triton kernel to FlyDSL |
 | `flydsl2flydsl` | Optimize a FlyDSL kernel (requires FlyDSL) |
 | `repository` | Repository-level task |
 
 The repository ships task suites including `hip2hip` (gpumode and others),
-`triton2triton` (vLLM and ROCmBench), `torch2hip`, `instruction2triton`, and
-`flydsl2flydsl`, plus repository-level tasks under `tasks/repository/`.
+`triton2triton` (vLLM and ROCmBench), `torch2hip`, `instruction2triton`,
+`torch2flydsl`, `triton2flydsl`, and `flydsl2flydsl`, plus repository-level
+tasks under `tasks/repository/`.
 
 ## Directory layout
 
@@ -67,8 +70,9 @@ compile_command:
 correctness_command:
   - python3 scripts/task_runner.py --mode correctness
 
-# One of: hip2hip, cuda2hip, triton2triton, instruction2triton,
-#         torch2hip, flydsl2flydsl, repository
+# One of: hip2hip, cuda2hip, triton2triton, triton2flydsl,
+#         instruction2triton, torch2hip, torch2flydsl,
+#         flydsl2flydsl, repository
 task_type: hip2hip
 ```
 

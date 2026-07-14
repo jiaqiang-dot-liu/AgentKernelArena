@@ -13,7 +13,7 @@ import yaml
 from pathlib import Path
 from typing import Dict, Any, Optional, List, Tuple
 
-from .evaluator_utils import run_command
+from .evaluator_utils import inspect_target_definitions, run_command
 from .performance import measure_performance, measure_baseline
 from .testcases import TestCaseResult, save_performance_results, calculate_average_speedup, collect_benchmark_methods
 
@@ -164,6 +164,31 @@ def evaluate_kernel(
     
     # 2. Correctness check
     log.info("Step 2: Checking correctness...")
+    # The as-shipped torch2flydsl starter is allowed during baseline and task
+    # package validation, both of which bypass this optimized-kernel pipeline.
+    # Once an optimization agent has run, however, its declared targets must no
+    # longer be unconditional NotImplementedError stubs; otherwise a harness
+    # could silently time and validate its reference fallback.
+    if task_config.get("task_type") == "torch2flydsl":
+        missing_names, stub_names = inspect_target_definitions(workspace, task_config)
+        target_errors = []
+        if missing_names:
+            target_errors.append(
+                "missing declared top-level target definition(s): "
+                + ", ".join(missing_names)
+            )
+        if stub_names:
+            target_errors.append(
+                "unimplemented target stub(s): " + ", ".join(stub_names)
+            )
+        if target_errors:
+            corr_error = "Invalid torch2flydsl optimization submission: " + "; ".join(
+                target_errors
+            )
+            results['correctness_error_message'] = corr_error
+            log.warning(corr_error)
+            return results
+
     pass_correctness, corr_error = evaluate_correctness(workspace, task_config, logger)
     results['pass_correctness'] = pass_correctness
     results['correctness_error_message'] = corr_error

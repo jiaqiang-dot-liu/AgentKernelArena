@@ -1,0 +1,15 @@
+source_file_path:
+- dsv4_fp4_indexer.py
+target_kernel_functions:
+- quantize_fp4_indexer_tensor
+- store_fp4_index_k_cache
+- _quantize_fp4_indexer_kernel
+- _store_fp4_index_k_cache_kernel
+compile_command:
+- python3 test_kernel_harness.py --compile
+correctness_command:
+- python3 test_kernel_harness.py --correctness
+performance_command:
+- python3 test_kernel_harness.py --full-benchmark
+task_type: triton2flydsl
+task_result_template: null

@@ -1,0 +1,13 @@
+source_file_path:
+- merge_state.py
+target_kernel_functions:
+- merge_state_triton
+- merge_state_kernel
+compile_command:
+- python3 test_kernel_harness.py --compile
+correctness_command:
+- python3 test_kernel_harness.py --correctness
+performance_command:
+- python3 test_kernel_harness.py --full-benchmark
+task_type: triton2flydsl
+task_result_template: null

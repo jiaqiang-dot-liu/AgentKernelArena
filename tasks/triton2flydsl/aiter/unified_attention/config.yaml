@@ -1,0 +1,15 @@
+source_file_path:
+- unified_attention.py
+target_kernel_functions:
+- unified_attention
+- kernel_unified_attention_2d
+- kernel_unified_attention_3d
+- reduce_segments
+compile_command:
+- python3 test_kernel_harness.py --compile
+correctness_command:
+- python3 test_kernel_harness.py --correctness
+performance_command:
+- python3 test_kernel_harness.py --full-benchmark
+task_type: triton2flydsl
+task_result_template: null

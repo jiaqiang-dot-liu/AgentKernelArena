@@ -1,0 +1,13 @@
+source_file_path:
+- triton_mrope_fused.py
+target_kernel_functions:
+- triton_mrope_fused
+- _triton_mrope_forward_fused
+compile_command:
+- python3 test_kernel_harness.py --compile
+correctness_command:
+- python3 test_kernel_harness.py --correctness
+performance_command:
+- python3 test_kernel_harness.py --full-benchmark
+task_type: triton2flydsl
+task_result_template: null

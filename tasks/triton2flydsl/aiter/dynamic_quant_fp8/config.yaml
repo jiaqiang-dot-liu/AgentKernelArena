@@ -1,0 +1,17 @@
+source_file_path:
+- dynamic_quant_fp8.py
+target_kernel_functions:
+- static_per_tensor_quant_fp8_i8
+- dynamic_per_tensor_quant_fp8_i8
+- dynamic_per_token_quant_fp8_i8
+- _static_per_tensor_quant_fp8_i8_kernel
+- _dynamic_per_tensor_quant_fp8_i8_kernel
+- _dynamic_per_token_quant_fp8_i8_kernel
+compile_command:
+- python3 test_kernel_harness.py --compile
+correctness_command:
+- python3 test_kernel_harness.py --correctness
+performance_command:
+- python3 test_kernel_harness.py --full-benchmark
+task_type: triton2flydsl
+task_result_template: null

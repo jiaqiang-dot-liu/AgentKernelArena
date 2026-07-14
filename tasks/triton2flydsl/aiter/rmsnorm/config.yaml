@@ -1,0 +1,14 @@
+source_file_path:
+- rmsnorm.py
+target_kernel_functions:
+- rms_norm
+- _rms_norm_kernel
+- _rmsnorm_kernel_large_m_small_n
+compile_command:
+- python3 test_kernel_harness.py --compile
+correctness_command:
+- python3 test_kernel_harness.py --correctness
+performance_command:
+- python3 test_kernel_harness.py --full-benchmark
+task_type: triton2flydsl
+task_result_template: null

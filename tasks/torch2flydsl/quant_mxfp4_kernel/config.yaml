@@ -1,0 +1,15 @@
+source_file_path:
+- kernel.py
+target_kernel_functions:
+- flydsl_quant_mxfp4
+- build_quant_mxfp4_module
+compile_command:
+- python3 -c "import model, kernel; print('compile ok')"
+correctness_command:
+- python3 test_kernel_harness.py --correctness
+performance_command:
+- python3 test_kernel_harness.py --full-benchmark
+task_type: torch2flydsl
+supported_archs:
+- gfx950
+task_result_template: null

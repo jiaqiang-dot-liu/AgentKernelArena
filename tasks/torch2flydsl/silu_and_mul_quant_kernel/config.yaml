@@ -1,0 +1,13 @@
+source_file_path:
+- kernel.py
+target_kernel_functions:
+- flydsl_silu_and_mul_quant
+- build_silu_and_mul_quant_module
+compile_command:
+- python3 -c "import model, kernel; print('compile ok')"
+correctness_command:
+- python3 test_kernel_harness.py --correctness
+performance_command:
+- python3 test_kernel_harness.py --full-benchmark
+task_type: torch2flydsl
+task_result_template: null

@@ -1,0 +1,14 @@
+source_file_path:
+- sglang_fused_moe.py
+target_kernel_functions:
+- fused_moe_kernel
+- invoke_fused_moe_kernel
+- fused_moe
+compile_command:
+- python3 test_kernel_harness.py --compile
+correctness_command:
+- python3 test_kernel_harness.py --correctness
+performance_command:
+- python3 test_kernel_harness.py --full-benchmark
+task_type: triton2flydsl
+task_result_template: null

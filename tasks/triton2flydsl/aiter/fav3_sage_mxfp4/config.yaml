@@ -1,0 +1,16 @@
+source_file_path:
+- fav3_sage_mxfp4.py
+target_kernel_functions:
+- fav3_sage_mxfp4_wrapper
+- sage_fwd_mxfp4
+- sage_quant_mxfp4
+compile_command:
+- python3 test_kernel_harness.py --compile
+correctness_command:
+- python3 test_kernel_harness.py --correctness
+performance_command:
+- python3 test_kernel_harness.py --full-benchmark
+task_type: triton2flydsl
+supported_archs:
+- gfx950
+task_result_template: null

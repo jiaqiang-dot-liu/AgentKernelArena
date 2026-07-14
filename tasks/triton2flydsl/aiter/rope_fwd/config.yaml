@@ -1,0 +1,15 @@
+source_file_path:
+- rope_fwd.py
+target_kernel_functions:
+- rope_fwd
+- _rope_kernel_sbhd_fwd
+- _get_neox_rotated_x
+- _get_gptj_rotated_x
+compile_command:
+- python3 test_kernel_harness.py --compile
+correctness_command:
+- python3 test_kernel_harness.py --correctness
+performance_command:
+- python3 test_kernel_harness.py --full-benchmark
+task_type: triton2flydsl
+task_result_template: null
