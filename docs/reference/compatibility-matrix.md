@@ -35,13 +35,14 @@ The following software versions are required or verified.
 
 ## Agents
 
-The following agent CLIs have been tested with AgentKernelArena.
+The following agent CLIs are supported with AgentKernelArena. See
+[Installation](../install/install.md) for setup instructions.
 
-| Agent | Tested version | Notes |
-| --- | --- | --- |
-| Cursor Agent CLI | See release notes | Installed using `make install-cursor-agent`. |
-| Claude Code | See release notes | `npm install -g @anthropic-ai/claude-code`. |
-| Codex CLI | See release notes | Installed per the official Codex CLI instructions. |
+| Agent |
+| --- |
+| Cursor Agent CLI |
+| Claude Code |
+| Codex CLI |
 
 ## Model providers
 
