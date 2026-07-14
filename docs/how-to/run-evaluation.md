@@ -33,7 +33,7 @@ workspace_directory_prefix: workspace
 ### Select tasks
 
 Each entry in `tasks` is a path relative to the `tasks/` directory. You can
-select tasks at any level of granularity:
+select tasks at any level of granularity.
 
 | Entry | Selects |
 | --- | --- |

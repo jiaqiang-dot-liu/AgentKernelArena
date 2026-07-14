@@ -50,7 +50,9 @@ Method:
 - `hip2hip/others/ball_query` uses its own `scripts/task_runner.py` event timing
   (correctness was strengthened separately; timing is unchanged).
 
-## Notes
+## Cross-category comparison notes
+
+The following notes apply when comparing results across the two timing categories.
 
 - Both paths satisfy the validator's "10 warmup / 100 measured / averaged" expectation.
   The CUDA-graph path is accepted as an equivalent (warmup + 100 averaged graph-replay
@@ -59,5 +61,6 @@ Method:
   `performance_command` against the original kernel (baseline) and the optimized kernel,
   then `speedup_ratio = base / optimized`. Comparing across categories is only valid
   when both sides used the same timing method — see `benchmark_method` in the results.
-- Unifying both categories onto a single shared implementation is tracked as a
-  follow-up (extract a shared `src/` benchmark module, then converge methodology).
+- The two categories currently use separate implementations with no shared
+  benchmark module, so cross-category comparisons require verifying that both
+  sides used the same timing method before drawing conclusions.

@@ -14,7 +14,7 @@ The following hardware configurations are supported and tested.
 | Component | Supported | Notes |
 | --- | --- | --- |
 | GPU architecture | AMD Instinct™ MI300 series | `target_gpu_model: MI300` |
-| GPU architecture | AMD Instinct MI355X | |
+| GPU architecture | AMD Instinct™ MI355X | |
 
 ## Software
 
@@ -38,9 +38,9 @@ The following agent CLIs have been tested with AgentKernelArena.
 
 | Agent | Tested version | Notes |
 | --- | --- | --- |
-| Cursor Agent CLI | TODO (verify) | Installed using `make install-cursor-agent`. |
-| Claude Code | TODO (verify) | `npm install -g @anthropic-ai/claude-code`. |
-| Codex CLI | TODO (verify) | Installed per the official Codex CLI instructions. |
+| Cursor Agent CLI | See release notes | Installed using `make install-cursor-agent`. |
+| Claude Code | See release notes | `npm install -g @anthropic-ai/claude-code`. |
+| Codex CLI | See release notes | Installed per the official Codex CLI instructions. |
 
 ## Model providers
 

@@ -14,7 +14,7 @@ and the supported task types.
 
 ## Task types
 
-The `task_type` field declares what kind of optimization the task represents:
+The `task_type` field declares what kind of optimization the task represents.
 
 | `task_type` | Meaning |
 | --- | --- |

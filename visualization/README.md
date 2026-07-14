@@ -49,10 +49,12 @@ visualization/
 
 ## Usage
 
-From the `visualization/` directory:
+After a normal AgentKernelArena run, reports land in
+`workspace_<gpu>_<agent>/run_<timestamp>/reports/`. From the `visualization/`
+directory, pass `--include-workspace-runs` so the build script picks them up:
 
 ```bash
-python backend/scripts/build_dashboard_data.py
+python backend/scripts/build_dashboard_data.py --include-workspace-runs
 python backend/server.py --host 127.0.0.1 --port 8080
 ```
 
@@ -61,6 +63,9 @@ Then open:
 ```text
 http://127.0.0.1:8080
 ```
+
+Without this flag, the script only scans `visualization/reports/`, which is
+empty by default, and the dashboard shows no data.
 
 ## Serve on Port 80
 
@@ -80,31 +85,23 @@ bash setup.sh
 
 ## Rebuild After New Runs
 
-Whenever AgentKernelArena produces new run reports, rebuild the dashboard payload:
-
-```bash
-python backend/scripts/build_dashboard_data.py
-```
-
-This default mode only scans:
-
-```text
-visualization/reports/<report_name>/
-```
-
-To also scan workspace runs, enable the explicit flag:
+Whenever AgentKernelArena produces new run reports, rebuild the dashboard
+payload with the same flag used at first build:
 
 ```bash
 python backend/scripts/build_dashboard_data.py --include-workspace-runs
-```
-
-Or via the helper script:
-
-```bash
+# or
 bash setup.sh --include-workspace-runs
 ```
 
 The dashboard will pick up newly discovered report directories on the next refresh.
+
+If you placed report bundles manually in `visualization/reports/<report_name>/`
+instead, omit the flag:
+
+```bash
+python backend/scripts/build_dashboard_data.py
+```
 
 ## Notes
 

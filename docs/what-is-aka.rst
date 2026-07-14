@@ -30,6 +30,8 @@ timestamped workspace, then evaluates the result through a common pipeline:
 Key features
 ============
 
+AgentKernelArena includes the following key features.
+
 * **Multi-agent arena**: Cursor Agent, Claude Code, Codex, and custom agent
   integrations.
 * **Multi-model support**: OpenAI, Anthropic, and other models through OpenRouter or
@@ -55,6 +57,8 @@ Key features
 
 Use cases
 =========
+
+AgentKernelArena supports the following use cases.
 
 * Compare AI coding agents head-to-head on GPU kernel optimization.
 * Rank models and agent configurations on a standardized leaderboard.
