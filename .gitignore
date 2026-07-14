@@ -25,6 +25,11 @@ kill.sh
 saved_results
 .mcp.json
 
+# Local forge-agent run scaffolding: contains gateway creds / regenerated per run
+run_aka_forge_example.sh
+config.forge_example.yaml
+run_logs/
+
 # Generated held-out test data (methodology is in held_out/, data is private)
 held_out_tests/
 

@@ -31,6 +31,7 @@ _HARNESS_FILE_SUFFIXES = (
     "_test.cpp",
     "_test.cu",
     "_test.hip",
+    "_harness.py",
 )
 
 

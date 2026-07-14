@@ -59,6 +59,23 @@ def _load_kernel(kernel_dir, alias="flydsl_kernel"):
 
 _KERNEL_DIR = _resolve_kernel_dir()
 
+# >>> AKA-GENERATED: shared CUDA-graph benchmark helpers - edit src/tools/perf/vllm_cuda_graph_block.py then run `make sync-perf-helpers` >>>
+def _measure_cuda_event_fallback(*args, **kwargs):
+    raise RuntimeError(
+        "CUDA-graph benchmark helpers were not materialized. "
+        "Run this task through AgentKernelArena so setup_workspace() can inject "
+        "src/tools/perf/vllm_cuda_graph_block.py into the workspace."
+    )
+
+
+def _benchmark_cuda_graph_or_events(*args, **kwargs):
+    raise RuntimeError(
+        "CUDA-graph benchmark helpers were not materialized. "
+        "Run this task through AgentKernelArena so setup_workspace() can inject "
+        "src/tools/perf/vllm_cuda_graph_block.py into the workspace."
+    )
+# <<< AKA-GENERATED <<<
+
 # ============================================================================
 # Test shapes: (batch, seq_len, num_heads, head_dim, dtype_str, causal)
 # ============================================================================
@@ -211,6 +228,7 @@ def run_profile(shapes=None, warmup=10, iters=50, verbose=True):
 
 def run_benchmark(shapes=None, warmup=10, iters=50, verbose=True):
     import torch
+    import flydsl.expr as fx
 
     if shapes is None:
         shapes = HARNESS_SHAPES
@@ -243,31 +261,27 @@ def run_benchmark(shapes=None, warmup=10, iters=50, verbose=True):
         v_flat = v_4d.contiguous().view(-1)
         o_flat = torch.zeros_like(q_flat)
 
-        for _ in range(warmup):
-            exe(q_flat, k_flat, v_flat, o_flat, B, S)
-        torch.cuda.synchronize()
+        # The FlyDSL launcher defaults to the null stream, which a CUDA graph
+        # capture (running on a private side stream) cannot record. Bind the
+        # launch to the *current* stream at call time so it is captured when the
+        # benchmark helper runs the kernel inside a graph, and uses the default
+        # stream otherwise. This is what lets the graph path eliminate per-launch
+        # host overhead instead of silently capturing an empty graph.
+        def _kernel_fn():
+            exe(
+                q_flat, k_flat, v_flat, o_flat, B, S,
+                stream=fx.Stream(torch.cuda.current_stream().cuda_stream),
+            )
 
-        kernel_times = []
-        for _ in range(iters):
-            s = torch.cuda.Event(enable_timing=True)
-            e = torch.cuda.Event(enable_timing=True)
-            s.record()
-            exe(q_flat, k_flat, v_flat, o_flat, B, S)
-            e.record()
-            torch.cuda.synchronize()
-            kernel_times.append(s.elapsed_time(e))
-        kernel_ms = sorted(kernel_times)[len(kernel_times) // 2]
+        def _ref_fn():
+            reference_flash_attn(q_4d, k_4d, v_4d, causal=causal)
 
-        ref_times = []
-        for _ in range(iters):
-            s = torch.cuda.Event(enable_timing=True)
-            e = torch.cuda.Event(enable_timing=True)
-            s.record()
-            _ = reference_flash_attn(q_4d, k_4d, v_4d, causal=causal).to(torch_dtype)
-            e.record()
-            torch.cuda.synchronize()
-            ref_times.append(s.elapsed_time(e))
-        ref_ms = sorted(ref_times)[len(ref_times) // 2]
+        kernel_ms, bench_meta = _benchmark_cuda_graph_or_events(
+            _kernel_fn, warmup=warmup, repetition=iters,
+        )
+        ref_ms, _ = _benchmark_cuda_graph_or_events(
+            _ref_fn, warmup=warmup, repetition=iters,
+        )
 
         speedup = ref_ms / kernel_ms if kernel_ms > 0 else 1.0
         latencies.append(kernel_ms)
@@ -277,20 +291,25 @@ def run_benchmark(shapes=None, warmup=10, iters=50, verbose=True):
         flops = 4.0 * S * s_eff * D * H * B
         tflops = flops / (kernel_ms * 1e-3) / 1e12
 
-        report_cases.append({
+        case_entry = {
             "test_case_id": f"test_case_{idx}",
             "execution_time_ms": kernel_ms,
             "shape": [B, S, H, D],
             "params": {"B": B, "S": S, "H": H, "D": D, "dtype": dtype_str, "causal": causal},
             "tflops": tflops,
-        })
+            "benchmark_method": bench_meta.get("benchmark_method"),
+        }
+        if bench_meta.get("benchmark_fallback_reason"):
+            case_entry["benchmark_fallback_reason"] = bench_meta["benchmark_fallback_reason"]
+        report_cases.append(case_entry)
 
         marker = " *" if speedup > 1.0 else ""
         causal_tag = "causal" if causal else "nocausal"
         if verbose:
             print(
                 f"(B={B:>2},S={S:>5},H={H:>3},D={D},{dtype_str},{causal_tag})"
-                f" {ref_ms:>8.4f}ms {kernel_ms:>8.4f}ms {speedup:>8.2f}x{marker}",
+                f" {ref_ms:>8.4f}ms {kernel_ms:>8.4f}ms {speedup:>8.2f}x{marker}"
+                f"  [{bench_meta.get('benchmark_method')}]",
                 flush=True,
             )
 

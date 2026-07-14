@@ -392,8 +392,9 @@ keeping numerical results correct (the loop gates on an SNR threshold).
    `scripts/`, `test/`, `tests/`, `conftest.py`, `performance_utils_pytest.py`,
    `*_test.py`, `*_test.cpp`, `*_test.cu`, `*_test.hip`). The Arena runner
    hashes these files and rejects the score if they change.
-5. Correctness, validation, and benchmarking are run automatically by the loop
-   after your edit — do not invoke build/test/bench tools yourself.
+5. Build, run, and verify your edit YOURSELF (compile, run the driver, profile)
+   before finishing. The loop additionally runs a canonical correctness (SNR gate)
+   and benchmark pass on your final kernel after you stop.
 
 ## Task instructions (from AgentKernelArena)
 {instructions}

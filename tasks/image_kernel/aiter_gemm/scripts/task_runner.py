@@ -18,7 +18,6 @@ from __future__ import annotations
 import argparse
 import json
 import shutil
-import statistics
 import subprocess
 import sys
 import os
@@ -117,23 +116,22 @@ def _configure_runtime() -> None:
     os.chdir(repo_root)
 
 
-def _benchmark_ms(fn, warmup: int = 10, rep: int = 30) -> float:
-    import torch
+# >>> AKA-GENERATED: shared CUDA-graph benchmark helpers - edit src/tools/perf/vllm_cuda_graph_block.py then run `make sync-perf-helpers` >>>
+def _measure_cuda_event_fallback(*args, **kwargs):
+    raise RuntimeError(
+        "CUDA-graph benchmark helpers were not materialized. "
+        "Run this task through AgentKernelArena so setup_workspace() can inject "
+        "src/tools/perf/vllm_cuda_graph_block.py into the workspace."
+    )
 
-    for _ in range(warmup):
-        fn()
-    torch.cuda.synchronize()
 
-    start = torch.cuda.Event(enable_timing=True)
-    end = torch.cuda.Event(enable_timing=True)
-    samples: list[float] = []
-    for _ in range(rep):
-        start.record()
-        fn()
-        end.record()
-        torch.cuda.synchronize()
-        samples.append(start.elapsed_time(end))
-    return statistics.median(samples)
+def _benchmark_cuda_graph_or_events(*args, **kwargs):
+    raise RuntimeError(
+        "CUDA-graph benchmark helpers were not materialized. "
+        "Run this task through AgentKernelArena so setup_workspace() can inject "
+        "src/tools/perf/vllm_cuda_graph_block.py into the workspace."
+    )
+# <<< AKA-GENERATED <<<
 
 
 def _write_performance_report(results: list[dict]) -> None:
@@ -216,17 +214,19 @@ def run_performance() -> None:
     for test_case_id, cfg in PERF_CASES:
         case = _make_case(**cfg)
         _run_aiter(case)  # warm JIT compile / autotune
-        time_ms = _benchmark_ms(lambda: _run_aiter(case))
+        time_ms, bench_meta = _benchmark_cuda_graph_or_events(lambda: _run_aiter(case))
         p = case["params"]
-        results.append(
-            {
-                "test_case_id": test_case_id,
-                "shape": [p["m"], p["n"], p["k"]],
-                "execution_time_ms": time_ms,
-                "metadata": p,
-            }
-        )
-        print(f"{test_case_id}: {time_ms:.4f} ms")
+        entry = {
+            "test_case_id": test_case_id,
+            "shape": [p["m"], p["n"], p["k"]],
+            "execution_time_ms": time_ms,
+            "metadata": p,
+            "benchmark_method": bench_meta.get("benchmark_method"),
+        }
+        if bench_meta.get("benchmark_fallback_reason"):
+            entry["benchmark_fallback_reason"] = bench_meta["benchmark_fallback_reason"]
+        results.append(entry)
+        print(f"{test_case_id}: {time_ms:.4f} ms [{bench_meta.get('benchmark_method')}]")
     _write_performance_report(results)
 
 

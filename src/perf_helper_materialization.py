@@ -83,6 +83,37 @@ def vllm_targets(root: Path = ROOT) -> list[Path]:
     ]
 
 
+def _marker_filtered_targets(root: Path, pattern: str) -> list[Path]:
+    """Return runner files matching ``pattern`` that carry a generated helper region.
+
+    Unlike ``vllm_targets`` (where every runner is expected to embed the markers),
+    these categories adopt the shared CUDA-graph helper task-by-task. A file only
+    participates once it contains the AKA-GENERATED markers; runners still using a
+    bespoke timer are left untouched.
+    """
+    targets = []
+    for p in sorted(glob.glob(str(root / pattern))):
+        text = Path(p).read_text()
+        if any(marker in text for marker in MARK_STARTS) or MARK_END in text:
+            targets.append(Path(p))
+    return targets
+
+
+def flydsl_targets(root: Path = ROOT) -> list[Path]:
+    """Return committed FlyDSL harnesses that carry a generated helper region."""
+    return _marker_filtered_targets(root, "tasks/flydsl2flydsl/*/test_kernel_harness.py")
+
+
+def image_kernel_targets(root: Path = ROOT) -> list[Path]:
+    """Return committed image_kernel task runners that carry a generated helper region."""
+    return _marker_filtered_targets(root, "tasks/image_kernel/*/scripts/task_runner.py")
+
+
+def repository_aiter_targets(root: Path = ROOT) -> list[Path]:
+    """Return committed repository/aiter task runners that carry a generated helper region."""
+    return _marker_filtered_targets(root, "tasks/repository/aiter/*/scripts/task_runner.py")
+
+
 def canonical_rocmbench_helper(root: Path = ROOT) -> str:
     return (root / "src" / "tools" / "perf" / "performance_utils_pytest.py").read_text()
 
@@ -138,9 +169,13 @@ def materialize_perf_helpers_in_workspace(
             helper.write_text(rocmbench_helper)
             materialized.append(helper)
 
+    # Inline helper regions live in a per-task runner file. vLLM tasks keep it in
+    # scripts/task_runner.py; FlyDSL tasks keep it in the harness at the workspace
+    # root. Both use the identical AKA-GENERATED marker block.
     vllm_block = canonical_vllm_block(root)
-    runner = workspace / "scripts" / "task_runner.py"
-    if runner.exists():
+    for runner in (workspace / "scripts" / "task_runner.py", workspace / "test_kernel_harness.py"):
+        if not runner.exists():
+            continue
         current = runner.read_text()
         has_generated_marker = any(marker in current for marker in MARK_STARTS) or MARK_END in current
         if has_generated_marker:

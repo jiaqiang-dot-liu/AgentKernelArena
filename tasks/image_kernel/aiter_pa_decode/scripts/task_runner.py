@@ -25,7 +25,6 @@ import glob
 import json
 import os
 import shutil
-import statistics
 import subprocess
 import sys
 from pathlib import Path
@@ -153,23 +152,22 @@ def _configure_runtime() -> None:
     os.chdir(repo_root)
 
 
-def _benchmark_ms(fn, warmup: int = 10, rep: int = 30) -> float:
-    import torch
+# >>> AKA-GENERATED: shared CUDA-graph benchmark helpers - edit src/tools/perf/vllm_cuda_graph_block.py then run `make sync-perf-helpers` >>>
+def _measure_cuda_event_fallback(*args, **kwargs):
+    raise RuntimeError(
+        "CUDA-graph benchmark helpers were not materialized. "
+        "Run this task through AgentKernelArena so setup_workspace() can inject "
+        "src/tools/perf/vllm_cuda_graph_block.py into the workspace."
+    )
 
-    for _ in range(warmup):
-        fn()
-    torch.cuda.synchronize()
 
-    start = torch.cuda.Event(enable_timing=True)
-    end = torch.cuda.Event(enable_timing=True)
-    samples: list[float] = []
-    for _ in range(rep):
-        start.record()
-        fn()
-        end.record()
-        torch.cuda.synchronize()
-        samples.append(start.elapsed_time(end))
-    return statistics.median(samples)
+def _benchmark_cuda_graph_or_events(*args, **kwargs):
+    raise RuntimeError(
+        "CUDA-graph benchmark helpers were not materialized. "
+        "Run this task through AgentKernelArena so setup_workspace() can inject "
+        "src/tools/perf/vllm_cuda_graph_block.py into the workspace."
+    )
+# <<< AKA-GENERATED <<<
 
 
 def _write_performance_report(results: list[dict]) -> None:
@@ -246,6 +244,21 @@ def _make_case(
     key_cache_new = rearrange(key_cache, "b h d1 s d2 -> b h s (d1 d2)")
     value_cache_new = rearrange(value_cache, "b h d s -> b h s d")
 
+    # Pre-allocate the op's output and scratch workspace ONCE (mirroring the setup
+    # inside pa_ragged_test.run_aiter). The timed callable then becomes a pure
+    # kernel launch — no per-call allocation — which is CUDA-graph capturable.
+    _PARTITION_SIZE_ROCM = 256
+    assert _PARTITION_SIZE_ROCM % block_size == 0
+    max_num_partitions = (max_seq_len + _PARTITION_SIZE_ROCM - 1) // _PARTITION_SIZE_ROCM
+    output = torch.empty_like(query)
+    nbytes_per_qo_elem = torch.finfo(output.dtype).bits // 8
+    workspace_buffer = torch.empty(
+        (num_seqs * num_query_heads * max_num_partitions * head_size) * nbytes_per_qo_elem
+        + 2 * (num_seqs * num_query_heads * max_num_partitions) * 4,
+        dtype=torch.uint8,
+        device=output.device,
+    )
+
     return {
         "params": {
             "ctx_lens": ctx_lens,
@@ -270,30 +283,42 @@ def _make_case(
         "k_scale": k_scale,
         "v_scale": v_scale,
         "num_queries_per_kv": num_queries_per_kv,
+        "output": output,
+        "workspace_buffer": workspace_buffer,
+        "max_num_partitions": max_num_partitions,
     }
 
 
 def _run_aiter(case: dict):
-    from csrc.cpp_itfs.pa import pa_ragged_test as T
+    # Call the raw op directly. pa_ragged_test.run_aiter is a @perftest-decorated
+    # BENCHMARK wrapper (warmup + 101 profiled iters + torch.cuda.synchronize +
+    # empty_cache + trace post-processing); timing it measured the harness, not the
+    # kernel (~100x inflated) and was not CUDA-graph capturable. The underlying op
+    # is a single launch and is capturable.
+    from csrc.cpp_itfs.pa.pa_ragged import paged_attention_ragged
 
-    out, _ = T.run_aiter(
+    p = case["params"]
+    paged_attention_ragged(
+        case["output"],
+        case["workspace_buffer"],
         case["query"],
         case["key_cache_new"],
         case["value_cache_new"],
+        case["scale"],
         case["kv_indptr"],
         case["kv_page_indices"],
         case["kv_last_page_lens"],
-        case["max_seq_len"],
-        "auto",
-        "HND",
-        case["num_kv_heads"],
-        case["scale"],
+        p["block_size"],
+        case["max_num_partitions"],
         None,  # alibi_slopes
+        "auto",  # kv_cache_dtype
+        "HND",  # kv_cache_layout
         0.0,  # logits_soft_cap
         case["k_scale"],
         case["v_scale"],
+        None,  # fp8_out_scale
     )
-    return out
+    return case["output"]
 
 
 def _run_torch(case: dict):
@@ -355,17 +380,19 @@ def run_performance() -> None:
     for test_case_id, cfg in PERF_CASES:
         case = _make_case(**cfg)
         _run_aiter(case)  # warm build
-        time_ms = _benchmark_ms(lambda: _run_aiter(case))
+        time_ms, bench_meta = _benchmark_cuda_graph_or_events(lambda: _run_aiter(case))
         p = case["params"]
-        results.append(
-            {
-                "test_case_id": test_case_id,
-                "shape": [p["num_seqs"], p["num_query_heads"], p["head_size"], p["ctx_lens"]],
-                "execution_time_ms": time_ms,
-                "metadata": p,
-            }
-        )
-        print(f"{test_case_id}: {time_ms:.4f} ms")
+        entry = {
+            "test_case_id": test_case_id,
+            "shape": [p["num_seqs"], p["num_query_heads"], p["head_size"], p["ctx_lens"]],
+            "execution_time_ms": time_ms,
+            "metadata": p,
+            "benchmark_method": bench_meta.get("benchmark_method"),
+        }
+        if bench_meta.get("benchmark_fallback_reason"):
+            entry["benchmark_fallback_reason"] = bench_meta["benchmark_fallback_reason"]
+        results.append(entry)
+        print(f"{test_case_id}: {time_ms:.4f} ms [{bench_meta.get('benchmark_method')}]")
     _write_performance_report(results)
 
 
