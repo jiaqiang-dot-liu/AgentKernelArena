@@ -25,10 +25,18 @@ private for paper evaluation. Others can regenerate their own sets.
 
 ## Quick start
 
+Held-out generation and evaluation use the same Python/ROCm dependencies and
+GPU access as normal experiments. Enter the supported Docker runtime from the
+repository root, then run the remaining commands inside that shell:
+
+```bash
+make docker-shell
+```
+
 ### 1. Generate held-out shapes
 
 ```bash
-python held_out/generate_heldout.py \
+python3 held_out/generate_heldout.py \
     --tasks-dir tasks/ \
     --output-dir held_out_tests/ \
     --backend claude_code \
@@ -37,12 +45,13 @@ python held_out/generate_heldout.py \
 
 Use `--dry-run` to list tasks without launching agents.
 Use `--tasks hip2hip/gpumode/SiLU` to generate for a single task.
-Supported backends: `claude_code`, `codex`, `cursor` (same backends as the main arena agents).
+Supported backends: `claude_code`, `codex`, and `cursor` (the three first-class
+host-CLI integrations).
 
 ### 2. Evaluate a run
 
 ```bash
-python held_out/run_heldout_eval.py \
+python3 held_out/run_heldout_eval.py \
     --run-dir workspace_MI300_cursor/run_20260417_142419 \
     --heldout-dir held_out_tests/ \
     --tasks-dir tasks/

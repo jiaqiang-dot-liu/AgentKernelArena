@@ -1,7 +1,7 @@
 ---
 myst:
     html_meta:
-        "description": "Run AgentKernelArena evaluations across multiple GPUs with one Docker worker container per GPU, dynamic task claiming, isolated caches, and shared post-processing."
+        "description": "Run AgentKernelArena experiments across multiple GPUs with one Docker worker container per GPU, dynamic task claiming, isolated caches, and shared post-processing."
         "keywords": "AgentKernelArena, multi-GPU, parallel run, Docker worker, GPU isolation, task_validator, ROCm"
 ---
 
@@ -84,8 +84,9 @@ GPU_DEVICE_ORDINAL=0
 
 The runner also gives each worker its own temporary `HOME`, `CODEX_HOME`, and
 cache directories for Torch extensions, Triton, MIOpen, Matplotlib, and agent
-state. Host Codex, Claude Code, and Cursor auth/config directories are mounted
-read-only and copied into the worker-local home before the agent starts.
+state. Only the agent selected by the run configuration is provisioned: its host
+CLI and authentication/configuration state are mounted read-only and copied into
+the worker-local home before the agent starts.
 
 ## Resume a parallel run
 
@@ -113,7 +114,7 @@ Completion is detected from the per-task workspace:
 ## Run the task validator in parallel
 
 The `task_validator` agent uses the same worker queue. This is useful when
-validating many tasks before a release or leaderboard run:
+validating many tasks before a release or shared experiment:
 
 ```yaml
 agent:

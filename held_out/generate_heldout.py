@@ -15,7 +15,7 @@ Supported task types (scope):
   - torch2hip/gpumode
 
 Usage:
-    python held_out/generate_heldout.py \
+    python3 held_out/generate_heldout.py \
         --tasks-dir tasks/ \
         --output-dir held_out_tests/ \
         [--backend claude_code] \
@@ -634,8 +634,8 @@ def main():
     parser.add_argument("--backend", default="claude_code", choices=list(BACKENDS.keys()),
                         help="Agent backend to use (default: claude_code)")
     parser.add_argument("--model", default=None,
-                        help="Model to use for the agent (e.g. claude-4.6-opus-high, o3). "
-                             "If not set, uses the agent's default model.")
+                        help="Model identifier supported by the selected agent CLI. "
+                             "If not set, uses that agent's default model.")
     parser.add_argument("--timeout", type=int, default=600, help="Per-task agent timeout in seconds")
     parser.add_argument("--tasks", nargs="*", default=None, help="Specific task IDs to generate for")
     parser.add_argument("--dry-run", action="store_true", help="Discover tasks but don't launch agents")

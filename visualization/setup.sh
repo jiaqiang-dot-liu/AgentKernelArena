@@ -10,5 +10,5 @@ if [[ "${1:-}" == "--include-workspace-runs" ]]; then
   shift
 fi
 
-python backend/scripts/build_dashboard_data.py "${BUILD_ARGS[@]}"
-python backend/server.py --host 0.0.0.0 --port 80
+python3 backend/scripts/build_dashboard_data.py "${BUILD_ARGS[@]}"
+python3 backend/server.py --host 0.0.0.0 --port 80

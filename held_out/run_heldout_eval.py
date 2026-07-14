@@ -8,7 +8,7 @@ restores the original kernel in orig/, and measures baseline vs optimized
 performance on the unseen shapes.
 
 Usage:
-    python held_out/run_heldout_eval.py \
+    python3 held_out/run_heldout_eval.py \
         --run-dir workspace_MI300_cursor/run_20260417_142419 \
         --heldout-dir held_out_tests/ \
         --tasks-dir tasks/ \

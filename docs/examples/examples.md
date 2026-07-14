@@ -1,17 +1,19 @@
 ---
 myst:
     html_meta:
-        "description": "Step-by-step examples for running AgentKernelArena evaluations, A/B testing agent capabilities, validating tasks, and resuming interrupted runs."
-        "keywords": "AgentKernelArena, examples, evaluation, A/B test, task validation, GPU kernel, ROCm, HIP, Triton"
+        "description": "Step-by-step examples for running AgentKernelArena experiments, A/B testing agent capabilities, validating tasks, and resuming interrupted runs."
+        "keywords": "AgentKernelArena, examples, experiment, A/B test, task validation, GPU kernel, ROCm, HIP, Triton"
 ---
 
 # AgentKernelArena examples
 
 These walkthroughs assume you have completed [installation](../install/install.md)
-and can run the Docker runner (`make docker-smoke` passes). Serial examples use
-`make docker-run`; multi-GPU examples use `make docker-parallel-run`.
+and can run the Docker runner (`make docker-smoke` passes). The agent selected
+by each example must also be installed and authenticated on the host; substitute
+another installed agent when appropriate. Serial examples use `make docker-run`;
+multi-GPU examples use `make docker-parallel-run`.
 
-## Example 1: Evaluate one agent on one task
+## Example 1: Run one agent configuration on one task
 
 Run a single HIP task with the Cursor agent.
 
@@ -56,9 +58,9 @@ speedup_ratio: 1.58
 score: 278.0
 ```
 
-## Example 2: Run a whole task category
+## Example 2: Run an experiment on a whole task category
 
-Evaluate Claude Code across all vLLM Triton tasks.
+Run Claude Code across all vLLM Triton tasks.
 
 ```yaml
 agent:
@@ -97,8 +99,8 @@ dashboard and compare them side-by-side:
 
 ```bash
 cd visualization
-python backend/scripts/build_dashboard_data.py --include-workspace-runs
-python backend/server.py --host 127.0.0.1 --port 8080
+python3 backend/scripts/build_dashboard_data.py --include-workspace-runs
+python3 backend/server.py --host 127.0.0.1 --port 8080
 ```
 
 Open <http://127.0.0.1:8080> to compare scores. See

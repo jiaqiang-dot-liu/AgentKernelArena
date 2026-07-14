@@ -1,16 +1,16 @@
 ---
 myst:
     html_meta:
-        "description": "Learn how to install AgentKernelArena with the Docker-first benchmark runner, pinned ROCm SGLang images, host agent CLIs, and API keys."
+        "description": "Install the Docker-first AgentKernelArena experimentation environment, pinned ROCm/SGLang images, and supported agent integrations."
         "keywords": "AgentKernelArena, install, Docker, ROCm, SGLang, AMD GPU, HIP, PyTorch, agent CLI"
 ---
 
 # Install AgentKernelArena
 
-AgentKernelArena runs AI coding agents against GPU kernel tasks on an AMD GPU and
-evaluates the results. Docker is the only supported workflow: the evaluator runs
-inside the GPU-arch-specific SGLang Docker image and bind-mounts the local agent CLIs
-plus their login state.
+AgentKernelArena runs controlled agent experiments against GPU kernel tasks on
+an AMD GPU. Docker is the supported workflow: each experiment runs inside the
+GPU-architecture-specific SGLang image and bind-mounts the required local agent
+CLI plus its login state.
 
 ## Prerequisites
 
@@ -19,15 +19,17 @@ The following prerequisites are required before running AgentKernelArena.
 - **Docker**
 - **AMD GPU with ROCm-compatible Docker access** — the runner mounts `/dev/kfd`,
   `/dev/dri`, and `/dev/mem` when present.
-- **SGLang benchmark image** — `gfx942` uses
+- **SGLang runtime image** — `gfx942` uses
   `lmsysorg/sglang:v0.5.12-rocm720-mi30x`; `gfx950` uses
   `lmsysorg/sglang-rocm:v0.5.14-rocm720-mi35x-20260705`. The runner selects from
-  `target_gpu_model` for benchmark runs and from the visible host GPU for shell
+  `target_gpu_model` for experiment runs and from the visible host GPU for shell
   and smoke commands.
 - **Git**
-- At least one supported agent CLI already installed and logged in on the host. The
-  Docker runner provisions the configured agent for a run. Codex, Claude Code,
-  and Cursor Agent are the first-class supported CLIs. See
+- **Node.js 22+ and npm**, when using the alternative npm installation of Claude
+  Code or another npm-installed agent CLI.
+- The selected agent CLI installed and authenticated on the host. The Docker
+  runner provisions only the configured agent for a normal run. Codex, Claude
+  Code, and Cursor Agent are the first-class host-CLI integrations. See
   [Configure agents and models](../how-to/agents.md).
 
 ## Docker runner
@@ -41,9 +43,6 @@ cd AgentKernelArena
 
 # Verify the container runtime and GPU.
 make docker-smoke
-
-# Verify Codex, Claude Code, and Cursor Agent login reuse.
-make docker-check-agents
 ```
 
 Start an interactive shell in the same environment:
@@ -52,42 +51,48 @@ Start an interactive shell in the same environment:
 make docker-shell
 ```
 
-Run an evaluation:
-
-```bash
-make docker-run CONFIG=config.yaml
-make docker-run CONFIG=config.yaml RUN_ARGS="--run-suffix cursor_docker"
-```
-
-Run across multiple GPUs by starting one isolated worker container per GPU:
-
-```bash
-make docker-parallel-run CONFIG=config.yaml GPU_IDS=0,1,2,3
-```
-
-If `GPU_IDS` is omitted, the runner discovers GPUs with `rocm-smi --showid`.
+Install and authenticate the agent selected by your configuration before
+starting an experiment; the next section covers the first-class host CLIs.
 
 ## Install agent CLIs
 
-Install whichever agents you plan to evaluate. For example:
+Install whichever agent you plan to run. Claude Code recommends its native
+installer; npm is also supported by the Docker runner:
 
 ```bash
-# Cursor Agent CLI
-make install-cursor-agent
+# Recommended native installation on Linux/macOS/WSL:
+curl -fsSL https://claude.ai/install.sh | bash
 
-# Claude Code
-npm install -g @anthropic-ai/claude-code
+# Alternative npm installation (requires Node.js 22+):
+# node --version
+# npm --version
+# npm install -g @anthropic-ai/claude-code
 
-# Codex CLI: follow the official Codex CLI instructions, then ensure
-# `codex` is available on PATH.
+# Authenticate after either installation.
+claude
+
+# Alternatively, install Cursor Agent:
+# make install-cursor-agent
+
+# For Codex, follow its official CLI instructions and ensure `codex` is on PATH.
 ```
+
+The Docker runner supports both npm-installed Claude Code and its native/local
+installation. See the
+[official Claude Code setup guide](https://code.claude.com/docs/en/installation)
+for current installation alternatives. After completing the interactive login,
+verify the host CLI with `claude auth status`.
+
+The `geak_v3`, `geak_v3_triton`, and `mini_swe_triton` integrations require
+their own runtime dependencies. Review the corresponding directory under
+`agents/` before selecting one.
 
 ## FlyDSL tasks (optional)
 
 `flydsl2flydsl`, `torch2flydsl`, and `triton2flydsl` tasks need the `flydsl`
-package inside the container. Most images already ship it (`make docker-smoke`
-prints `flydsl=ok <version>`). If yours does not, install it once into the
-container's persistent pip user-base:
+package inside the container. The selected image may already ship it
+(`make docker-smoke` prints `flydsl=ok <version>` when present). If yours does
+not, install it once into the container's persistent pip user-base:
 
 ```bash
 make docker-setup-flydsl
@@ -95,15 +100,26 @@ make docker-setup-flydsl
 
 This is a no-op when the image already provides FlyDSL.
 
-## Configure API keys
+## Configure authentication and providers
 
-Export the keys for the providers you will use:
+Cursor, Claude Code, and Codex reuse their host CLI authentication. A normal run
+preflights only its selected CLI. For a config that selects one of these CLIs—or
+`task_validator`, which resolves to its configured backend—check the same CLI
+without starting a task by passing the run config:
 
 ```bash
-export OPENAI_API_KEY="your_openai_key"
-export ANTHROPIC_API_KEY="your_anthropic_key"
-export OPENROUTER_API_KEY="your_openrouter_key"
+make docker-check-agents CONFIG=config.yaml
+
+# Optional overrides:
+make docker-check-agents AGENTS=claude_code,codex
+make docker-check-agents AGENTS=all
 ```
+
+`AGENTS=all` is the explicit strict check for Cursor, Claude Code, and Codex.
+Specialized integrations such as GEAK and mini-swe use their own dependency and
+authentication checks. They read credentials and provider endpoints from their
+own environment/configuration; there is no shared provider field in the root
+`config.yaml`.
 
 To run against a self-hosted model instead of a hosted provider, start a local
 vLLM server:
@@ -112,8 +128,10 @@ vLLM server:
 make vllm
 ```
 
-This launches a `rocm/vllm` container serving a model on port `30001`. Set
-`local_llm_enabled: true` in the relevant agent configuration to use it.
+This launches a `rocm/vllm` container with an OpenAI-compatible endpoint on port
+`30001`. Starting the server does not automatically configure an agent; point
+the selected integration at the endpoint using that integration's base-URL and
+provider settings.
 
 ## Verify the installation
 
@@ -124,7 +142,14 @@ together. Edit `config.yaml` to select one agent and one task, then run:
 make docker-run CONFIG=config.yaml
 ```
 
+To run across multiple GPUs, list host GPU IDs or omit `GPU_IDS` to discover
+them with `rocm-smi --showid`:
+
+```bash
+make docker-parallel-run CONFIG=config.yaml GPU_IDS=0,1,2,3
+```
+
 A successful run creates a timestamped workspace directory
 (`workspace_<gpu>_<agent>/run_<timestamp>/`), logs to `logs/`, and writes a
-`task_result.yaml` per task. See [Run an evaluation](../how-to/run-evaluation.md)
+`task_result.yaml` per task. See [Run an experiment](../how-to/run-evaluation.md)
 for the full workflow.

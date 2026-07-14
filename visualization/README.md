@@ -1,6 +1,7 @@
 # AgentKernelArena Visualization
 
-Static dashboard for comparing run reports produced by AgentKernelArena.
+Static dashboard for comparing baseline, treatment, and other experiment run
+reports produced by AgentKernelArena.
 
 The app lives under `visualization/`, but it scans the parent AgentKernelArena
 repository for report directories that contain:
@@ -54,8 +55,8 @@ After a normal AgentKernelArena run, reports land in
 directory, pass `--include-workspace-runs` so the build script picks them up:
 
 ```bash
-python backend/scripts/build_dashboard_data.py --include-workspace-runs
-python backend/server.py --host 127.0.0.1 --port 8080
+python3 backend/scripts/build_dashboard_data.py --include-workspace-runs
+python3 backend/server.py --host 127.0.0.1 --port 8080
 ```
 
 Then open:
@@ -72,7 +73,7 @@ empty by default, and the dashboard shows no data.
 Port `80` usually requires elevated privileges:
 
 ```bash
-sudo python backend/server.py --host 0.0.0.0 --port 80
+sudo python3 backend/server.py --host 0.0.0.0 --port 80
 ```
 
 Or use the helper script:
@@ -89,7 +90,7 @@ Whenever AgentKernelArena produces new run reports, rebuild the dashboard
 payload with the same flag used at first build:
 
 ```bash
-python backend/scripts/build_dashboard_data.py --include-workspace-runs
+python3 backend/scripts/build_dashboard_data.py --include-workspace-runs
 # or
 bash setup.sh --include-workspace-runs
 ```
@@ -100,7 +101,7 @@ If you placed report bundles manually in `visualization/reports/<report_name>/`
 instead, omit the flag:
 
 ```bash
-python backend/scripts/build_dashboard_data.py
+python3 backend/scripts/build_dashboard_data.py
 ```
 
 ## Notes
