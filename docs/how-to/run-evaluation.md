@@ -12,11 +12,41 @@ structured outcome and score signals. Repeat the run with one controlled change
 to create an A/B comparison. This topic explains how to configure, execute,
 resume, and inspect a run.
 
-## Configure `config.yaml`
+## Choose or create a run configuration
 
-The root `config.yaml` selects the agent, the tasks, and the target GPU. The
-example below uses Cursor Agent, so install and authenticate Cursor first, or
-change `agent.template` to a host CLI you have already installed and logged in:
+A run configuration selects the agent, tasks, and target GPU. The repository
+ships three examples:
+
+| Configuration | Purpose |
+| --- | --- |
+| `example_configs/quickstart_claude_mi300.yaml` | One Claude Code GELU task on MI300/MI300X (`gfx942`). |
+| `example_configs/quickstart_claude_mi355x.yaml` | One Claude Code GELU task on MI355X (`gfx950`). |
+| `example_configs/benchmark_cursor_mi355x.yaml` | Curated 60-task Cursor Agent benchmark on MI355X; use only after installing and authenticating Cursor Agent. |
+
+For a first run, select the quickstart that matches the physical GPU:
+
+```bash
+CONFIG_PATH=example_configs/quickstart_claude_mi300.yaml
+# For MI355X instead:
+# CONFIG_PATH=example_configs/quickstart_claude_mi355x.yaml
+```
+
+Install and authenticate the agent named by the selected config, then verify it
+inside the runtime container:
+
+```bash
+make docker-check-agents CONFIG="$CONFIG_PATH"
+```
+
+To define a different experiment, copy the nearest example and edit the copy:
+
+```bash
+cp "$CONFIG_PATH" my_experiment.yaml
+CONFIG_PATH=my_experiment.yaml
+```
+
+For example, replace the contents of `my_experiment.yaml` with the following to
+use Cursor Agent. Install and authenticate Cursor before selecting it:
 
 ```yaml
 agent:
@@ -46,24 +76,25 @@ select tasks at any level of granularity.
 | `hip2hip/gpumode/GELU` | A single task |
 
 See [Configuration and API reference](../reference/api-reference.md) for the full
-set of `config.yaml` fields.
+set of run-configuration fields.
 
 ## Start a run
 
 ```bash
-make docker-run CONFIG=config.yaml
+make docker-run CONFIG="$CONFIG_PATH"
 ```
 
 Use a non-default config file to keep multiple task sets side-by-side:
 
 ```bash
-make docker-run CONFIG=config_triton.yaml
+CONFIG_PATH=config_triton.yaml
+make docker-run CONFIG="$CONFIG_PATH"
 ```
 
 Add a suffix to label a run directory (useful for A/B testing):
 
 ```bash
-make docker-run CONFIG=config.yaml RUN_ARGS="--run-suffix cursor_with_mcp"
+make docker-run CONFIG="$CONFIG_PATH" RUN_ARGS="--run-suffix cursor_with_mcp"
 # → workspace_MI300_cursor/run_20260617_101500_cursor_with_mcp
 ```
 
@@ -84,20 +115,20 @@ container per GPU, masks each worker to one GPU, and lets workers claim tasks
 from a shared queue:
 
 ```bash
-make docker-parallel-run CONFIG=config.yaml GPU_IDS=0,1,2,3,4,5,6,7
+make docker-parallel-run CONFIG="$CONFIG_PATH" GPU_IDS=0,1,2,3,4,5,6,7
 ```
 
 If `GPU_IDS` is omitted, the runner discovers GPU IDs with `rocm-smi --showid`:
 
 ```bash
-make docker-parallel-run CONFIG=config.yaml
+make docker-parallel-run CONFIG="$CONFIG_PATH"
 ```
 
 `RUN_ARGS` works the same way as `docker-run`:
 
 ```bash
 make docker-parallel-run \
-  CONFIG=config.yaml \
+  CONFIG="$CONFIG_PATH" \
   GPU_IDS=0,1 \
   RUN_ARGS="--run-suffix parallel_smoke"
 ```
@@ -112,7 +143,7 @@ GPU isolation, resume behavior, and failure handling.
 
 ```mermaid
 flowchart TD
-    A[Load config.yaml] --> B[Register agent launcher]
+    A[Load run configuration] --> B[Register agent launcher]
     B --> C[Discover tasks]
     C --> D[Create timestamped workspace per task]
     D --> E[Measure baseline performance]
@@ -148,16 +179,16 @@ Long runs can be resumed; completed tasks are skipped.
 
 ```bash
 # Resume a specific run directory
-make docker-run CONFIG=config.yaml RUN_ARGS="--resume-run run_20260617_101500"
+make docker-run CONFIG="$CONFIG_PATH" RUN_ARGS="--resume-run run_20260617_101500"
 
 # Resume the most recent run
-make docker-run CONFIG=config.yaml RUN_ARGS="--resume-latest"
+make docker-run CONFIG="$CONFIG_PATH" RUN_ARGS="--resume-latest"
 ```
 
 For a parallel run, use the same `RUN_ARGS` with `docker-parallel-run`:
 
 ```bash
-make docker-parallel-run CONFIG=config.yaml GPU_IDS=0,1,2,3 RUN_ARGS="--resume-latest"
+make docker-parallel-run CONFIG="$CONFIG_PATH" GPU_IDS=0,1,2,3 RUN_ARGS="--resume-latest"
 ```
 
 ## Read the results

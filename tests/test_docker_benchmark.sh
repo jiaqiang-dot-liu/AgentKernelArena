@@ -133,6 +133,28 @@ assert_has "cursor" "${args[@]}"
 assert_not_has "$CURSOR_HOME/.claude:$CURSOR_HOME/.claude" "${args[@]}"
 assert_not_has "$CURSOR_HOME/.codex:$CURSOR_HOME/.codex" "${args[@]}"
 
+# A natively installed Claude CLI is a launcher in ~/.local/bin that resolves
+# into ~/.local/share/claude/versions. Both sides of that symlink must be
+# mounted at the same absolute paths inside the container.
+NATIVE_CLAUDE_HOME="$TEST_HOME/native-claude-home"
+NATIVE_CLAUDE_CONFIG="$TEST_HOME/native-claude-config.yaml"
+mkdir -p \
+    "$NATIVE_CLAUDE_HOME/.local/bin" \
+    "$NATIVE_CLAUDE_HOME/.local/share/claude/versions" \
+    "$NATIVE_CLAUDE_HOME/.claude"
+touch \
+    "$NATIVE_CLAUDE_HOME/.local/share/claude/versions/2.1.0" \
+    "$NATIVE_CLAUDE_HOME/.claude.json"
+ln -s ../share/claude/versions/2.1.0 "$NATIVE_CLAUDE_HOME/.local/bin/claude"
+printf 'agent:\n  template: claude_code\n' > "$NATIVE_CLAUDE_CONFIG"
+
+mapfile -t args < <(run_check_args "$NATIVE_CLAUDE_HOME" "$NATIVE_CLAUDE_CONFIG")
+assert_has "$NATIVE_CLAUDE_HOME/.local/bin:$NATIVE_CLAUDE_HOME/.local/bin:ro" "${args[@]}"
+assert_has "$NATIVE_CLAUDE_HOME/.local/share/claude:$NATIVE_CLAUDE_HOME/.local/share/claude:ro" "${args[@]}"
+assert_has "$NATIVE_CLAUDE_HOME/.claude:$NATIVE_CLAUDE_HOME/.claude" "${args[@]}"
+assert_has "$NATIVE_CLAUDE_HOME/.claude.json:$NATIVE_CLAUDE_HOME/.claude.json" "${args[@]}"
+assert_has "claude_code" "${args[@]}"
+
 # An npm-installed Claude CLI is mounted from its Node prefix; the native
 # ~/.local/share/claude layout is not required.
 CLAUDE_HOME="$TEST_HOME/claude-home"

@@ -18,32 +18,33 @@ host-side scheduler for multi-GPU servers.
 
 ## Start a parallel run
 
-List the GPUs to use with `GPU_IDS`:
+Select a run configuration, then list the GPUs to use with `GPU_IDS`:
 
 ```bash
-make docker-parallel-run CONFIG=config.yaml GPU_IDS=0,1,2,3
+CONFIG_PATH=example_configs/benchmark_cursor_mi355x.yaml
+make docker-parallel-run CONFIG="$CONFIG_PATH" GPU_IDS=0,1,2,3
 ```
 
 On an 8-GPU server:
 
 ```bash
-make docker-parallel-run CONFIG=config.yaml GPU_IDS=0,1,2,3,4,5,6,7
+make docker-parallel-run CONFIG="$CONFIG_PATH" GPU_IDS=0,1,2,3,4,5,6,7
 ```
 
 If `GPU_IDS` is omitted, the runner discovers GPUs with `rocm-smi --showid` and
 starts one worker for each discovered GPU:
 
 ```bash
-make docker-parallel-run CONFIG=config.yaml
+make docker-parallel-run CONFIG="$CONFIG_PATH"
 ```
 
 Use `RUN_ARGS` the same way as `docker-run`:
 
 ```bash
 make docker-parallel-run \
-  CONFIG=config.yaml \
+  CONFIG="$CONFIG_PATH" \
   GPU_IDS=0,1,2,3,4,5,6,7 \
-  RUN_ARGS="--run-suffix claude_parallel8"
+  RUN_ARGS="--run-suffix cursor_parallel8"
 ```
 
 ## How scheduling works
@@ -95,7 +96,7 @@ unfinished tasks are returned to the pending queue.
 
 ```bash
 make docker-parallel-run \
-  CONFIG=config.yaml \
+  CONFIG="$CONFIG_PATH" \
   GPU_IDS=0,1,2,3,4,5,6,7 \
   RUN_ARGS="--resume-run run_20260702_041903_parallel8"
 ```
@@ -103,7 +104,7 @@ make docker-parallel-run \
 You can also resume the most recent run:
 
 ```bash
-make docker-parallel-run CONFIG=config.yaml GPU_IDS=0,1 RUN_ARGS="--resume-latest"
+make docker-parallel-run CONFIG="$CONFIG_PATH" GPU_IDS=0,1 RUN_ARGS="--resume-latest"
 ```
 
 Completion is detected from the per-task workspace:
@@ -114,7 +115,8 @@ Completion is detected from the per-task workspace:
 ## Run the task validator in parallel
 
 The `task_validator` agent uses the same worker queue. This is useful when
-validating many tasks before a release or shared experiment:
+validating many tasks before a release or shared experiment. Save this example
+as `config_parallel_validator_mi355x.yaml`:
 
 ```yaml
 agent:
@@ -130,7 +132,7 @@ workspace_directory_prefix: workspace
 
 ```bash
 make docker-parallel-run \
-  CONFIG=config.yaml \
+  CONFIG=config_parallel_validator_mi355x.yaml \
   GPU_IDS=0,1,2,3,4,5,6,7 \
   RUN_ARGS="--run-suffix validator_parallel8"
 ```

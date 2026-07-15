@@ -14,7 +14,8 @@ using them in controlled comparisons or RL data collection.
 
 ## Run the validator
 
-Set the validator as the agent in `config.yaml` and list the tasks to check:
+Save a run configuration such as `config_validator.yaml` with the validator as
+the agent and the tasks to check:
 
 ```yaml
 agent:
@@ -31,7 +32,7 @@ workspace_directory_prefix: workspace
 Then run:
 
 ```bash
-make docker-run CONFIG=config.yaml
+make docker-run CONFIG=config_validator.yaml
 ```
 
 Each task workspace receives a `validation_report.yaml` with per-check results,
@@ -44,7 +45,7 @@ reports:
 
 ```bash
 make docker-parallel-run \
-  CONFIG=config.yaml \
+  CONFIG=config_validator.yaml \
   GPU_IDS=0,1,2,3,4,5,6,7 \
   RUN_ARGS="--run-suffix validator_parallel8"
 ```

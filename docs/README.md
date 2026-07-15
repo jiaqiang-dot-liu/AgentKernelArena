@@ -27,9 +27,9 @@ python -m sphinx -T -b html docs docs/_build/html
 | `install/install.md` | Installation | Docker runner (`make docker-smoke`/`docker-run`), agent CLIs, authentication, and provider setup. |
 | `reference/release-notes.md` | Release Notes | Current-development changes, released capabilities, and known limitations. |
 | `reference/compatibility-matrix.md` | Compatibility Matrix | Verified hardware/software versions. |
-| `reference/api-reference.md` | Configuration and API reference | `config.yaml` schema, task `config.yaml` schema, CLI flags, scoring, and the agent registry. |
+| `reference/api-reference.md` | Configuration and API reference | Run configuration schema, task `config.yaml` schema, CLI flags, scoring, and the agent registry. |
 | `reference/benchmark-methodology.md` | Reference | Timing methodology, performance-helper materialization, and speedup interpretation. |
-| `how-to/run-evaluation.md` | How-to | Configure `config.yaml`, run an experiment through Docker, resume runs, and read results. |
+| `how-to/run-evaluation.md` | How-to | Choose or create a run configuration, run an experiment through Docker, resume runs, and read results. |
 | `how-to/parallel-run.md` | How-to | Run one isolated Docker worker per GPU, use the shared `.parallel/` task queue, resume parallel runs, and parallelize `task_validator`. |
 | `how-to/agents.md` | How-to | Supported agents, model providers, and A/B testing. |
 | `how-to/add-task.md` | How-to | Task directory layout, `config.yaml` fields, and task types. |

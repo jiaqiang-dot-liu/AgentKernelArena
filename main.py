@@ -35,11 +35,11 @@ parser = argparse.ArgumentParser(description="arguments for AgentKernelArena")
 parser.add_argument(
     "--config_name",
     type=str,
-    default="config.yaml",
+    default="example_configs/benchmark_cursor_mi355x.yaml",
     help=(
-        "the config of AgentKernelArena, default set to config. You can set "
-        "different tasks in different config yaml file in order to run multi "
-        "evaluation task in one folder."
+        "run configuration for AgentKernelArena (default: "
+        "example_configs/benchmark_cursor_mi355x.yaml). Use separate YAML "
+        "files for different agents, task sets, or target GPUs."
     ),
 )
 parser.add_argument(

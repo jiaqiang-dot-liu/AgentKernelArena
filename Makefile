@@ -16,12 +16,12 @@ help:
 	@echo "======================================================"
 	@echo "Docker-first workflow (the only supported path):"
 	@echo "make docker-shell        - Enter the runtime image with repo and agent auth mounted"
-	@echo "make docker-check-agents - Verify the first-class host CLI selected by config.yaml"
+	@echo "make docker-check-agents - Verify the first-class host CLI selected by CONFIG"
 	@echo "                         Use CONFIG=... for another config; AGENTS=... overrides it"
 	@echo "                         AGENTS=all explicitly checks all three first-class CLIs"
 	@echo "make docker-smoke        - Verify Docker Python, ROCm tools, imports, and GPU access"
-	@echo "make docker-run CONFIG=config.yaml RUN_ARGS=\"--run-suffix test\" - Run an experiment in Docker"
-	@echo "make docker-parallel-run CONFIG=config.yaml GPU_IDS=0,1 - Run an experiment across one worker container per GPU"
+	@echo "make docker-run CONFIG=example_configs/quickstart_claude_mi300.yaml RUN_ARGS=\"--run-suffix test\" - Run an experiment in Docker"
+	@echo "make docker-parallel-run CONFIG=example_configs/benchmark_cursor_mi355x.yaml GPU_IDS=0,1 - Run an experiment across one worker container per GPU"
 	@echo "                         Images: gfx942->mi30x, gfx950->mi35x; override with AKA_DOCKER_IMAGE=..."
 	@echo "make docker-setup-flydsl - Install FlyDSL when absent (for flydsl2flydsl, torch2flydsl, and triton2flydsl)"
 	@echo "make check-docker-runner - Check Docker runner syntax and runtime-specific arguments"
@@ -36,7 +36,7 @@ help:
 	@echo "make install-cursor-agent - Install the Cursor Agent CLI on the host"
 
 DOCKER_RUNNER := src/scripts/docker_benchmark.sh
-CONFIG ?= config.yaml
+CONFIG ?= example_configs/benchmark_cursor_mi355x.yaml
 RUN_ARGS ?=
 AGENTS ?=
 WORKSPACES ?= $(WORKSPACE)

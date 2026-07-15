@@ -8,9 +8,9 @@ myst:
 # Configure agents and models in AgentKernelArena
 
 AgentKernelArena evaluates one agent per run. The agent is selected by the
-`agent.template` field in `config.yaml`. This topic lists the supported agents,
-explains how models and providers are configured, and describes how to use the
-arena for A/B testing.
+`agent.template` field in the chosen run configuration. This topic lists the
+supported agents, explains how models and providers are configured, and
+describes how to use the arena for A/B testing.
 
 ## Supported agents
 
@@ -26,7 +26,7 @@ The following agents are available.
 | `mini_swe_triton` | mini-swe-agent-based Triton optimization |
 | `task_validator` | Task quality validator; does not optimize kernels (see [Validate tasks](task-validator.md)) |
 
-Select one in `config.yaml`:
+Select one in a run configuration:
 
 ```yaml
 agent:
@@ -42,16 +42,22 @@ their respective `agents/<agent_name>/` directories.
 
 ## Models, providers, and agent settings
 
-AgentKernelArena has no shared model/provider field in the root `config.yaml`.
+AgentKernelArena has no shared model/provider field in the run configuration.
 The selected integration controls its own model, provider, authentication,
 effort, timeout, and iteration settings through its CLI and
 `agents/<agent_name>/agent_config.yaml`.
 
 For Cursor, Claude Code, and Codex, authenticate with the host CLI. A normal run
 preflights only the selected CLI. When the config selects one of these
-first-class integrations (or `task_validator`),
-`make docker-check-agents CONFIG=config.yaml` checks that selected CLI/backend;
-use `AGENTS=<comma-separated names>` for an explicit subset or `AGENTS=all` for
+first-class integrations (or `task_validator`), select the run configuration
+first and check its CLI/backend:
+
+```bash
+CONFIG_PATH=example_configs/quickstart_claude_mi300.yaml
+make docker-check-agents CONFIG="$CONFIG_PATH"
+```
+
+Use `AGENTS=<comma-separated names>` for an explicit subset or `AGENTS=all` for
 all three first-class CLIs and login states. Specialized integrations are not
 handled by this command; their README files document their own dependencies,
 API keys, and endpoint configuration.
@@ -70,11 +76,13 @@ Run the same task set twice, once with the capability enabled and once
 without, then compare the standardized scores:
 
 ```bash
+CONFIG_PATH=example_configs/quickstart_claude_mi300.yaml
+
 # Baseline
-make docker-run CONFIG=config.yaml RUN_ARGS="--run-suffix baseline"
+make docker-run CONFIG="$CONFIG_PATH" RUN_ARGS="--run-suffix baseline"
 
 # With the new capability enabled in the agent configuration
-make docker-run CONFIG=config.yaml RUN_ARGS="--run-suffix with_capability"
+make docker-run CONFIG="$CONFIG_PATH" RUN_ARGS="--run-suffix with_capability"
 ```
 
 Both runs land in the same workspace directory with distinct run names, so the
@@ -87,8 +95,8 @@ You can also generate a text comparison directly:
 
 ```bash
 python3 compare_runs.py \
-  workspace_MI300_cursor/run_<timestamp>_baseline \
-  workspace_MI300_cursor/run_<timestamp>_with_capability
+  workspace_MI300_claude_code/run_<timestamp>_baseline \
+  workspace_MI300_claude_code/run_<timestamp>_with_capability
 ```
 
 The resulting `task_result.yaml` files expose compilation, correctness, timing,

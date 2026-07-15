@@ -15,32 +15,26 @@ multi-GPU examples use `make docker-parallel-run`.
 
 ## Example 1: Run one agent configuration on one task
 
-Run a single HIP task with the Cursor agent.
+Run the single-task Claude Code quickstart for the physical GPU.
 
-1. Edit `config.yaml`:
+1. Select the MI300/MI300X example (use
+   `example_configs/quickstart_claude_mi355x.yaml` on MI355X):
 
-    ```yaml
-    agent:
-      template: cursor
-
-    tasks:
-      - hip2hip/gpumode/GELU
-
-    target_gpu_model: MI300
-    log_directory: logs
-    workspace_directory_prefix: workspace
+    ```bash
+    CONFIG_PATH=example_configs/quickstart_claude_mi300.yaml
     ```
 
 2. Run:
 
     ```bash
-    make docker-run CONFIG=config.yaml
+    make docker-check-agents CONFIG="$CONFIG_PATH"
+    make docker-run CONFIG="$CONFIG_PATH"
     ```
 
 3. Inspect the result:
 
     ```text
-    workspace_MI300_cursor/
+    workspace_MI300_claude_code/
     └── run_<timestamp>/
         └── hip2hip_gpumode_GELU_<timestamp>/
             └── task_result.yaml
@@ -60,7 +54,8 @@ score: 278.0
 
 ## Example 2: Run an experiment on a whole task category
 
-Run Claude Code across all vLLM Triton tasks.
+Run Claude Code across all vLLM Triton tasks. Save this configuration as
+`config_triton.yaml`:
 
 ```yaml
 agent:
@@ -75,7 +70,7 @@ workspace_directory_prefix: workspace
 ```
 
 ```bash
-make docker-run CONFIG=config.yaml
+make docker-run CONFIG=config_triton.yaml
 ```
 
 Each task gets its own workspace under the same `run_<timestamp>/` directory, and
@@ -88,10 +83,10 @@ change helps. Run the same task set twice with distinct run suffixes.
 
 ```bash
 # Baseline (capability disabled in the agent configuration)
-make docker-run CONFIG=config.yaml RUN_ARGS="--run-suffix baseline"
+make docker-run CONFIG=config_triton.yaml RUN_ARGS="--run-suffix baseline"
 
 # Treatment (capability enabled)
-make docker-run CONFIG=config.yaml RUN_ARGS="--run-suffix with_capability"
+make docker-run CONFIG=config_triton.yaml RUN_ARGS="--run-suffix with_capability"
 ```
 
 Both runs land in `workspace_MI300_<agent>/` with distinct run names. Build the
@@ -108,7 +103,8 @@ Open <http://127.0.0.1:8080> to compare scores. See
 
 ## Example 4: Validate a new task
 
-Before merging a new task, run the task_validator agent against it.
+Before merging a new task, run the task_validator agent against it. Save this
+configuration as `config_validator.yaml`:
 
 ```yaml
 agent:
@@ -123,7 +119,7 @@ workspace_directory_prefix: workspace
 ```
 
 ```bash
-make docker-run CONFIG=config.yaml
+make docker-run CONFIG=config_validator.yaml
 ```
 
 Open the generated `validation_report.yaml` in the task workspace. The task must
@@ -133,7 +129,8 @@ reach **PASS** (or **WARN** with justification) before merging. See
 ## Example 5: Run eight GPU workers in parallel
 
 On an 8-GPU server, start one Docker worker per GPU and let the workers share the
-same task queue:
+same task queue. Save this configuration as
+`config_parallel_claude_mi355x.yaml`:
 
 ```yaml
 agent:
@@ -149,7 +146,7 @@ workspace_directory_prefix: workspace
 
 ```bash
 make docker-parallel-run \
-  CONFIG=config.yaml \
+  CONFIG=config_parallel_claude_mi355x.yaml \
   GPU_IDS=0,1,2,3,4,5,6,7 \
   RUN_ARGS="--run-suffix claude_parallel8"
 ```
@@ -177,7 +174,8 @@ Post-processing runs once after all worker containers finish.
 ## Example 6: Validate tasks in parallel
 
 The same queue works for `task_validator`. This is useful before merging a large
-batch of tasks:
+batch of tasks. Save this configuration as
+`config_parallel_validator_mi355x.yaml`:
 
 ```yaml
 agent:
@@ -193,7 +191,7 @@ workspace_directory_prefix: workspace
 
 ```bash
 make docker-parallel-run \
-  CONFIG=config.yaml \
+  CONFIG=config_parallel_validator_mi355x.yaml \
   GPU_IDS=0,1,2,3,4,5,6,7 \
   RUN_ARGS="--run-suffix validator_parallel8"
 ```
@@ -207,15 +205,15 @@ If a long run is interrupted, resume it without repeating completed tasks:
 
 ```bash
 # Resume the most recent run
-make docker-run CONFIG=config.yaml RUN_ARGS="--resume-latest"
+make docker-run CONFIG=example_configs/quickstart_claude_mi300.yaml RUN_ARGS="--resume-latest"
 
 # Or resume a specific run directory
-make docker-run CONFIG=config.yaml RUN_ARGS="--resume-run run_20260617_101500"
+make docker-run CONFIG=example_configs/quickstart_claude_mi300.yaml RUN_ARGS="--resume-run run_20260617_101500"
 ```
 
 For a parallel run, use the same resume arguments with `docker-parallel-run`:
 
 ```bash
-make docker-parallel-run CONFIG=config.yaml GPU_IDS=0,1,2,3 RUN_ARGS="--resume-latest"
-make docker-parallel-run CONFIG=config.yaml GPU_IDS=0,1,2,3 RUN_ARGS="--resume-run run_20260617_101500_parallel8"
+make docker-parallel-run CONFIG=config_parallel_claude_mi355x.yaml GPU_IDS=0,1,2,3 RUN_ARGS="--resume-latest"
+make docker-parallel-run CONFIG=config_parallel_claude_mi355x.yaml GPU_IDS=0,1,2,3 RUN_ARGS="--resume-run run_20260617_101500_parallel8"
 ```

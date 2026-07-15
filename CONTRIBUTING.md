@@ -5,7 +5,7 @@ Thanks for your interest in AgentKernelArena! This guide explains how to contrib
 ## Before You Start
 
 - Read `README.md` to understand the project scope: controlled A/B experiments and RL-ready feedback for GPU kernel agents.
-- Skim `config.yaml` for run-level agent/task/GPU selection and the relevant `agents/<name>/agent_config.yaml` for agent-specific model and runtime settings.
+- Skim the files under `example_configs/` for run-level agent/task/GPU selection and the relevant `agents/<name>/agent_config.yaml` for agent-specific model and runtime settings.
 - Ensure you have an AMD GPU with ROCm-compatible Docker access; the supported workflow uses the pinned ROCm/SGLang images documented in the compatibility matrix.
 - Confirm that the selected agent integration and its authentication/dependencies are available.
 
@@ -18,8 +18,9 @@ container; see `docs/install/install.md`.
 # Verify the container can see Python, ROCm tools, and the GPU
 make docker-smoke
 
-# Verify only the agent selected in config.yaml
-make docker-check-agents CONFIG=config.yaml
+# Select a run config and verify only its agent
+CONFIG_PATH=example_configs/quickstart_claude_mi300.yaml
+make docker-check-agents CONFIG="$CONFIG_PATH"
 
 # Optional strict check of all three first-class CLIs
 make docker-check-agents AGENTS=all
@@ -45,7 +46,7 @@ make vllm
 3. Run a smoke test against at least one task before submitting:
 
 ```bash
-make docker-run CONFIG=config.yaml
+make docker-run CONFIG=example_configs/quickstart_claude_mi300.yaml
 ```
 
 4. Open a Pull Request with motivation, impact, and verification steps.
@@ -54,7 +55,7 @@ make docker-run CONFIG=config.yaml
 
 - Follow PEP 8 for Python code.
 - Keep agent integrations isolated under `agents/<agent_name>/` — don't leak agent-specific logic into `src/`.
-- Update `config.yaml`, relevant docs, `AgentType`, and the launcher/handler branches in `src/module_registration.py` when adding a new agent. `agents/__init__.py` only provides the shared decorator registry.
+- Update the relevant example run configurations, docs, `AgentType`, and the launcher/handler branches in `src/module_registration.py` when adding a new agent. `agents/__init__.py` only provides the shared decorator registry.
 - Add documentation or comments when intent is non-obvious.
 - Performance timing helpers are generated into run workspaces from
   `src/tools/perf/`.
@@ -75,7 +76,7 @@ This project depends on GPU hardware/drivers and orchestrates external LLM agent
 - Key commands and output summary, e.g.:
 
 ```bash
-make docker-run CONFIG=config.yaml
+make docker-run CONFIG=example_configs/quickstart_claude_mi300.yaml
 python3 compare_runs.py <run-directory-1> <run-directory-2>
 ```
 
@@ -86,7 +87,7 @@ python3 compare_runs.py <run-directory-1> <run-directory-2>
 
 Please include:
 
-- Reproduction steps (exact `config.yaml` snippet or command flags)
+- Reproduction steps (exact run-configuration snippet or command flags)
 - Expected vs actual behavior
 - Environment (OS, GPU, ROCm version, Python version, agent CLI version)
 - Relevant files from `logs/` and `workspace_<gpu>_<agent>/run_<timestamp>/`, or a minimal repro

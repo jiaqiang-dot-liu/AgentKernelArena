@@ -26,6 +26,9 @@ experimentation platform and RL-ready task environment for GPU kernel agents.
   system but does not yet have a bundled task suite.
 - **Docker-first execution**: select pinned ROCm/SGLang images from the target
   GPU architecture.
+- **Example run configurations**: provide one-task Claude Code quickstarts for
+  MI300/MI300X and MI355X plus a curated 60-task Cursor benchmark for MI355X
+  under `example_configs/`.
 - **Centralized outcomes**: independently measure compilation, correctness, and
   GPU performance, then compute a configurable score.
 - **Timing provenance**: record baseline and optimized timing methods so

@@ -11,7 +11,9 @@ Use it to:
 
 ## How to Use
 
-### 1. Set `config.yaml`
+### 1. Create a run configuration
+
+Save the following as `config_task_validator.yaml`:
 
 ```yaml
 agent:
@@ -29,7 +31,7 @@ workspace_directory_prefix: workspace
 ### 2. Run
 
 ```bash
-make docker-run CONFIG=config.yaml
+make docker-run CONFIG=config_task_validator.yaml
 ```
 
 ### 3. Read Results

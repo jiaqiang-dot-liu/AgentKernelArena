@@ -7,12 +7,13 @@ myst:
 
 # AgentKernelArena configuration and API reference
 
-This topic documents the common run configuration (`config.yaml`), per-task
+This topic documents run configuration files, per-task
 configuration, command-line flags, scoring formula, and agent registry.
 
-## Run configuration (`config.yaml`)
+## Run configuration
 
-The root `config.yaml` defines a single experiment run.
+A run configuration defines a single experiment. Start from a file under
+`example_configs/` and copy it when creating a new experiment.
 
 | Field | Type | Description |
 | --- | --- | --- |
@@ -55,7 +56,7 @@ The in-container `main.py` entrypoint accepts these flags:
 
 | Flag | Description |
 | --- | --- |
-| `--config_name <file>` | Config file to load (default `config.yaml`). Use separate files to keep multiple task sets in one folder |
+| `--config_name <file>` | Config file to load (default `example_configs/benchmark_cursor_mi355x.yaml`). Use separate files to keep multiple task sets in one folder |
 | `--run-suffix <suffix>` | Suffix appended to the run directory name (letters, numbers, `.`, `_`, `-` only). Useful for labeling A/B runs |
 | `--resume-run <run_dir>` | Resume a specific run directory, skipping completed tasks |
 | `--resume-latest` | Resume the most recent run in the workspace |
@@ -86,10 +87,10 @@ The following Make targets are available for running experiments.
 
 | Target | Description |
 | --- | --- |
-| `make docker-run CONFIG=config.yaml` | Run tasks serially in one Docker container |
-| `make docker-parallel-run CONFIG=config.yaml GPU_IDS=0,1` | Run one Docker worker per listed GPU, using a shared dynamic task queue |
+| `make docker-run CONFIG=example_configs/quickstart_claude_mi300.yaml` | Run tasks serially in one Docker container |
+| `make docker-parallel-run CONFIG=example_configs/benchmark_cursor_mi355x.yaml GPU_IDS=0,1` | Run one Docker worker per listed GPU, using a shared dynamic task queue |
 | `make docker-smoke` | Verify Docker, ROCm runtime visibility, Python imports, and GPU access |
-| `make docker-check-agents CONFIG=config.yaml` | Verify the first-class host CLI selected by the config inside Docker (`task_validator` resolves to its backend). Override with `AGENTS=claude_code,codex`; use `AGENTS=all` for all three. Specialized integrations use their own checks |
+| `make docker-check-agents CONFIG=example_configs/quickstart_claude_mi300.yaml` | Verify the first-class host CLI selected by the config inside Docker (`task_validator` resolves to its backend). Override with `AGENTS=claude_code,codex`; use `AGENTS=all` for all three. Specialized integrations use their own checks |
 | `make docker-shell` | Open an interactive shell in the experiment runtime |
 
 `docker-parallel-run` accepts these environment variables:

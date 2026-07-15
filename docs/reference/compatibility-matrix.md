@@ -52,7 +52,7 @@ The following templates are selectable in the current `AgentType` registry. See
 
 ## Model providers
 
-Model/provider support is integration-specific; the root `config.yaml` does not
+Model/provider support is integration-specific; run configuration files do not
 configure a provider.
 
 | Provider | Notes |

@@ -24,9 +24,9 @@ usage() {
 Usage:
   src/scripts/docker_benchmark.sh run [main.py args...]
   src/scripts/docker_benchmark.sh parallel-run [main.py args...]
-  src/scripts/docker_benchmark.sh preflight [--config_name config.yaml]
+  src/scripts/docker_benchmark.sh preflight [--config_name <run-config.yaml>]
   src/scripts/docker_benchmark.sh shell
-  src/scripts/docker_benchmark.sh check-agents [--config_name config.yaml]
+  src/scripts/docker_benchmark.sh check-agents [--config_name <run-config.yaml>]
   src/scripts/docker_benchmark.sh smoke
 
 Environment overrides:
@@ -554,7 +554,7 @@ docker_exec() {
 }
 
 extract_config_name() {
-    local config="config.yaml"
+    local config="example_configs/benchmark_cursor_mi355x.yaml"
     local arg
     while [[ $# -gt 0 ]]; do
         arg="$1"
@@ -682,7 +682,7 @@ PY
 }
 
 container_preflight() {
-    local config_name="${1:-config.yaml}"
+    local config_name="${1:-example_configs/benchmark_cursor_mi355x.yaml}"
     container_smoke
     # Only verify the agent(s) this config actually uses (mounts are scoped the same way).
     container_check_agents $(resolve_required_agents "$config_name")

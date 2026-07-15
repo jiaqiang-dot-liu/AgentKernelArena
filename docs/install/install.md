@@ -16,9 +16,10 @@ CLI plus its login state.
 
 The following prerequisites are required before running AgentKernelArena.
 
-- **Docker**
-- **AMD GPU with ROCm-compatible Docker access** — the runner mounts `/dev/kfd`,
-  `/dev/dri`, and `/dev/mem` when present.
+- **Linux host with a supported AMDGPU kernel driver** — `/dev/kfd` and
+  `/dev/dri` must be present. The runner also mounts `/dev/mem` when present.
+- **Docker Engine** — the current user must be able to access the Docker daemon
+  without `sudo`.
 - **SGLang runtime image** — `gfx942` uses
   `lmsysorg/sglang:v0.5.12-rocm720-mi30x`; `gfx950` uses
   `lmsysorg/sglang-rocm:v0.5.14-rocm720-mi35x-20260705`. The runner selects from
@@ -62,14 +63,16 @@ installer; npm is also supported by the Docker runner:
 ```bash
 # Recommended native installation on Linux/macOS/WSL:
 curl -fsSL https://claude.ai/install.sh | bash
+claude --version
 
 # Alternative npm installation (requires Node.js 22+):
 # node --version
 # npm --version
 # npm install -g @anthropic-ai/claude-code
 
-# Authenticate after either installation.
+# Authenticate on the host after either installation, then exit Claude Code.
 claude
+claude auth status
 
 # Alternatively, install Cursor Agent:
 # make install-cursor-agent
@@ -77,15 +80,51 @@ claude
 # For Codex, follow its official CLI instructions and ensure `codex` is on PATH.
 ```
 
-The Docker runner supports both npm-installed Claude Code and its native/local
-installation. See the
+Installing an agent CLI is not enough: authenticate it on the host before an
+agent check or experiment. The Docker runner supports both Claude Code's native
+installation and its alternative npm installation. See the
 [official Claude Code setup guide](https://code.claude.com/docs/en/installation)
-for current installation alternatives. After completing the interactive login,
-verify the host CLI with `claude auth status`.
+for current installation alternatives.
 
 The `geak_v3`, `geak_v3_triton`, and `mini_swe_triton` integrations require
 their own runtime dependencies. Review the corresponding directory under
 `agents/` before selecting one.
+
+## Choose an example configuration
+
+Choose the configuration that matches the physical GPU and installed agent.
+The two quickstart configurations each run one GELU task; the benchmark
+configuration is a longer 60-task Cursor Agent run.
+
+| Configuration | Purpose |
+| --- | --- |
+| `example_configs/quickstart_claude_mi300.yaml` | First Claude Code run on MI300/MI300X (`gfx942`). |
+| `example_configs/quickstart_claude_mi355x.yaml` | First Claude Code run on MI355X (`gfx950`). |
+| `example_configs/benchmark_cursor_mi355x.yaml` | Curated 60-task Cursor Agent benchmark on MI355X; requires an installed and authenticated Cursor Agent CLI. |
+
+Select one quickstart configuration in the current shell:
+
+```bash
+# MI300/MI300X:
+CONFIG_PATH=example_configs/quickstart_claude_mi300.yaml
+
+# For MI355X instead:
+# CONFIG_PATH=example_configs/quickstart_claude_mi355x.yaml
+```
+
+Verify the agent selected by that configuration, then run the single task:
+
+```bash
+make docker-check-agents CONFIG="$CONFIG_PATH"
+make docker-run CONFIG="$CONFIG_PATH"
+```
+
+To create another experiment, copy the nearest example and edit the copy rather
+than changing a shared example in place:
+
+```bash
+cp "$CONFIG_PATH" my_experiment.yaml
+```
 
 ## FlyDSL tasks (optional)
 
@@ -103,12 +142,12 @@ This is a no-op when the image already provides FlyDSL.
 ## Configure authentication and providers
 
 Cursor, Claude Code, and Codex reuse their host CLI authentication. A normal run
-preflights only its selected CLI. For a config that selects one of these CLIs—or
-`task_validator`, which resolves to its configured backend—check the same CLI
-without starting a task by passing the run config:
+preflights only its selected CLI. For another config that selects one of these
+CLIs—or `task_validator`, which resolves to its configured backend—check the
+same CLI without starting a task by passing that run config:
 
 ```bash
-make docker-check-agents CONFIG=config.yaml
+make docker-check-agents CONFIG=my_experiment.yaml
 
 # Optional overrides:
 make docker-check-agents AGENTS=claude_code,codex
@@ -119,7 +158,7 @@ make docker-check-agents AGENTS=all
 Specialized integrations such as GEAK and mini-swe use their own dependency and
 authentication checks. They read credentials and provider endpoints from their
 own environment/configuration; there is no shared provider field in the root
-`config.yaml`.
+run configuration.
 
 To run against a self-hosted model instead of a hosted provider, start a local
 vLLM server:
@@ -135,21 +174,16 @@ provider settings.
 
 ## Verify the installation
 
-Run a single quick task to confirm the framework, GPU, and agent CLI all work
-together. Edit `config.yaml` to select one agent and one task, then run:
-
-```bash
-make docker-run CONFIG=config.yaml
-```
+The quickstart run above confirms that the framework, GPU, and agent CLI work
+together. It creates a timestamped workspace directory
+(`workspace_<gpu>_<agent>/run_<timestamp>/`), logs to `logs/`, and writes a
+`task_result.yaml` for the task.
 
 To run across multiple GPUs, list host GPU IDs or omit `GPU_IDS` to discover
 them with `rocm-smi --showid`:
 
 ```bash
-make docker-parallel-run CONFIG=config.yaml GPU_IDS=0,1,2,3
+make docker-parallel-run CONFIG="$CONFIG_PATH" GPU_IDS=0,1,2,3
 ```
 
-A successful run creates a timestamped workspace directory
-(`workspace_<gpu>_<agent>/run_<timestamp>/`), logs to `logs/`, and writes a
-`task_result.yaml` per task. See [Run an experiment](../how-to/run-evaluation.md)
-for the full workflow.
+See [Run an experiment](../how-to/run-evaluation.md) for the full workflow.

@@ -26,19 +26,22 @@ AgentKernelArena supplies an environment and objective reward signals; it does n
 Run the same configuration twice with a distinct suffix. Change only the capability under test between the two runs.
 
 ```bash
+# Choose the run configuration used for both sides of the experiment.
+CONFIG_PATH=example_configs/quickstart_claude_mi300.yaml
+
 # Baseline: capability disabled
-make docker-run CONFIG=config.yaml RUN_ARGS="--run-suffix baseline"
+make docker-run CONFIG="$CONFIG_PATH" RUN_ARGS="--run-suffix baseline"
 
 # Treatment: capability enabled
-make docker-run CONFIG=config.yaml RUN_ARGS="--run-suffix treatment"
+make docker-run CONFIG="$CONFIG_PATH" RUN_ARGS="--run-suffix treatment"
 ```
 
 Compare the generated reports directly:
 
 ```bash
 python3 compare_runs.py \
-  workspace_MI300_cursor/run_<timestamp>_baseline \
-  workspace_MI300_cursor/run_<timestamp>_treatment
+  workspace_MI300_claude_code/run_<timestamp>_baseline \
+  workspace_MI300_claude_code/run_<timestamp>_treatment
 ```
 
 For visual comparison, build the local dashboard as described in [visualization/README.md](visualization/README.md).
@@ -52,7 +55,7 @@ the observed deltas together with run-to-run variance.
 ```text
 AgentKernelArena/
 ├── main.py                         # Run orchestration, resume, and parallel queue
-├── config.yaml                     # Agent, task set, target GPU, and output paths
+├── example_configs/                # Quickstart and curated benchmark run configs
 ├── compare_runs.py                 # Compare two completed experiment runs
 ├── src/
 │   ├── module_registration.py     # Agent registration and handler selection
@@ -135,8 +138,10 @@ The prompt system also recognizes `cuda2hip`; the current bundled task tree does
 
 ### Prerequisites
 
-- Docker
-- An AMD GPU with ROCm-compatible Docker access
+- A Linux host with a supported AMDGPU kernel driver; `/dev/kfd` and `/dev/dri`
+  must be present
+- Docker Engine; the current user must be able to access the Docker daemon
+  without `sudo`
 - Git
 - Node.js 22+ and npm when using the alternative npm installation of Claude Code
   (or another npm-installed agent CLI)
@@ -149,27 +154,45 @@ The prompt system also recognizes `cuda2hip`; the current bundled task tree does
 git clone https://github.com/AMD-AGI/AgentKernelArena.git
 cd AgentKernelArena
 
-# Install at least one first-class agent CLI. For Claude Code via npm:
-node --version  # must be 22+
-npm --version
-npm install -g @anthropic-ai/claude-code
-claude          # complete login, then exit
+# Verify the container runtime, GPU, and Python environment.
+make docker-smoke
+
+# Install the primary quickstart agent with Claude Code's native installer.
+curl -fsSL https://claude.ai/install.sh | bash
+claude --version
+
+# Start Claude Code and complete login on the host, then exit.
+claude
+claude auth status
+
+# Select the quickstart config for the physical GPU.
+CONFIG_PATH=example_configs/quickstart_claude_mi300.yaml
+# For MI355X instead:
+# CONFIG_PATH=example_configs/quickstart_claude_mi355x.yaml
+
+# Verify the agent selected by the config, then run one task.
+make docker-check-agents CONFIG="$CONFIG_PATH"
+make docker-run CONFIG="$CONFIG_PATH"
 
 # Other options:
 # make install-cursor-agent
 # Install Codex using its official CLI instructions and ensure `codex` is in PATH.
-
-# Verify the container runtime, GPU, and Python environment.
-make docker-smoke
-
-# Check one explicitly installed agent. AGENTS=all checks all three.
-make docker-check-agents AGENTS=claude_code
 ```
 
-The Docker runner supports both the npm installation and Claude Code's
-recommended native/local installation. See the
+Installing an agent CLI is not enough: authenticate it on the host before
+running `docker-check-agents` or an experiment. The Docker runner supports both
+Claude Code's recommended native installation and its alternative npm
+installation. The npm path requires Node.js 22+ and npm. See the
 [official Claude Code setup guide](https://code.claude.com/docs/en/installation)
 for the current alternatives.
+
+The repository provides three ready-to-use run configurations:
+
+| Configuration | Purpose |
+| --- | --- |
+| `example_configs/quickstart_claude_mi300.yaml` | One Claude Code GELU task on MI300/MI300X (`gfx942`); use this for a first run on MI300-series hardware. |
+| `example_configs/quickstart_claude_mi355x.yaml` | One Claude Code GELU task on MI355X (`gfx950`); use this for a first run on MI355X. |
+| `example_configs/benchmark_cursor_mi355x.yaml` | Curated 60-task Cursor Agent benchmark on MI355X; use this for a longer benchmark only after installing and authenticating Cursor Agent. |
 
 FlyDSL tasks require FlyDSL in the container. The pinned image may already provide it; otherwise run:
 
@@ -185,33 +208,25 @@ For detailed installation and compatibility information, see [docs/install/insta
 
 ### Configure an Experiment
 
-This example uses Claude Code. Install and authenticate it as shown above, or
-change `agent.template` to another agent that is already installed and logged in.
-Set `target_gpu_model` to match the physical GPU on the machine; experiment
-preflight intentionally fails when the configured and detected GPU architectures
-differ.
+Start from the example that matches the physical GPU and the agent you installed.
+Experiment preflight intentionally fails when the configured and detected GPU
+architectures differ. To create a custom experiment, copy an example and edit
+the copy:
 
-```yaml
-agent:
-  template: claude_code
-
-tasks:
-  - hip2hip/gpumode/GELU
-  - triton2triton/vllm/triton_rms_norm
-  # - all
-
-target_gpu_model: MI300  # MI300/MI300X (gfx942) or MI355X (gfx950)
-log_directory: logs
-workspace_directory_prefix: workspace
+```bash
+cp example_configs/quickstart_claude_mi300.yaml my_experiment.yaml
 ```
 
-Run agent-specific settings such as `model`, `effort`, `max_iterations`, and `timeout_seconds` are configured in the selected agent's `agent_config.yaml`, not in the root run configuration.
+Run agent-specific settings such as `model`, `effort`, `max_iterations`, and
+`timeout_seconds` are configured in the selected agent's `agent_config.yaml`,
+not in the run configuration.
 
 For a Cursor, Claude Code, Codex, or task-validator config, verify only the
 selected first-class host CLI (the validator resolves to its configured backend):
 
 ```bash
-make docker-check-agents CONFIG=config.yaml
+CONFIG_PATH=my_experiment.yaml
+make docker-check-agents CONFIG="$CONFIG_PATH"
 ```
 
 Use `AGENTS=claude_code,codex` to check an explicit subset or `AGENTS=all` to
@@ -222,18 +237,18 @@ command.
 ### Run Serially
 
 ```bash
-make docker-run CONFIG=config.yaml
-make docker-run CONFIG=config.yaml RUN_ARGS="--run-suffix experiment_name"
+make docker-run CONFIG="$CONFIG_PATH"
+make docker-run CONFIG="$CONFIG_PATH" RUN_ARGS="--run-suffix experiment_name"
 ```
 
 ### Run Across Multiple GPUs
 
 ```bash
 # Explicit host GPU IDs
-make docker-parallel-run CONFIG=config.yaml GPU_IDS=0,1,2,3
+make docker-parallel-run CONFIG="$CONFIG_PATH" GPU_IDS=0,1,2,3
 
 # Discover GPUs with rocm-smi --showid
-make docker-parallel-run CONFIG=config.yaml
+make docker-parallel-run CONFIG="$CONFIG_PATH"
 ```
 
 The Docker parallel path is verified for `cursor`, `claude_code`, `codex`, and
@@ -244,10 +259,10 @@ workers.
 ### Resume a Run
 
 ```bash
-make docker-run CONFIG=config.yaml RUN_ARGS="--resume-latest"
-make docker-run CONFIG=config.yaml RUN_ARGS="--resume-run run_20260702_041903_experiment"
+make docker-run CONFIG="$CONFIG_PATH" RUN_ARGS="--resume-latest"
+make docker-run CONFIG="$CONFIG_PATH" RUN_ARGS="--resume-run run_20260702_041903_experiment"
 
-make docker-parallel-run CONFIG=config.yaml GPU_IDS=0,1,2,3 RUN_ARGS="--resume-latest"
+make docker-parallel-run CONFIG="$CONFIG_PATH" GPU_IDS=0,1,2,3 RUN_ARGS="--resume-latest"
 ```
 
 ### Select Task Groups
@@ -364,6 +379,8 @@ At minimum, isolated tasks declare list-valued `source_file_path`, `target_kerne
 
 All new tasks must pass the task validator before merging:
 
+Save a run configuration such as `config_task_validator.yaml`:
+
 ```yaml
 agent:
   template: task_validator
@@ -375,7 +392,7 @@ workspace_directory_prefix: workspace
 ```
 
 ```bash
-make docker-run CONFIG=config.yaml
+make docker-run CONFIG=config_task_validator.yaml
 ```
 
 The validator runs 10 checks covering schema, source files, target symbols, compilation, correctness, performance, correctness quality, self-containedness, GPU hangs, and result compatibility. Review the generated `validation_report.yaml`; `PASS` is expected, while `WARN` requires justification. See [agents/task_validator/README.md](agents/task_validator/README.md).
