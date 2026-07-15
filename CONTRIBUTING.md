@@ -103,7 +103,7 @@ This project executes third-party AI agents permissively inside privileged Docke
 - Add new agent integrations under `agents/`
 - Extend task coverage across HIP, Triton, FlyDSL, PyTorch conversion, instruction-generated, or repository-level tasks
 - Improve scoring or fairness logic in `src/score.py`
-- Improve A/B comparison, experiment tracking, or visualization (`visualization/`)
+- Improve A/B comparison, experiment tracking, or visualization (`src/visualization/`)
 - Add support for new models / providers (OpenAI, Anthropic, OpenRouter, vLLM)
 - Improve docs, examples, and tests
 

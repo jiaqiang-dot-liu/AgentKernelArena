@@ -93,9 +93,8 @@ Both runs land in `workspace_MI300_<agent>/` with distinct run names. Build the
 dashboard and compare them side-by-side:
 
 ```bash
-cd visualization
-python3 backend/scripts/build_dashboard_data.py --include-workspace-runs
-python3 backend/server.py --host 127.0.0.1 --port 8080
+python3 -m src.visualization build --include-workspace-runs
+python3 -m src.visualization serve --host 127.0.0.1 --port 8080
 ```
 
 Open <http://127.0.0.1:8080> to compare scores. See

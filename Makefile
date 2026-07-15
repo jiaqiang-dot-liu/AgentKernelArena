@@ -7,7 +7,8 @@
 SHELL := /bin/bash
 
 .PHONY: help docker-shell docker-check-agents docker-smoke docker-run docker-parallel-run docker-setup-flydsl \
-        check-docker-runner check-evaluator \
+        check-docker-runner check-evaluator check-visualization \
+        visualization-build visualization-serve visualization-run \
         sync-perf-helpers check-perf-helpers materialize-perf-workspace \
         materialize-perf-task cleanup-works install-cursor-agent vllm
 
@@ -26,6 +27,8 @@ help:
 	@echo "make docker-setup-flydsl - Install FlyDSL when absent (for flydsl2flydsl, torch2flydsl, and triton2flydsl)"
 	@echo "make check-docker-runner - Check Docker runner syntax and runtime-specific arguments"
 	@echo "make check-evaluator     - Run centralized evaluator unit tests"
+	@echo "make visualization-run   - Build and serve the local comparison dashboard"
+	@echo "make check-visualization - Run visualization module unit tests"
 	@echo ""
 	@echo "Maintenance:"
 	@echo "make sync-perf-helpers   - Refresh committed perf-helper stubs in task sources"
@@ -43,6 +46,9 @@ WORKSPACES ?= $(WORKSPACE)
 TASKS ?= $(TASK)
 OUT ?= /tmp/aka-materialized-tasks
 FORCE ?= 0
+VISUALIZATION_ARGS ?= --include-workspace-runs
+VISUALIZATION_HOST ?= 127.0.0.1
+VISUALIZATION_PORT ?= 8080
 MATERIALIZE_FORCE_ARG := $(if $(filter 1 true yes,$(FORCE)),--force,)
 
 docker-shell:
@@ -70,6 +76,19 @@ check-docker-runner:
 
 check-evaluator:
 	@python3 -m unittest discover -s tests -p 'test_evaluator_*.py'
+
+check-visualization:
+	@python3 -m unittest discover -s tests -p 'test_visualization.py'
+
+visualization-build:
+	@python3 -m src.visualization build $(VISUALIZATION_ARGS)
+
+visualization-serve:
+	@python3 -m src.visualization serve --host "$(VISUALIZATION_HOST)" --port "$(VISUALIZATION_PORT)"
+
+visualization-run:
+	@python3 -m src.visualization run $(VISUALIZATION_ARGS) \
+		--host "$(VISUALIZATION_HOST)" --port "$(VISUALIZATION_PORT)"
 
 # Refresh committed perf-helper stubs/markers in task sources. Runtime workspaces
 # are materialized from src/tools/perf/ by setup_workspace().

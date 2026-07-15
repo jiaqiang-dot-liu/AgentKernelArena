@@ -31,6 +31,8 @@ experimentation platform and RL-ready task environment for GPU kernel agents.
   under `example_configs/`.
 - **Centralized outcomes**: independently measure compilation, correctness, and
   GPU performance, then compute a configurable score.
+- **Visualization module**: build and serve the comparison dashboard through
+  `python3 -m src.visualization`, with generated data kept outside `src/`.
 - **Timing provenance**: record baseline and optimized timing methods so
   mixed-method comparisons are visible.
 - **Workspace reproducibility**: preserve each task in a timestamped workspace.

@@ -44,7 +44,8 @@ python3 compare_runs.py \
   workspace_MI300_claude_code/run_<timestamp>_treatment
 ```
 
-For visual comparison, build the local dashboard as described in [visualization/README.md](visualization/README.md).
+For visual comparison, build the local dashboard as described in the
+[visualization module README](src/visualization/README.md).
 For stochastic agents, repeat matched baseline/treatment pairs and interpret
 the observed deltas together with run-to-run variance.
 
@@ -65,6 +66,7 @@ AgentKernelArena/
 │   ├── performance.py              # Baseline and optimized timing
 │   ├── score.py                    # Reward/score calculation
 │   ├── postprocessing.py           # Aggregate run reports
+│   ├── visualization/              # Dashboard module and static frontend
 │   └── tools/perf/                 # Canonical performance helpers
 ├── agents/
 │   ├── cursor/                     # Cursor Agent CLI
@@ -84,7 +86,6 @@ AgentKernelArena/
 │   ├── flydsl2flydsl/
 │   └── repository/                 # Full-repository AITER and rocPRIM tasks
 ├── held_out/                        # Held-out shape generation and evaluation
-├── visualization/                  # Local experiment-comparison dashboard
 └── docs/                            # Full documentation
 ```
 
@@ -400,7 +401,7 @@ The validator runs 10 checks covering schema, source files, target symbols, comp
 ## Additional Tools
 
 - [Held-out evaluation](held_out/README.md): Generate unseen shapes and evaluate generalization.
-- [Visualization dashboard](visualization/README.md): Compare local experiment reports.
+- [Visualization dashboard](src/visualization/README.md): Compare local experiment reports.
 - [Full documentation](docs/README.md): Installation, configuration, task authoring, parallel execution, and methodology.
 
 ## Current Directions
