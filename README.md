@@ -66,6 +66,7 @@ AgentKernelArena/
 │   ├── performance.py              # Baseline and optimized timing
 │   ├── score.py                    # Reward/score calculation
 │   ├── postprocessing.py           # Aggregate run reports
+│   ├── held_out/                   # Optional generalization evaluation module
 │   ├── visualization/              # Dashboard module and static frontend
 │   └── tools/perf/                 # Canonical performance helpers
 ├── agents/
@@ -85,7 +86,6 @@ AgentKernelArena/
 │   ├── triton2flydsl/
 │   ├── flydsl2flydsl/
 │   └── repository/                 # Full-repository AITER and rocPRIM tasks
-├── held_out/                        # Held-out shape generation and evaluation
 └── docs/                            # Full documentation
 ```
 
@@ -400,7 +400,7 @@ The validator runs 10 checks covering schema, source files, target symbols, comp
 
 ## Additional Tools
 
-- [Held-out evaluation](held_out/README.md): Generate unseen shapes and evaluate generalization.
+- [Held-out evaluation](src/held_out/README.md): Generate unseen shapes and evaluate generalization.
 - [Visualization dashboard](src/visualization/README.md): Compare local experiment reports.
 - [Full documentation](docs/README.md): Installation, configuration, task authoring, parallel execution, and methodology.
 

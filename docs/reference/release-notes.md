@@ -43,7 +43,7 @@ experimentation platform and RL-ready task environment for GPU kernel agents.
 - **Task validator**: run 10 task-quality checks and emit structured validation
   reports.
 - **Held-out evaluation**: generate unseen shapes and measure kernel
-  generalization.
+  generalization through the optional `src.held_out` module.
 - **Local run comparison**: compare run reports with `compare_runs.py` or the
   visualization dashboard.
 

@@ -34,6 +34,7 @@ python -m sphinx -T -b html docs docs/_build/html
 | `how-to/agents.md` | How-to | Supported agents, model providers, and A/B testing. |
 | `how-to/add-task.md` | How-to | Task directory layout, `config.yaml` fields, and task types. |
 | `how-to/task-validator.md` | How-to | The task_validator agent and its 10 checks. |
+| `how-to/held-out-evaluation.md` | How-to | Generate private shapes and evaluate completed runs for generalization. |
 | `how-to/visualization.md` | How-to | Build dashboard data and serve the comparison dashboard. |
 | `examples/examples.md` | Examples | Step-by-step walkthroughs with expected output. |
 | `about/license.md` | License | Apache 2.0 notice and link to the full repository `LICENSE`. |

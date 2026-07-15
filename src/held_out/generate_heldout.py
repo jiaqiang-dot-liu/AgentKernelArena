@@ -15,7 +15,7 @@ Supported task types (scope):
   - torch2hip/gpumode
 
 Usage:
-    python3 held_out/generate_heldout.py \
+    python3 -m src.held_out.generate_heldout \
         --tasks-dir tasks/ \
         --output-dir held_out_tests/ \
         [--backend claude_code] \
@@ -33,7 +33,7 @@ import yaml
 from pathlib import Path
 from typing import Any, List, Optional, Tuple
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 

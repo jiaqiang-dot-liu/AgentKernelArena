@@ -60,8 +60,7 @@ AgentKernelArena includes the following key features.
 * **Task validator**: An agent that runs 10 automated checks on task quality
   before tasks are used in shared experiments.
 * **Held-out evaluation**: Re-evaluate optimized kernels on unseen shapes and
-  quantify generalization regressions. See the
-  `held-out workflow <https://github.com/AMD-AGI/AgentKernelArena/blob/main/held_out/README.md>`_.
+  quantify generalization regressions. See :doc:`how-to/held-out-evaluation`.
 * **Visualization dashboard**: A static dashboard for comparing run reports.
 
 Use cases
