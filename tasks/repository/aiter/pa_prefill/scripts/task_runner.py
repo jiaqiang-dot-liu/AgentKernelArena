@@ -227,6 +227,18 @@ def _make_case(
         device="cuda:0",
         use_alibi_slope=False,
     )
+    # input_helper draws q/k/v in [-1e-3, 1e-3]. At that magnitude the attention
+    # logits are ~0 so softmax is ~uniform and the output is ~1e-3 — far below the
+    # correctness tolerance — which makes the check non-discriminating (an all-zero
+    # or mis-scaled output still "passes"). Scale inputs up to a realistic
+    # magnitude so the softmax is non-degenerate and the output is O(0.1-1); the
+    # reference below is computed in fp32 so this does not overflow.
+    _CORR_INPUT_SCALE = 1000.0
+    query = query * _CORR_INPUT_SCALE
+    k = k * _CORR_INPUT_SCALE
+    v = v * _CORR_INPUT_SCALE
+    k_cache = k_cache * _CORR_INPUT_SCALE
+    v_cache = v_cache * _CORR_INPUT_SCALE
     return {
         "params": {
             "BS": BS,
@@ -293,10 +305,73 @@ def run_compile() -> None:
     print(f"{TASK_NAME} compile smoke: PASS")
 
 
-def run_correctness() -> None:
-    import torch
-    from op_tests.triton_tests.attention.test_pa_prefill import context_attention_fwd_torch
+def _reference_paged_prefill(case: dict):
+    """Correct fp32 reference for aiter's paged-prefill attention.
 
+    op_tests' ``context_attention_fwd_torch`` is unusable as a reference here: it
+    (a) reads the paged KV cache by sequential physical slot, ignoring the block
+    table (so with a randomized block table it reads the wrong blocks), and
+    (b) adds two independently-normalized softmaxes (context + causal self)
+    instead of folding them into one — both wrong, leaving the pristine kernel
+    ~92% off the reference while still "passing" only because the [-1e-3, 1e-3]
+    inputs make the output tiny vs the tolerance.
+
+    This reference gathers the context KV via the block table and computes a
+    single softmax over [context; causal self] with the kernel's sliding-window
+    semantics, in fp32.
+    """
+    import torch
+
+    p = case["params"]
+    device = case["query"].device
+    query = case["query"].float()
+    k = case["k"].float()
+    v = case["v"].float()
+    k_cache = case["k_cache"].float()
+    v_cache = case["v_cache"].float()
+    block_table = case["block_table"]
+    b_start_loc = case["b_start_loc"]
+    b_seq_len = case["b_seq_len"]
+    block_size = p["block_size"]
+    head_size = p["head_size"]
+    num_heads = p["num_heads"]
+    num_queries_per_kv = p["num_queries_per_kv"]
+    sliding_window = p["sliding_window"]
+    sm_scale = 1.0 / (head_size ** 0.5)
+
+    out = torch.zeros_like(query)
+    for b in range(p["BS"]):
+        qs = int(b_start_loc[b])
+        qe = int(b_start_loc[b + 1])
+        q_len = qe - qs
+        ctx_len = int(b_seq_len[b]) - q_len
+        n_blk = (ctx_len + block_size - 1) // block_size
+        phys = block_table[b, :n_blk].long()
+        # Absolute positions: context is [0, ctx_len), self is [ctx_len, ctx_len+q_len).
+        qpos = ctx_len + torch.arange(q_len, device=device)
+        kpos = torch.arange(ctx_len + q_len, device=device)
+        disallow = kpos[None, :] > qpos[:, None]  # causal
+        if sliding_window and sliding_window > 0:
+            disallow = disallow | ((qpos[:, None] - kpos[None, :]) >= sliding_window)
+        for h in range(num_heads):
+            kv_h = h // num_queries_per_kv
+            qh = query[qs:qe, h]  # [q_len, D]
+            if ctx_len > 0:
+                kc = k_cache[phys, kv_h].permute(0, 2, 1, 3).reshape(-1, head_size)[:ctx_len]
+                vc = v_cache[phys, kv_h].permute(0, 2, 1).reshape(-1, head_size)[:ctx_len]
+            else:
+                kc = query.new_zeros((0, head_size))
+                vc = query.new_zeros((0, head_size))
+            key = torch.cat([kc, k[qs:qe, kv_h]], dim=0)  # [ctx_len+q_len, D]
+            val = torch.cat([vc, v[qs:qe, kv_h]], dim=0)
+            scores = torch.matmul(qh, key.transpose(0, 1)) * sm_scale
+            scores = scores.masked_fill(disallow, float("-inf"))
+            probs = torch.softmax(scores, dim=-1)
+            out[qs:qe, h] = torch.matmul(probs, val)
+    return out
+
+
+def run_correctness() -> None:
     cases = [
         _make_case(
             BS=2,
@@ -325,24 +400,17 @@ def run_correctness() -> None:
     ]
 
     for idx, case in enumerate(cases):
-        ref = torch.empty_like(case["output"])
         _run_kernel(case)
-        context_attention_fwd_torch(
-            case["query"],
-            case["k"],
-            case["v"],
-            ref,
-            case["k_cache"],
-            case["v_cache"],
-            case["b_start_loc"],
-            case["b_seq_len"],
-            case["k_scale"],
-            case["v_scale"],
-            None,
-            case["params"]["sliding_window"],
-        )
-        torch.testing.assert_close(case["output"], ref, atol=2e-2, rtol=2e-2)
-        print(f"Correctness case {idx}: PASS")
+        ref = _reference_paged_prefill(case).float()
+        got = case["output"].float()
+        # Scale-relative L2 error: magnitude-robust and discriminating — a zeroed
+        # or mis-scaled kernel output yields ~1.0, a correct kernel ~1e-3.
+        rel = ((got - ref).norm() / ref.norm().clamp_min(1e-8)).item()
+        if rel >= 2e-2:
+            raise AssertionError(
+                f"Correctness case {idx}: relative L2 error {rel:.4e} exceeds 2e-2"
+            )
+        print(f"Correctness case {idx}: PASS (rel_l2={rel:.2e})")
 
 
 def run_performance() -> None:

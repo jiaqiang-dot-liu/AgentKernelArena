@@ -49,7 +49,7 @@ def evaluate_compilation(
         Tuple of (passed: bool, error_message: Optional[str])
     """
     log = logger or logging.getLogger(__name__)
-    force_jit_rebuild(task_config, log)
+    force_jit_rebuild(task_config, log, workspace)
     compile_commands = task_config.get('compile_command', [])
     
     if not compile_commands:
@@ -84,7 +84,7 @@ def evaluate_correctness(
         Tuple of (passed: bool, error_message: Optional[str])
     """
     log = logger or logging.getLogger(__name__)
-    force_jit_rebuild(task_config, log)
+    force_jit_rebuild(task_config, log, workspace)
     correctness_commands = task_config.get('correctness_command', [])
     
     if not correctness_commands:

@@ -284,7 +284,7 @@ def measure_performance(
         List of TestCaseResult objects (empty list if measurement failed)
     """
     log = logger or logging.getLogger(__name__)
-    force_jit_rebuild(task_config, log)
+    force_jit_rebuild(task_config, log, workspace)
     performance_commands = task_config.get('performance_command', [])
     task_type = task_config.get('task_type')
     
