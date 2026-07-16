@@ -23,6 +23,8 @@ help:
 	@echo "make docker-smoke        - Verify Docker Python, ROCm tools, imports, and GPU access"
 	@echo "make docker-run CONFIG=example_configs/quickstart_claude_mi300.yaml RUN_ARGS=\"--run-suffix test\" - Run an experiment in Docker"
 	@echo "make docker-parallel-run CONFIG=example_configs/benchmark_cursor_mi355x.yaml GPU_IDS=0,1 - Run an experiment across one worker container per GPU"
+	@echo "                         Default CONFIG is the MI300/MI300X Claude quickstart"
+	@echo "                         On other GPUs, pass a matching CONFIG explicitly"
 	@echo "                         Images: gfx942->mi30x, gfx950->mi35x; override with AKA_DOCKER_IMAGE=..."
 	@echo "make docker-setup-flydsl - Install FlyDSL when absent (for flydsl2flydsl, torch2flydsl, and triton2flydsl)"
 	@echo "make check-docker-runner - Check Docker runner syntax and runtime-specific arguments"
@@ -40,7 +42,7 @@ help:
 	@echo "make install-cursor-agent - Install the Cursor Agent CLI on the host"
 
 DOCKER_RUNNER := src/scripts/docker_benchmark.sh
-CONFIG ?= example_configs/benchmark_cursor_mi355x.yaml
+CONFIG ?= example_configs/quickstart_claude_mi300.yaml
 RUN_ARGS ?=
 AGENTS ?=
 WORKSPACES ?= $(WORKSPACE)

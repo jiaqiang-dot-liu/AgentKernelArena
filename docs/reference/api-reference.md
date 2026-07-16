@@ -56,7 +56,7 @@ The in-container `main.py` entrypoint accepts these flags:
 
 | Flag | Description |
 | --- | --- |
-| `--config_name <file>` | Config file to load (default `example_configs/benchmark_cursor_mi355x.yaml`). Use separate files to keep multiple task sets in one folder |
+| `--config_name <file>` | Config file to load (default `example_configs/quickstart_claude_mi300.yaml` for MI300/MI300X). Pass a matching config explicitly on another GPU |
 | `--run-suffix <suffix>` | Suffix appended to the run directory name (letters, numbers, `.`, `_`, `-` only). Useful for labeling A/B runs |
 | `--resume-run <run_dir>` | Resume a specific run directory, skipping completed tasks |
 | `--resume-latest` | Resume the most recent run in the workspace |

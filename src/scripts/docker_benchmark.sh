@@ -12,6 +12,7 @@ HOST_GID="$(id -g)"
 SELECTED_GPU_ARCH=""
 SELECTED_IMAGE=""
 AGENT_STATE_MOUNT_ROOT="${AKA_AGENT_STATE_MOUNT_ROOT:-/opt/aka-agent-state}"
+DEFAULT_RUN_CONFIG="example_configs/quickstart_claude_mi300.yaml"
 
 # /opt/venv/bin is placed before /usr/local/bin and /usr/bin so that a bare
 # `python3` / `pytest` resolves to the torch-enabled venv interpreter rather than
@@ -28,6 +29,10 @@ Usage:
   src/scripts/docker_benchmark.sh shell
   src/scripts/docker_benchmark.sh check-agents [--config_name <run-config.yaml>]
   src/scripts/docker_benchmark.sh smoke
+
+Default run config:
+  example_configs/quickstart_claude_mi300.yaml (MI300/MI300X).
+  On another GPU, pass --config_name with a matching run configuration.
 
 Environment overrides:
   GPU_IDS                 Comma/space separated GPU indices for parallel-run.
@@ -554,7 +559,7 @@ docker_exec() {
 }
 
 extract_config_name() {
-    local config="example_configs/benchmark_cursor_mi355x.yaml"
+    local config="$DEFAULT_RUN_CONFIG"
     local arg
     while [[ $# -gt 0 ]]; do
         arg="$1"
@@ -682,7 +687,7 @@ PY
 }
 
 container_preflight() {
-    local config_name="${1:-example_configs/benchmark_cursor_mi355x.yaml}"
+    local config_name="${1:-$DEFAULT_RUN_CONFIG}"
     container_smoke
     # Only verify the agent(s) this config actually uses (mounts are scoped the same way).
     container_check_agents $(resolve_required_agents "$config_name")

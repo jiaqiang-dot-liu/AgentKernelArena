@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUNNER="$ROOT/src/scripts/docker_benchmark.sh"
+cd "$ROOT"
 PINNED_GFX950_IMAGE="lmsysorg/sglang-rocm:v0.5.14-rocm720-mi35x-20260705"
 OLD_GFX950_IMAGE="lmsysorg/sglang:v0.5.12-rocm720-mi35x"
 
@@ -154,6 +155,16 @@ assert_has "$NATIVE_CLAUDE_HOME/.local/share/claude:$NATIVE_CLAUDE_HOME/.local/s
 assert_has "$NATIVE_CLAUDE_HOME/.claude:$NATIVE_CLAUDE_HOME/.claude" "${args[@]}"
 assert_has "$NATIVE_CLAUDE_HOME/.claude.json:$NATIVE_CLAUDE_HOME/.claude.json" "${args[@]}"
 assert_has "claude_code" "${args[@]}"
+
+# Omitting --config_name uses the one-task MI300/MI300X Claude quickstart.
+mapfile -t args < <(
+    env \
+        HOME="$NATIVE_CLAUDE_HOME" \
+        AKA_GPU_ARCH=gfx942 \
+        bash "$RUNNER" check-agents 2>/dev/null
+)
+assert_has "claude_code" "${args[@]}"
+assert_not_has "cursor" "${args[@]}"
 
 # An npm-installed Claude CLI is mounted from its Node prefix; the native
 # ~/.local/share/claude layout is not required.

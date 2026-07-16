@@ -195,6 +195,10 @@ The repository provides three ready-to-use run configurations:
 | `example_configs/quickstart_claude_mi355x.yaml` | One Claude Code GELU task on MI355X (`gfx950`); use this for a first run on MI355X. |
 | `example_configs/benchmark_cursor_mi355x.yaml` | Curated 60-task Cursor Agent benchmark on MI355X; use this for a longer benchmark only after installing and authenticating Cursor Agent. |
 
+Running `make docker-run` without `CONFIG` uses the MI300/MI300X Claude
+quickstart. On another GPU, pass the matching configuration explicitly; for
+example, use `CONFIG=example_configs/quickstart_claude_mi355x.yaml` on MI355X.
+
 FlyDSL tasks require FlyDSL in the container. The pinned image may already provide it; otherwise run:
 
 ```bash

@@ -102,6 +102,10 @@ configuration is a longer 60-task Cursor Agent run.
 | `example_configs/quickstart_claude_mi355x.yaml` | First Claude Code run on MI355X (`gfx950`). |
 | `example_configs/benchmark_cursor_mi355x.yaml` | Curated 60-task Cursor Agent benchmark on MI355X; requires an installed and authenticated Cursor Agent CLI. |
 
+The default `make docker-run` configuration is the MI300/MI300X quickstart.
+On another GPU, always pass the matching `CONFIG`; for MI355X, use
+`example_configs/quickstart_claude_mi355x.yaml`.
+
 Select one quickstart configuration in the current shell:
 
 ```bash
