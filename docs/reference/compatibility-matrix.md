@@ -11,10 +11,10 @@ myst:
 
 The following hardware configurations are supported and tested.
 
-| GPU | ROCm version | Notes |
+| AMD Instinct GPU | ROCm version | Notes |
 | --- | --- | --- |
-| AMD Instinct™ MI300 series  | 7.2 (Bundled in the selected SGLang image.) | `target_gpu_model: MI300` |
-| AMD Instinct™ MI355X | 7.2 (Bundled in the selected SGLang image.) | `target_gpu_model: MI355X` |
+| MI300 series | 7.2 (Bundled in the selected SGLang image.) | `target_gpu_model: MI300` |
+| MI355X | 7.2 (Bundled in the selected SGLang image.) | `target_gpu_model: MI355X` |
 
 ## Software requirements
 
@@ -22,8 +22,8 @@ The following software versions are required or verified.
 
 | Component | Version | Notes |
 | --- | --- | --- |
-| hipcc | Matches image ROCm | Required for HIP tasks. |
-| rocprof-compute | Matches image ROCm | Required for HIP performance profiling. |
+| hipcc | Matches ROCm iamge | Required for HIP tasks. |
+| rocprof-compute | Matches ROCm iamge | Required for HIP performance profiling. |
 | Docker | Current stable release | Required; serial experiments run through `make docker-run`; multi-GPU experiments run through `make docker-parallel-run`. |
 | SGLang runtime image | `lmsysorg/sglang:v0.5.12-rocm720-mi30x` for `gfx942`; `lmsysorg/sglang-rocm:v0.5.14-rocm720-mi35x-20260705` for `gfx950` | The verified `gfx950` digest is `sha256:b435b508b5aa696abb25c909341ce73e41574c4271cf716bed72418dcea86b78`. Override with `AKA_DOCKER_IMAGE`, `AKA_DOCKER_IMAGE_GFX942`, or `AKA_DOCKER_IMAGE_GFX950`. |
 | Python | Provided by the image (for example, 3.10) | Bundled in the SGLang image. |
