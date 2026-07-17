@@ -12,7 +12,7 @@ myst:
 The current development branch positions AgentKernelArena as a controlled A/B
 experimentation platform and RL-ready task environment for GPU kernel agents.
 
-### Current capabilities
+### Release highlights
 
 - **A/B experimentation**: run a fixed task set with baseline and treatment
   agent configurations, label both runs, and compare their reports.
