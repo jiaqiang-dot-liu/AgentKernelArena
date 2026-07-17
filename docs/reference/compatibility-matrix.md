@@ -7,6 +7,8 @@ myst:
 
 # AgentKernelArena compatibility matrix
 
+Supported and tested hardware, Docker images, software versions, agent CLIs, and model providers for AgentKernelArena.
+
 ## Hardware requirements
 
 The following hardware configurations are supported and tested.
