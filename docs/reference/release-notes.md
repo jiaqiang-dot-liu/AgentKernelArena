@@ -15,7 +15,7 @@ AgentKernelArena 0.2.0 evolves the initial kernel-agent framework into a
 Docker-first platform for controlled A/B experiments, scalable multi-GPU
 execution, and RL-ready GPU kernel evaluation.
 
-### Highlights
+### Release highlights
 
 #### Controlled experimentation and evaluation
 

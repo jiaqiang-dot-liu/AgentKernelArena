@@ -94,11 +94,11 @@ The `task_validator` runs the following checks in order.
 
 ## Overall status
 
-- **PASS** — all applicable checks passed; a contract-approved `SKIP` does not
+- **PASS:** all applicable checks passed; a contract-approved `SKIP` does not
   prevent PASS.
-- **WARN** — no failures, but at least one warning (for example, a questionable
+- **WARN:** no failures, but at least one warning (for example, a questionable
   correctness implementation). Acceptable with justification.
-- **FAIL** — at least one check failed; the task must be fixed before merging.
+- **FAIL:** at least one check failed; the task must be fixed before merging.
 
 ## Result template
 
