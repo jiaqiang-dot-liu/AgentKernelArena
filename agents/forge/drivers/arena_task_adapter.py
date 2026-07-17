@@ -10,7 +10,9 @@ into the KernelForge driver contract consumed by
   * correctness mode (default / --mode smoke|stability|determinism):
         src.evaluator.evaluate_correctness(...) -> "allclose: True/False"
   * bench mode (--bench-mode):
-        src.performance.measure_performance(...) -> "median_ms: <mean-of-cases>"
+        src.performance.measure_performance(...) -> "mean_ms: <mean-of-cases>"
+        (arithmetic mean across test cases, matching Arena's own evaluator
+        aggregation — deliberately a MEAN, not a median, so the label is honest)
 
 Reusing Arena's functions means the adapter is task-type aware and not tied to a
 single report filename: Arena already searches multiple candidate report files
@@ -75,10 +77,13 @@ def do_bench(workspace: str, task_config: str, arena_root: str = "") -> int:
         print("error: Arena measure_performance returned no usable timing")
         return 1
 
-    # Aggregate the per-case times into the single wall time the forge-loop
-    # uses for its keep/revert decision.
+    # Aggregate the per-case times into the single wall time the forge-loop uses
+    # for its keep/revert decision. This is the ARITHMETIC MEAN across cases,
+    # matching Arena's own evaluator (sum/len over cases), so forge optimizes the
+    # same quantity Arena scores. Reported as ``mean_ms:`` (not ``median_ms:``)
+    # so the label reflects the statistic actually computed.
     agg = statistics.mean(times)
-    print(f"median_ms: {agg:.6f}")
+    print(f"mean_ms: {agg:.6f}")
     return 0
 
 

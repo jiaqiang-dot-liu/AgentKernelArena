@@ -284,6 +284,25 @@ def _resolve_fellow(task_config: dict[str, Any], agent_config: dict[str, Any]) -
     return f"{_infer_backend(task_config)}-fellow"
 
 
+def _derive_workload_key(task_config_dir: str, arena_root: str) -> str:
+    """Return the Arena task identity to pass as KernelForge's ``--workload-key``.
+
+    Several Arena tasks can optimize the SAME kernel source under different
+    benchmark regimes (e.g. ``aiter_pa_decode`` vs ``aiter_pa_ragged`` both edit
+    ``pa_kernels.cuh``). They resolve to the same KernelForge kernel identity, so
+    without a distinct workload key their KB experience would rank together and
+    suppress / mis-seed each other. The task's path relative to ``tasks/`` (e.g.
+    ``image_kernel/aiter_pa_decode``) is a stable, globally-unique identity for
+    the workload; fall back to the task directory name if the relative path can't
+    be computed.
+    """
+    task_dir = Path(task_config_dir).resolve().parent
+    try:
+        return str(task_dir.relative_to(Path(arena_root).resolve() / "tasks"))
+    except ValueError:
+        return task_dir.name
+
+
 def _git(workspace: str, *args: str, logger: logging.Logger) -> None:
     """Run a git command in the workspace, tolerating non-zero exit."""
     result = subprocess.run(
@@ -555,6 +574,9 @@ def launch_agent(eval_config: dict[str, Any], task_config_dir: str, workspace: s
     # package version is unknown — e.g. a source-checkout framework).
     if repo_commit:
         cmd_parts += ["--framework-version", repo_commit]
+    # Workload identity: distinguishes tasks that share one kernel source but
+    # exercise different shape regimes, so their KB experience does not collide.
+    cmd_parts += ["--workload-key", _derive_workload_key(task_config_dir, arena_root)]
     # shapes_json is only meaningful for per-kernel drivers that parse --shape.
     # The generic arena_task_adapter ignores --shape (the task's pytest owns its
     # shapes), so we omit it unless a task explicitly configures one — the
