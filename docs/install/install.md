@@ -16,11 +16,11 @@ CLI plus its login state.
 
 The following prerequisites are required before running AgentKernelArena.
 
-- **Linux host with a supported AMDGPU kernel driver** — `/dev/kfd` and
+- **Linux host with a supported AMDGPU kernel driver:** `/dev/kfd` and
   `/dev/dri` must be present. The runner also mounts `/dev/mem` when present.
-- **Docker Engine** — the current user must be able to access the Docker daemon
+- **Docker Engine:** the current user must be able to access the Docker daemon
   without `sudo`.
-- **SGLang runtime image** — `gfx942` uses
+- **SGLang runtime image:** `gfx942` uses
   `lmsysorg/sglang:v0.5.12-rocm720-mi30x`; `gfx950` uses
   `lmsysorg/sglang-rocm:v0.5.14-rocm720-mi35x-20260705`. The runner selects from
   `target_gpu_model` for experiment runs and from the visible host GPU for shell

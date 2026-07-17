@@ -28,7 +28,7 @@ helper workflow for maintenance details.
 
 Used by:
 
-- `triton2triton/vllm/*/scripts/task_runner.py` — `_benchmark_cuda_graph_or_events()`
+- `triton2triton/vllm/*/scripts/task_runner.py`: `_benchmark_cuda_graph_or_events()`
 - `*/rocmbench/*/performance_utils_pytest.py` (`instruction2triton` and
   `triton2triton`) — `_measure_times()`
 
@@ -49,7 +49,7 @@ Method:
 
 Used by:
 
-- `hip2hip/gpumode/*/eval_tools/cal_kernel_perf.py` — `cal_hip_latency()`
+- `hip2hip/gpumode/*/eval_tools/cal_kernel_perf.py`: `cal_hip_latency()`
 
 Method:
 
