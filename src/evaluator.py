@@ -8,12 +8,15 @@ This module provides standardized evaluation of optimized kernels:
 - Performance measurement
 - Baseline measurement for speedup calculation
 """
+import json
 import logging
+import re
 import yaml
 from pathlib import Path
 from typing import Dict, Any, Optional, List, Tuple
 
 from .evaluator_utils import run_command
+from .jit_rebuild import force_jit_rebuild
 from .performance import measure_performance, measure_baseline
 from .testcases import TestCaseResult, save_performance_results, calculate_average_speedup, collect_benchmark_methods
 
@@ -48,6 +51,7 @@ def evaluate_compilation(
         Tuple of (passed: bool, error_message: Optional[str])
     """
     log = logger or logging.getLogger(__name__)
+    force_jit_rebuild(task_config, log, workspace)
     compile_commands = task_config.get('compile_command', [])
     
     if not compile_commands:
@@ -82,6 +86,7 @@ def evaluate_correctness(
         Tuple of (passed: bool, error_message: Optional[str])
     """
     log = logger or logging.getLogger(__name__)
+    force_jit_rebuild(task_config, log, workspace)
     correctness_commands = task_config.get('correctness_command', [])
     
     if not correctness_commands:
@@ -258,6 +263,88 @@ def evaluate_kernel(
     log.info("=" * 80)
     
     return results
+
+
+def _driver_median_ms(cmd: str, workspace: Path, logger: logging.Logger) -> float:
+    """Run a driver perf command and parse its ``median_ms:`` / ``mean_ms:`` line."""
+    timeout = 900  # generous: first-run FlyDSL JIT + Triton autotune can be slow
+    success, stdout, stderr = run_command(cmd, workspace, timeout=timeout, logger=logger)
+    out = (stdout or "") + (stderr or "")
+    if not success:
+        logger.warning(f"rewrite: perf command failed: {cmd}\n{out[-600:]}")
+        return 0.0
+    m = re.search(r"(?:median_ms|mean_ms):\s*([\d.]+)", out)
+    if not m:
+        logger.warning(f"rewrite: no median_ms in perf command output:\n{out[-600:]}")
+        return 0.0
+    return float(m.group(1))
+
+
+def write_rewrite_task_result(
+    workspace: Path,
+    task_config: Dict[str, Any],
+    task_name: str,
+    agent_name: str,
+    logger: Optional[logging.Logger] = None,
+) -> None:
+    """Score a ``*2flydsl`` rewrite by running the task's driver on the FINAL kernel.
+
+    forge-rewrite (the agent) ports the source kernel into FlyDSL and optimizes it,
+    leaving the best kernel in the workspace. Arena is the scoring AUTHORITY: like
+    torch2hip, it re-measures the final candidate with the task's own commands/driver
+    — it does NOT trust any agent-self-reported result JSON. Concretely:
+
+      * compilation + correctness via the task's compile/correctness commands
+        (the driver decides PASS/FAIL vs the SNR threshold);
+      * FlyDSL time via the performance command (driver ``--bench-mode``);
+      * Triton-source baseline via the SAME performance command with ``--bench-mode``
+        swapped for ``--ref-bench-mode`` (the driver times the source);
+      * speedup = triton_ms / flydsl_ms.
+    """
+    log = logger or logging.getLogger(__name__)
+
+    compiled, comp_err = evaluate_compilation(workspace, task_config, log)
+    correct, corr_err = (False, "skipped: kernel did not compile")
+    flydsl_ms = 0.0
+    triton_ms = 0.0
+    speedup = 0.0
+
+    if compiled:
+        correct, corr_err = evaluate_correctness(workspace, task_config, log)
+
+    if compiled and correct:
+        perf_cmds = task_config.get("performance_command", []) or []
+        if perf_cmds:
+            perf_cmd = perf_cmds[0]
+            flydsl_ms = _driver_median_ms(perf_cmd, workspace, log)
+            # Baseline: the SAME command timing the SOURCE instead of the candidate.
+            ref_cmd = perf_cmd.replace("--bench-mode", "--ref-bench-mode")
+            triton_ms = _driver_median_ms(ref_cmd, workspace, log)
+            if triton_ms > 0 and flydsl_ms > 0:
+                speedup = triton_ms / flydsl_ms
+        else:
+            log.warning("rewrite: no performance_command in task config; speedup unknown")
+
+    task_result = {
+        "task_name": task_name,
+        "pass_compilation": bool(compiled),
+        "compilation_error_message": None if compiled else (comp_err or "FlyDSL kernel did not build"),
+        "pass_correctness": bool(correct),
+        "correctness_error_message": None if correct else (corr_err or "FlyDSL output did not match the source (SNR gate)"),
+        "base_execution_time": float(triton_ms),
+        "best_optimized_execution_time": float(flydsl_ms),
+        "speedup_ratio": float(speedup),
+        "optimization_summary": f"Rewritten to FlyDSL by {agent_name} (forge-rewrite); Arena scored the final kernel",
+    }
+
+    result_file = Path(workspace) / "task_result.yaml"
+    with open(result_file, "w") as f:
+        yaml.dump(task_result, f, default_flow_style=False, sort_keys=False)
+    log.info(
+        f"Written rewrite task_result.yaml to {result_file} "
+        f"(compiled={compiled}, correct={correct}, triton_ms={triton_ms}, "
+        f"flydsl_ms={flydsl_ms}, speedup={speedup:.3f})"
+    )
 
 
 def write_task_result(
