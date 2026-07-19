@@ -21,10 +21,12 @@ kernel with the task's own compile/correctness/performance commands.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import threading
@@ -34,6 +36,7 @@ from typing import Any
 import yaml
 
 from agents import register_agent
+from src.tasks import is_flydsl_rewrite
 
 # AMD GPU model (Arena) -> gfx arch (KernelForge / ROCm).
 _GPU_ARCH_MAP = {
@@ -449,6 +452,258 @@ if __name__ == "__main__":
 """
 
 
+def _reap_workspace_orphans(workspace: str, logger: logging.Logger) -> int:
+    """SIGKILL orphaned (PPID==1) processes whose CWD is under ``workspace``.
+
+    The launcher owns this run's process lifecycle: it runs the forge subprocess
+    in its own group and signals the whole group on timeout. But the agent's Bash
+    tool can detach commands into their OWN sessions, which escape a process-group
+    kill and reparent to init (PID 1). This is the single-owner backstop — after
+    the run ends (normally or via timeout) it sweeps any process still rooted in
+    THIS run's workspace so nothing leaks the GPU. Linux-only (reads /proc),
+    scoped to the workspace, and never touches the launcher's own group.
+    Best-effort: never raises.
+    """
+    try:
+        ws = os.path.realpath(workspace)
+    except OSError:
+        return 0
+    if not os.path.isdir("/proc"):
+        return 0
+    try:
+        my_pgid = os.getpgrp()
+    except OSError:
+        my_pgid = -1
+    reaped = 0
+    for entry in os.listdir("/proc"):
+        if not entry.isdigit():
+            continue
+        pid = int(entry)
+        try:
+            with open(f"/proc/{pid}/stat") as f:
+                stat = f.read()
+            # comm (field 2) may contain spaces/parens -> parse after the LAST ')'.
+            ppid = int(stat[stat.rindex(")") + 2:].split()[1])
+            if ppid != 1:  # only true orphans; a live process keeps its real parent
+                continue
+            cwd = os.path.realpath(f"/proc/{pid}/cwd")
+        except (OSError, ValueError, IndexError):
+            continue
+        if cwd != ws and not cwd.startswith(ws + os.sep):
+            continue
+        try:
+            pgid = os.getpgid(pid)
+            if pgid == my_pgid:  # never our own group
+                continue
+            os.killpg(pgid, signal.SIGKILL)
+            reaped += 1
+        except OSError:
+            try:
+                os.kill(pid, signal.SIGKILL)
+                reaped += 1
+            except OSError:
+                pass
+    if reaped:
+        logger.warning(f"Reaped {reaped} orphaned workspace process(es) after the forge run")
+    return reaped
+
+
+def _run_streamed(
+    cmd: str, workspace: str, env: dict, timeout_seconds: int, logger: logging.Logger
+) -> str:
+    """Run a shell command, stream stdout/stderr to the logger, return combined output.
+
+    Terminates then force-kills the process on timeout. Shared by the forge-loop
+    and forge-rewrite launch paths.
+    """
+    process = subprocess.Popen(
+        cmd,
+        shell=True,  # nosec B602 -- launch the forge subprocess
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        cwd=workspace,
+        env=env,
+        bufsize=1,
+        # Run the whole chain (sh -> forge-rewrite/forge-loop -> claude -> ...) in
+        # its OWN process group so a timeout can signal the ENTIRE tree. Without
+        # this, terminating the shell leaves the deep descendants orphaned and
+        # still holding the GPU / spending tokens.
+        start_new_session=True,
+    )
+
+    stdout_lines: list[str] = []
+    stderr_lines: list[str] = []
+
+    def read_stream(stream, sink, prefix, log_func):
+        try:
+            for line in iter(stream.readline, ""):
+                if not line:
+                    break
+                text = line.rstrip()
+                if text:
+                    sink.append(text)
+                    log_func(f"{prefix} {text}")
+        finally:
+            stream.close()
+
+    threads = [
+        threading.Thread(target=read_stream, args=(process.stdout, stdout_lines, "[FORGE]", logger.info), daemon=True),
+        threading.Thread(target=read_stream, args=(process.stderr, stderr_lines, "[FORGE STDERR]", logger.warning), daemon=True),
+    ]
+    for t in threads:
+        t.start()
+
+    def _signal_group(sig: int) -> None:
+        """Signal the whole process group (falls back to the single process)."""
+        try:
+            os.killpg(os.getpgid(process.pid), sig)
+        except (ProcessLookupError, PermissionError, OSError):
+            try:
+                process.send_signal(sig)
+            except (ProcessLookupError, OSError):
+                pass
+
+    try:
+        process.wait(timeout=timeout_seconds)
+    except subprocess.TimeoutExpired:
+        logger.warning(f"Forge subprocess timed out after {timeout_seconds}s; terminating process group")
+        _signal_group(signal.SIGTERM)
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            logger.warning("Force killing forge subprocess group")
+            _signal_group(signal.SIGKILL)
+
+    for t in threads:
+        t.join(timeout=1)
+
+    # Single-owner backstop: sweep any workspace-rooted process that escaped the
+    # group signal (e.g. an agent Bash command detached into its own session).
+    _reap_workspace_orphans(workspace, logger)
+
+    logger.info("=" * 80)
+    logger.info(f"Forge subprocess completed with exit code: {process.returncode}")
+    logger.info("=" * 80)
+
+    output = "\n".join(stdout_lines)
+    if stderr_lines:
+        output += "\n=== STDERR ===\n" + "\n".join(stderr_lines)
+    return output
+
+
+def _driver_shapes(driver_path: Path) -> list:
+    """Read the task driver's own ``SHAPES`` constant (single source of truth).
+
+    The driver only runs stdlib imports + constant/function definitions at module
+    load (torch and the source/candidate are loaded lazily), so importing it just
+    to read ``SHAPES`` is cheap and side-effect-free. Returns [] on any failure.
+    """
+    try:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("_rw_driver_shapes", str(driver_path))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return list(getattr(mod, "SHAPES", []) or [])
+    except Exception:
+        return []
+
+
+def _launch_forge_rewrite(
+    *,
+    task_config: dict[str, Any],
+    workspace: str,
+    kernel_file: Path,
+    target_funcs: list,
+    gpu_arch: str,
+    agent_config: dict[str, Any],
+    forge_bin: str,
+    logger: logging.Logger,
+) -> str:
+    """Run KernelForge's forge-rewrite over a ``*2flydsl`` task.
+
+    Rewrites the source kernel into FlyDSL and reuses forge-loop to optimize it.
+    The task ships its own measurement driver (BYOD, ``rewrite_driver.py``): it is
+    the correctness oracle + performance baseline and defines the operator's I/O,
+    so the layer is not limited to any single operator family. All metadata is
+    derived from standard task fields + conventions (no ``rewrite:`` block).
+    """
+    # No ``rewrite:`` block — everything is derived from standard task fields +
+    # conventions, so a triton2flydsl config stays as lean as torch2hip:
+    #   op name       <- source kernel filename stem
+    #   candidate     <- standard top-level ``target_file_path`` (e.g. flydsl/kernel.py)
+    #   driver (BYOD) <- ``rewrite_driver.py`` shipped in the task folder
+    #   shapes        <- the driver's own ``SHAPES`` (single source of truth)
+    op_name = Path(kernel_file).stem
+    flydsl_kernel_rel = str(task_config.get("target_file_path") or "kernel.py").strip()
+
+    driver_path = Path(workspace) / "rewrite_driver.py"
+    if not driver_path.is_file():
+        raise RuntimeError(
+            f"measurement driver not found in workspace ({driver_path}); "
+            "ship rewrite_driver.py in the task folder."
+        )
+
+    shapes = _driver_shapes(driver_path)
+
+    model = str(agent_config.get("model", "claude-opus-4-8"))
+    permission_mode = str(agent_config.get("permission_mode", "acceptEdits"))
+    experiments_dir = Path(workspace) / "forge_experiments"
+    result_json = experiments_dir / "forge_result.json"
+
+    # forge-rewrite (and the forge-loop it drives) needs a git repo in the workspace.
+    _init_git_workspace(workspace, logger)
+
+    cmd_parts = [
+        forge_bin, "forge-rewrite-by-flydsl",
+        "--source-kernel", str(kernel_file),
+        "--driver", str(driver_path),
+        "--op-name", op_name,
+        "--flydsl-kernel-name", flydsl_kernel_rel,
+        "--workspace", str(workspace),
+        "--experiments-dir", str(experiments_dir),
+        "--result-json", str(result_json),
+        "--gpu-target", gpu_arch,
+        "--model", model,
+        "--permission-mode", permission_mode,
+        "--snr-threshold", str(agent_config.get("snr_threshold", 30.0)),
+        "--max-iters", str(agent_config.get("max_iters", 100)),
+        "--max-hours", str(_forge_max_hours(agent_config)),
+        "--shapes-json", json.dumps(shapes),
+    ]
+    if target_funcs:
+        cmd_parts += ["--target-functions", ",".join(str(f) for f in target_funcs)]
+    cmd = " ".join(shlex.quote(p) for p in cmd_parts)
+
+    env = os.environ.copy()
+    env["IS_SANDBOX"] = "1"
+    env.setdefault("PYTHONUNBUFFERED", "1")
+    env.pop("ANTHROPIC_API_KEY", None)
+
+    logger.info("Forge-Rewrite Preflight")
+    logger.info(f"  forge bin:   {forge_bin}")
+    logger.info(f"  source:      {kernel_file}")
+    logger.info(f"  driver:      {driver_path}")
+    logger.info(f"  candidate:   {flydsl_kernel_rel}")
+    logger.info(f"  op_name:     {op_name}   target_language: flydsl")
+    logger.info(f"  gpu target:  {gpu_arch}   model: {model}")
+    logger.info(f"  shapes:      {len(shapes)} configured")
+    logger.info(f"  budget:      {agent_config.get('max_iters')} iters / {_forge_max_hours(agent_config)}h")
+    logger.info(f"  gateway:     {env.get('ANTHROPIC_BASE_URL', '<unset>')}")
+    logger.info(f"Running command: {cmd}")
+    logger.info("=" * 80)
+    logger.info("Forge-Rewrite Output (streaming):")
+    logger.info("=" * 80)
+
+    timeout_seconds = int(agent_config.get("timeout_seconds", 3600))
+    output = _run_streamed(cmd, workspace, env, timeout_seconds, logger)
+
+    # Restore the working tree to the best-kept FlyDSL kernel before Arena scores.
+    _git(workspace, "checkout", "--", ".", logger=logger)
+    return output
+
+
 @register_agent("forge")
 def launch_agent(eval_config: dict[str, Any], task_config_dir: str, workspace: str) -> str:
     """Run one KernelForge forge-loop over the Arena task workspace.
@@ -489,6 +744,25 @@ def launch_agent(eval_config: dict[str, Any], task_config_dir: str, workspace: s
     task_type = str(task_config.get("task_type") or "").strip()
 
     gpu_arch = _resolve_gpu_arch(eval_config)
+
+    # Cross-language rewrite-to-FlyDSL tasks (source != target, e.g. triton2flydsl)
+    # are handled by KernelForge's forge-rewrite layer: rewrite the source kernel
+    # into FlyDSL, then reuse forge-loop to optimize it. The task supplies its own
+    # BYOD driver, so this branches off before the forge-loop-only prep below.
+    # flydsl2flydsl (source == target) is NOT a rewrite and falls through to the
+    # forge-loop optimize path.
+    if is_flydsl_rewrite(task_type):
+        return _launch_forge_rewrite(
+            task_config=task_config,
+            workspace=workspace,
+            kernel_file=kernel_file,
+            target_funcs=target_funcs,
+            gpu_arch=gpu_arch,
+            agent_config=agent_config,
+            forge_bin=forge_bin,
+            logger=logger,
+        )
+
     fellow = _resolve_fellow(task_config, agent_config)
     backend = fellow.split("-")[0]
 
@@ -612,65 +886,10 @@ def launch_agent(eval_config: dict[str, Any], task_config_dir: str, workspace: s
     logger.info("=" * 80)
 
     timeout_seconds = int(agent_config.get("timeout_seconds", 3600))
-
-    process = subprocess.Popen(
-        cmd,
-        shell=True,  # nosec B602 -- launch the forge-loop subprocess
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        cwd=workspace,
-        env=env,
-        bufsize=1,
-    )
-
-    stdout_lines: list[str] = []
-    stderr_lines: list[str] = []
-
-    def read_stream(stream, sink, prefix, log_func):
-        try:
-            for line in iter(stream.readline, ""):
-                if not line:
-                    break
-                text = line.rstrip()
-                if text:
-                    sink.append(text)
-                    log_func(f"{prefix} {text}")
-        finally:
-            stream.close()
-
-    threads = [
-        threading.Thread(target=read_stream, args=(process.stdout, stdout_lines, "[FORGE]", logger.info), daemon=True),
-        threading.Thread(target=read_stream, args=(process.stderr, stderr_lines, "[FORGE STDERR]", logger.warning), daemon=True),
-    ]
-    for t in threads:
-        t.start()
-
-    try:
-        process.wait(timeout=timeout_seconds)
-    except subprocess.TimeoutExpired:
-        logger.warning(f"Forge loop timed out after {timeout_seconds}s; terminating")
-        process.terminate()
-        try:
-            process.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            logger.warning("Force killing forge loop process")
-            process.kill()
-
-    for t in threads:
-        t.join(timeout=1)
-
-    logger.info("=" * 80)
-    logger.info(f"Forge loop completed with exit code: {process.returncode}")
-    logger.info("=" * 80)
+    output = _run_streamed(cmd, workspace, env, timeout_seconds, logger)
 
     # Restore the workspace working tree to the loop's final (best-kept) state.
     # The loop runs on the 'forge-optimize' branch; ensure no partial/uncommitted
     # revert leaves the tree dirty before Arena re-scores.
     _git(workspace, "checkout", "--", ".", logger=logger)
-
-    output = "\n".join(stdout_lines)
-    if stderr_lines:
-        output += "\n=== STDERR ===\n" + "\n".join(stderr_lines)
     return output

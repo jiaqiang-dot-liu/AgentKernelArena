@@ -1,0 +1,47 @@
+# triton2flydsl task: rewrite a Triton RMSNorm kernel into FlyDSL, then optimize it.
+#
+# The forge agent runs KernelForge's forge-rewrite (PORT: correctness-first FlyDSL
+# translation; OPTIMIZE: autonomous forge-loop), leaving the best FlyDSL kernel in
+# `flydsl/kernel.py`. Arena then scores that FINAL kernel by running this task's own
+# driver (torch2hip-style), with the ORIGINAL Triton kernel as the correctness
+# oracle + performance baseline. RMSNorm is non-rowwise (x[M,N], weight[N]).
+task_type: triton2flydsl
+
+# FlyDSL candidate the agent writes (the file forge-rewrite ports/optimizes).
+target_file_path: flydsl/kernel.py
+
+# The Triton source to rewrite (read-only reference for the port; live oracle +
+# baseline via the driver).
+source_file_path:
+  - rmsnorm.py
+target_kernel_functions:
+  - rms_norm_kernel
+
+# Arena scores the FINAL FlyDSL kernel by running this task's self-contained driver:
+#   compile     -> build + run the candidate once (--profile-run)
+#   correctness -> candidate vs the Triton source, SNR-gated (--mode full)
+#   performance -> time the candidate (--bench-mode); the source baseline is this
+#                  same command with --bench-mode swapped for --ref-bench-mode.
+compile_command:
+  - python rewrite_driver.py --shape M=8192,N=8192,dtype=fp16 --profile-run
+correctness_command:
+  - python rewrite_driver.py --shape M=8192,N=8192,dtype=fp16 --mode full --snr-threshold 30
+performance_command:
+  - python rewrite_driver.py --shape M=8192,N=8192,dtype=fp16 --bench-mode
+
+task_result_template: null
+
+prompt:
+  source_code: null
+  cheatsheet: null
+  instructions: |
+    Rewrite the Triton kernel `rms_norm_kernel` (in rmsnorm.py) into an equivalent
+    FlyDSL kernel for AMD GPUs, then optimize it for throughput.
+
+    - Preserve numerics: FlyDSL output must match the Triton RMSNorm within the SNR
+      gate. y = x / sqrt(mean(x^2, dim=-1) + eps) * weight, eps = 1e-5; accumulate
+      the sum of squares in float32.
+    - Expose `build_rmsnorm_module(M, N, dtype_str)` returning a launch callable
+      `launch_fn(x, weight, output, M)` (as the driver calls it).
+    - FlyDSL only; do NOT fall back to HIP/CUDA/Triton. Do NOT edit rmsnorm.py or
+      the driver -- they define the reference and the baseline.

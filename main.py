@@ -5,10 +5,10 @@ import logging
 import argparse
 from pathlib import Path
 from datetime import datetime
-from src.tasks import get_task_config
+from src.tasks import get_task_config, is_flydsl_rewrite
 from src.preprocessing import setup_workspace, setup_rocm_env, is_task_complete
 from src.module_registration import AgentType, load_agent_launcher, load_post_processing_handler
-from src.evaluator import measure_baseline, evaluate_kernel, write_task_result
+from src.evaluator import measure_baseline, evaluate_kernel, write_task_result, write_rewrite_task_result
 from src.runtime_env import apply_subprocess_python_path
 from src.perf_helper_materialization import materialize_perf_helpers_in_workspace
 from src.harness_guard import snapshot_workspace_harness, verify_workspace_harness
@@ -205,10 +205,20 @@ def main() -> None:
             # kernel and emit a meaningless ~1.0x task_result.yaml plus plots. The
             # validator runs its own compile/correctness/performance checks.
             is_validator = (agent == AgentType.TASK_VALIDATOR)
+            # A rewrite task (source language != target, e.g. triton2flydsl) is driven
+            # by forge-rewrite: it ports the source kernel into FlyDSL, then reuses
+            # forge-loop to optimize it, leaving the best kernel in the workspace. Skip
+            # the generic baseline/evaluate pipeline; like torch2hip, Arena scores the
+            # FINAL kernel by running the task's own driver commands (it does NOT trust
+            # any agent result JSON). flydsl2flydsl (src == dst) is NOT a rewrite: it
+            # optimizes an existing FlyDSL kernel via the generic path.
+            is_rewrite = (not is_validator) and is_flydsl_rewrite(task_type)
 
             baseline_cases = []
             if is_validator:
                 logger.info("task_validator run: skipping baseline/evaluation/perf-plot benchmark pipeline")
+            elif is_rewrite:
+                logger.info("triton2flydsl rewrite run: skipping generic baseline; Arena will score the final kernel via the task driver (the source is the driver's oracle + baseline)")
             elif task_type == 'torch2hip':
                 logger.info("torch2hip task: skipping baseline compilation, measuring PyTorch baseline directly...")
                 baseline_cases = measure_baseline(workspace_path, task_config, logger)
@@ -238,7 +248,17 @@ def main() -> None:
 
             logger.info(f"Agent execution completed")
 
-            if not is_validator:
+            if is_validator:
+                pass
+            elif is_rewrite:
+                # forge-rewrite (agent) ported + optimized the FlyDSL kernel, leaving
+                # the best one in the workspace. Protect the harness, then let Arena
+                # score the FINAL kernel by running the task's driver commands
+                # (correctness + bench + source baseline) -- Arena is the scoring
+                # authority, like torch2hip; it does NOT trust an agent result JSON.
+                verify_workspace_harness(harness_snapshot)
+                write_rewrite_task_result(workspace_path, task_config, task_name, agent.value, logger)
+            else:
                 verify_workspace_harness(harness_snapshot)
                 # Agents work inside the task workspace and could accidentally
                 # modify generated perf helpers. Re-materialize from src/tools/perf/
