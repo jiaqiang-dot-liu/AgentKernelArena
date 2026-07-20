@@ -24,6 +24,7 @@ The following software versions are required or verified.
 
 | Component | Version | Notes |
 | --- | --- | --- |
+| Linux | Ubuntu 22.04, Ubuntu 24.04 | |
 | hipcc | Matches ROCm image | Required for HIP tasks. |
 | rocprof-compute | Matches ROCm image | Required for HIP performance profiling. |
 | Docker | Current stable release | Required; serial experiments run through `make docker-run`; multi-GPU experiments run through `make docker-parallel-run`. |
