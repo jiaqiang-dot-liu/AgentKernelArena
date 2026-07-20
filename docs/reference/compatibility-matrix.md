@@ -15,7 +15,8 @@ The following hardware configurations are supported and tested.
 
 | AMD Instinct GPU | ROCm version | Notes |
 | --- | --- | --- |
-| MI300 series | 7.2 (Bundled in the selected SGLang image.) | `target_gpu_model: MI300` |
+| MI300X | 7.2 (Bundled in the selected SGLang image.) | `target_gpu_model: MI300X` |
+| MI325X | 7.2 (Bundled in the selected SGLang image.) | `target_gpu_model: MI325X` |
 | MI355X | 7.2 (Bundled in the selected SGLang image.) | `target_gpu_model: MI355X` |
 
 ## Software requirements
