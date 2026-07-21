@@ -368,7 +368,7 @@ def compile_preshuffle_gemm_v2(
             lane_id = gpu.thread_id("x") % 64
             lane_div_16 = lane_id // 16
             lane_mod_16 = lane_id % 16
-            n_tile_base = wave_id * n_per_wave
+            n_wave_base = wave_id * 16
 
             # Scale buffer tensors + scalar copy atom
             scale_a_buf = fx.rocdl.make_buffer_tensor(arg_scale_a, max_size=True)
@@ -385,7 +385,11 @@ def compile_preshuffle_gemm_v2(
 
             # Load per-column scales: 1 scalar per N-block
             s_b_vals = [
-                load_scale(scale_b_div, by_n + n_tile_base + ni * 16 + lane_mod_16) for ni in range_constexpr(num_acc_n)
+                load_scale(
+                    scale_b_div,
+                    by_n + n_wave_base + ni * num_waves * 16 + lane_mod_16,
+                )
+                for ni in range_constexpr(num_acc_n)
             ]
             # Load per-row scales: 1 scalar per row per thread
             s_a_vals = [
@@ -396,10 +400,13 @@ def compile_preshuffle_gemm_v2(
             # Build scaled accumulator inline
             acc_vec = Vec(frag_C.load())
             scaled_elems = []
-            for mi in range_constexpr(m_repeat):
-                for ni in range_constexpr(num_acc_n):
+            # FlyDSL lays out the C fragment with N repeats outermost, then M
+            # repeats, and finally the four per-lane values. Keep the scale
+            # vector in that same order before retile/store.
+            for ni in range_constexpr(num_acc_n):
+                for mi in range_constexpr(m_repeat):
                     for ii in range_constexpr(4):
-                        idx = mi * num_acc_n * 4 + ni * 4 + ii
+                        idx = ni * m_repeat * 4 + mi * 4 + ii
                         val = acc_vec[idx]
                         s_a = s_a_vals[mi][ii]
                         scaled_val = (val * s_a) * s_b_vals[ni]

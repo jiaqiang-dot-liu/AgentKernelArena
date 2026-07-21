@@ -24,6 +24,5 @@ prompt:
     computation itself.
 
 platform_support:
-  required_arch: gfx942
   runnable_on_gfx942: true
   status: active

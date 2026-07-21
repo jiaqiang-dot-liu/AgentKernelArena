@@ -456,6 +456,16 @@ def run_task(
         task_type = task_config.get("task_type", "")
         is_validator = agent == AgentType.TASK_VALIDATOR
 
+        # Task packages may include a previously committed validator report.
+        # It is evidence about an older source snapshot, not completion evidence
+        # for this run. Remove the copied report before launching the validator
+        # so an agent/backend failure cannot be mistaken for a successful run.
+        if is_validator:
+            stale_report = workspace_path / "validation_report.yaml"
+            if stale_report.exists():
+                stale_report.unlink()
+                logger.info("Removed copied stale validation_report.yaml before validation")
+
         baseline_cases = []
         if is_validator:
             logger.info("task_validator run: skipping baseline/evaluation/perf-plot benchmark pipeline")
