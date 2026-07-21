@@ -37,7 +37,10 @@ make docker-run CONFIG=config_validator.yaml
 
 Each task workspace receives a `validation_report.yaml` with per-check results,
 and a `validation_summary.yaml` with aggregated statistics is written to the
-workspace root.
+workspace root. Tasks skipped by `platform_support.status: skip` or by a
+non-matching `platform_support.required_arch` are filtered before workspace
+creation, so they do not produce a validation report or appear in the summary
+counts.
 
 For large validation batches on a multi-GPU server, use the parallel Docker
 runner. It starts one validator worker container per GPU and writes the same
