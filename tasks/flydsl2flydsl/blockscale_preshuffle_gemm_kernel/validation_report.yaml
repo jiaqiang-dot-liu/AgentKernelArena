@@ -1,6 +1,6 @@
 task_name: flydsl2flydsl/blockscale_preshuffle_gemm_kernel
-validation_timestamp: '2026-06-24T17:42:51.798353'
-overall_status: PASS
+validation_timestamp: '2026-07-21T06:23:21Z'
+overall_status: WARN
 checks:
   config_schema:
     status: PASS
@@ -24,17 +24,16 @@ checks:
     stderr_snippet: ''
     report_file_valid: null
   correctness:
-    status: PASS
-    exit_code: 0
-    duration_seconds: 6.69
-    stdout_snippet: "==============================================================\nFlyDSL Blockscale\
-      \ Preshuffle GEMM (FP8 A8W8, 128x128 block scale)\n==============================================================\n\
-      \n[Correctness Mode]\nRunning correctness on 4 shapes...\n  candidate kernel dir: /mnt/shared/johayang/AgentKernelArena/tasks/flydsl2flydsl/blockscale_preshuffle_gemm_kernel\n\
-      \  oracle    kernel dir: /mnt/shared/johayang/AgentKernelArena/tasks/flydsl2flydsl/blockscale_preshuffle_gemm_kernel\n\
-      \  oracle type: self-r"
+    status: WARN
+    exit_code: null
+    duration_seconds: null
+    stdout_snippet: 'Not rerun on target: the available host is gfx950, while this task requires gfx942.'
     stderr_snippet: ''
     report_file_valid: null
-    analysis: torch.allclose vs a torch-dequant oracle reference (atol/rtol tight); real numeric comparison.
+    analysis: The self-reference gate was replaced by an independent PyTorch block-dequantization
+      and float32 GEMM reference. Target-hardware execution must be rerun on gfx942 before this
+      result can return to PASS. The non-target gfx950 image has FlyDSL 0.2.2 and cannot compile
+      this task's pinned FlyDSL 0.2.0 source without unrelated compatibility changes.
   performance:
     status: PASS
     exit_code: 0
@@ -64,7 +63,9 @@ checks:
       the averaged runtimes.'
   correctness_implementation_review:
     status: PASS
-    details: torch.allclose vs a torch-dequant oracle reference (atol/rtol tight); real numeric comparison.
+    details: The candidate is run once and compared with torch.allclose against an independent
+      PyTorch reference built from the logical unshuffled FP8 operands and block scales. No
+      pristine/candidate kernel output is used as an oracle.
     is_trivially_passing: false
   self_contained:
     status: PASS
@@ -79,5 +80,5 @@ checks:
     details: Harness emits GEAK_RESULT_LATENCY_MS / GEAK_RESULT_GEOMEAN_SPEEDUP, writes build/performance_report.json,
       and returns a pass/fail exit code from --correctness; fields map deterministically to task_result_template.yaml.
     template_name: task_result_template.yaml
-summary: 10 passed, 0 failed, 0 warned. Compile=PASS, correctness=PASS, performance=PASS. Performance
-  uses the prescribed 10-warmup/100-measured mean methodology.
+summary: 9 passed, 0 failed, 1 warned. The self-reference correctness gate is fixed; gfx942
+  correctness revalidation is pending. Prior gfx942 compile/performance evidence is retained.

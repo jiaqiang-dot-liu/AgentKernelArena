@@ -10,7 +10,7 @@ Kernel API (kernel.py):
     launch_gemm(arg_c, arg_a, arg_b, arg_scale_a, arg_scale_b, i32_m, i32_n, stream)
 
 Tensor layouts:
-    arg_a       : A [M, K]  float8_e4m3fn
+    arg_a       : A [M, K]  architecture-matched FP8 E4M3
     arg_b       : B preshuffled fp8 from logical B [N, K] via preshuffle_b()
     arg_scale_a : [scale_k, M] float32 (TRANSPOSED), scale_k = K // scale_block_k
     arg_scale_b : [scale_n, scale_k] float32 row-major, scale_n = N // 128
@@ -21,11 +21,10 @@ Dequant math (per element):
     C[m,n] = sum_kb (sum_{k in block kb} A[m,k]*B[n,k])
              * scale_a[kb, m] * scale_b[n//128, kb]      (kb = k // scale_block_k)
 
-Correctness oracle (primary): SELF-REFERENCE. The pristine kernel.py in this
-task dir is the oracle; the candidate-under-test comes from $GEAK_WORK_DIR
-(fallback to task dir). Both are fed identical inputs and required to agree via
-torch.allclose. A torch-dequant reference is also computed and reported for
-information (does not gate PASS).
+Correctness is checked against an independent PyTorch blockscale reference.
+The reference dequantizes each 128-element K block with the configured row and
+weight scales, accumulates in float32, and applies the kernel's bf16 output
+quantization before comparison.
 """
 import argparse
 import importlib.util
@@ -91,11 +90,6 @@ def _candidate_kernel_dir():
     return _TASK_DIR
 
 
-def _oracle_kernel_dir():
-    """Pristine oracle: always the original kernel.py in this task dir."""
-    return _TASK_DIR
-
-
 def _load_kernel(kernel_dir, alias):
     entry = os.path.join(kernel_dir, KERNEL_FILE)
     if not os.path.isfile(entry):
@@ -112,7 +106,6 @@ def _load_kernel(kernel_dir, alias):
 
 
 _KERNEL_DIR = _candidate_kernel_dir()
-_ORACLE_DIR = _oracle_kernel_dir()
 
 # ============================================================================
 # Test shapes: (M, N, K)
@@ -150,18 +143,18 @@ RTOL, ATOL = 2e-2, 2e-2
 
 
 def _fp8_dtype():
-    """FP8 e4m3 dtype matching the gfx942 MFMA hardware interpretation.
-
-    AMD CDNA (MI300X / gfx942) MFMA decodes fp8 bytes as the *fnuz* variant
-    (exponent bias 8, single NaN encoding 0x80, no infinities), NOT the OCP
-    `e4m3fn` variant (bias 7) that NVIDIA uses. Feeding the kernel raw
-    `float8_e4m3fn` bytes makes every operand decode at half magnitude (so the
-    product is 4x too small) and turns the `-0.0` byte (0x80) into a NaN, which
-    corrupts ~17% of outputs. Using `float8_e4m3fnuz` makes the host-side bytes
-    and the torch dequant reference agree with the kernel.
-    """
+    """Match the architecture's FP8 MFMA interpretation."""
     import torch
 
+    arch = ""
+    try:
+        from flydsl.runtime.device import get_rocm_arch
+
+        arch = str(get_rocm_arch())
+    except Exception:  # noqa: BLE001
+        pass
+    if arch.startswith("gfx95") and hasattr(torch, "float8_e4m3fn"):
+        return torch.float8_e4m3fn
     return getattr(torch, "float8_e4m3fnuz", torch.float8_e4m3fn)
 
 
@@ -252,19 +245,19 @@ def _torch_blockscale_reference(inp):
     scale_a = inp["scale_a"]                        # [scale_k, M]
     scale_b = inp["scale_b"]                        # [scale_n, scale_k]
 
-    # Per-K-block partial products, scaled by combined block scales.
-    a_blk = a.view(M, scale_k, SCALE_BLOCK_K)       # [M, kb, bk]
-    b_blk = b.view(N, scale_k, SCALE_BLOCK_K)       # [N, kb, bk]
-    # partial[kb] = A_blk @ B_blk^T  -> [kb, M, N]
-    partial = torch.einsum("mkb,nkb->kmn", a_blk, b_blk)  # [scale_k, M, N]
-
-    sa = scale_a.unsqueeze(2)                       # [scale_k, M, 1]
-    # scale_b -> per (n, kb): repeat each of scale_n rows across 128 cols
+    # Expand each block scale over its 128 K elements, then use a normal
+    # float32 GEMM. This mirrors the mathematical definition without calling
+    # any implementation from the candidate module.
+    a_dequant = (
+        a.view(M, scale_k, SCALE_BLOCK_K)
+        * scale_a.t().unsqueeze(-1)
+    ).reshape(M, K)
     sb_full = scale_b.repeat_interleave(128, dim=0)  # [N, scale_k]
-    sb = sb_full.t().unsqueeze(1)                   # [scale_k, 1, N]
-
-    c = (partial * sa * sb).sum(dim=0)              # [M, N]
-    return c
+    b_dequant = (
+        b.view(N, scale_k, SCALE_BLOCK_K)
+        * sb_full.unsqueeze(-1)
+    ).reshape(N, K)
+    return torch.mm(a_dequant, b_dequant.t())
 
 
 # ============================================================================
@@ -278,25 +271,15 @@ def run_correctness(shapes=None, verbose=True):
 
     if shapes is None:
         shapes = HARNESS_SHAPES
-    same_dir = os.path.abspath(_KERNEL_DIR) == os.path.abspath(_ORACLE_DIR)
     if verbose:
         print(f"Running correctness on {len(shapes)} shapes...")
         print(f"  candidate kernel dir: {_KERNEL_DIR}")
-        print(f"  oracle    kernel dir: {_ORACLE_DIR}")
-        print(f"  oracle type: self-reference (pristine kernel.py)"
-              f"{' [candidate==oracle]' if same_dir else ''}")
+        print("  oracle type: independent PyTorch blockscale reference")
 
     cand_mod = _load_kernel(_KERNEL_DIR, "bs_gemm_candidate")
     if cand_mod is None:
         print("FAIL: cannot load candidate kernel.py")
         return {"correct": False, "num_correct": 0, "num_failed": len(shapes), "failures": []}
-
-    oracle_mod = None
-    if not same_dir:
-        oracle_mod = _load_kernel(_ORACLE_DIR, "bs_gemm_oracle")
-        if oracle_mod is None:
-            print("FAIL: cannot load oracle kernel.py")
-            return {"correct": False, "num_correct": 0, "num_failed": len(shapes), "failures": []}
 
     results, failures = [], []
     for i, (M, N, K) in enumerate(shapes):
@@ -304,41 +287,20 @@ def run_correctness(shapes=None, verbose=True):
             inp = _make_inputs(M, N, K, seed=42 + i)
 
             c_cand = torch.zeros(M, N, device="cuda", dtype=torch.bfloat16)
-            c_oracle = torch.zeros(M, N, device="cuda", dtype=torch.bfloat16)
-
-            # blockscale uses global SmemAllocator symbols (smem0/smem1); avoid
-            # compiling the same kernel twice in one process when self-referencing.
-            cf, stream = _compile_and_run_once(cand_mod, flyc, c_cand, inp)
-            if same_dir:
-                cf(*_launch_args(inp, c_oracle, stream))
-            else:
-                _compile_and_run_once(oracle_mod, flyc, c_oracle, inp)
+            _compile_and_run_once(cand_mod, flyc, c_cand, inp)
             torch.cuda.synchronize()
 
-            cand_f = c_cand.float()
-            oracle_f = c_oracle.float()
-
-            ok = torch.allclose(cand_f, oracle_f, atol=ATOL, rtol=RTOL)
-            max_err = (cand_f - oracle_f).abs().max().item()
-
-            # Informational torch-dequant reference comparison.
-            try:
-                ref = _torch_blockscale_reference(inp)
-                ref_err = (oracle_f - ref).abs().max().item()
-                ref_scale = ref.abs().max().item() + 1e-6
-                ref_rel = ref_err / ref_scale
-            except Exception as re:
-                ref_rel = float("nan")
-                ref_err = float("nan")
-                _ = re
+            actual = c_cand.float()
+            ref = _torch_blockscale_reference(inp).to(torch.bfloat16).float()
+            ok = torch.allclose(actual, ref, atol=ATOL, rtol=RTOL)
+            max_err = (actual - ref).abs().max().item()
 
             if not ok:
-                raise AssertionError(f"candidate vs oracle max_err={max_err:.4e} > tol")
+                raise AssertionError(f"candidate vs PyTorch max_err={max_err:.4e} > tol")
 
             results.append({"config": (M, N, K), "correct": True})
             if verbose:
-                print(f"  PASS: (M={M}, N={N}, K={K}) self-ref max_err={max_err:.4e}"
-                      f"  torch-ref rel_err={ref_rel:.4e}")
+                print(f"  PASS: (M={M}, N={N}, K={K}) max_err={max_err:.4e}")
         except Exception as e:
             failures.append({"config": (M, N, K), "error": str(e)})
             if verbose:

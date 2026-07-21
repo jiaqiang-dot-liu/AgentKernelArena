@@ -1,6 +1,6 @@
 task_name: flydsl2flydsl/preshuffle_gemm_v2_kernel
-validation_timestamp: '2026-06-24T17:42:53.320147'
-overall_status: PASS
+validation_timestamp: '2026-07-21T06:23:21Z'
+overall_status: WARN
 checks:
   config_schema:
     status: PASS
@@ -24,18 +24,16 @@ checks:
     stderr_snippet: ''
     report_file_valid: null
   correctness:
-    status: PASS
-    exit_code: 0
-    duration_seconds: 5.31
-    stdout_snippet: "==============================================================\nFlyDSL preshuffle_gemm_v2\
-      \ Kernel\n==============================================================\n\n[Correctness Mode]\n\
-      Running correctness on 4 shapes (self-reference oracle)...\n  PASS: (M=256, N=256, K=256) tiles=(128,\
-      \ 128, 128) max_abs_err=0.0000e+00\n  PASS: (M=512, N=512, K=512) tiles=(128, 128, 128) max_abs_err=0.0000e+00\n\
-      \  PASS: (M=1024, N=1024, K=1024) tiles=(128, 128, 128) max_abs_err=0.0000e+00\n  PASS: (M=2048,\
-      \ N=2048, K=2048) t"
+    status: WARN
+    exit_code: null
+    duration_seconds: null
+    stdout_snippet: 'Not rerun on target: the available host is gfx950, while this task requires gfx942.'
     stderr_snippet: ''
     report_file_valid: null
-    analysis: torch.allclose vs torch-dequant oracle reference; real numeric comparison.
+    analysis: The self-reference gate was replaced by an independent PyTorch FP8 GEMM reference
+      with row and column scales. Target-hardware execution must be rerun on gfx942 before this
+      result can return to PASS. A non-gating gfx950 diagnostic exposed a scale-epilogue mismatch,
+      but gfx950 is not this task's configured target and does not establish the gfx942 result.
   performance:
     status: PASS
     exit_code: 0
@@ -65,7 +63,9 @@ checks:
       the averaged runtimes.'
   correctness_implementation_review:
     status: PASS
-    details: torch.allclose vs torch-dequant oracle reference; real numeric comparison.
+    details: The candidate output is compared with torch.allclose against a float32 PyTorch GEMM
+      built from the logical FP8 operands, independent row/column scales, and bf16 output
+      quantization. Input preshuffling is performed by the trusted harness helper, not candidate code.
     is_trivially_passing: false
   self_contained:
     status: PASS
@@ -80,5 +80,5 @@ checks:
     details: Harness emits GEAK_RESULT_LATENCY_MS / GEAK_RESULT_GEOMEAN_SPEEDUP, writes build/performance_report.json,
       and returns a pass/fail exit code from --correctness; fields map deterministically to task_result_template.yaml.
     template_name: task_result_template.yaml
-summary: 10 passed, 0 failed, 0 warned. Compile=PASS, correctness=PASS, performance=PASS. Performance
-  uses the prescribed 10-warmup/100-measured mean methodology.
+summary: 9 passed, 0 failed, 1 warned. The self-reference correctness gate is fixed; gfx942
+  correctness revalidation is pending. Prior gfx942 compile/performance evidence is retained.

@@ -12,7 +12,7 @@ Kernel API (see kernel.py):
       -> launch_gemm(C, A, B, scale_a, scale_b, M, N, stream)
 
 Tensor layout (verified from kernel.py epilogue + kernels/fp8_gemm_utils.py StoreC):
-    A:       [M, K]  fp8 (torch.float8_e4m3fn), row-major
+    A:       [M, K]  architecture-matched FP8 E4M3, row-major
     B:       preshuffle_b(B_logical) where B_logical is [N, K] fp8
     C:       [M, N]  bfloat16
     scale_a: [M]     float32  (per-row scale; sa_nbytes = M*4)
@@ -24,10 +24,9 @@ The compiled function is obtained via flyc.compile(exe, *args), which compiles
 AND runs once; subsequent calls re-launch only (no recompile) -- this is the
 same dispatch path used by kernels/tensor_shim.py::_run_compiled.
 
-Oracle: SELF-REFERENCE. The pristine kernel.py shipped in this task directory is
-loaded as the oracle; the candidate kernel.py is loaded from $GEAK_WORK_DIR
-(fallback: this task directory). Identical inputs are fed to both and the bf16
-outputs are compared with a tight torch.allclose.
+Correctness is checked against an independent PyTorch reference using the
+logical FP8 operands before preshuffling, float32 GEMM accumulation, row/column
+scales, and bf16 output quantization.
 """
 import argparse
 import importlib.util
@@ -98,11 +97,6 @@ def _candidate_kernel_dir():
     return _THIS_DIR
 
 
-def _oracle_kernel_dir():
-    """Oracle kernel.py: ALWAYS the pristine copy shipped in this task dir."""
-    return _THIS_DIR
-
-
 def _load_kernel(kernel_dir, alias):
     entry = os.path.join(kernel_dir, KERNEL_FILE)
     if not os.path.isfile(entry):
@@ -119,7 +113,6 @@ def _load_kernel(kernel_dir, alias):
 
 
 _CANDIDATE_DIR = _candidate_kernel_dir()
-_ORACLE_DIR = _oracle_kernel_dir()
 
 # ============================================================================
 # Shapes + tile configs
@@ -167,7 +160,7 @@ HARNESS_SHAPES = ALL_SHAPES
 _pidx = sorted(set(int(round(i * (_n_all - 1) / 2)) for i in range(3)))
 PROFILE_SHAPES = [ALL_SHAPES[i] for i in _pidx]
 
-# Tight tolerance: candidate vs pristine self-reference (same byte semantics).
+# Tolerance for bf16 output compared with a float32-accumulated PyTorch reference.
 RTOL, ATOL = 2e-2, 2e-2
 
 # Cache of the first working tile config per (M, N, K) shape so correctness and
@@ -211,7 +204,7 @@ def _rand_fp8(shape, dtype):
     return (sign * mag).to(dtype)
 
 
-def _make_inputs(mod, M, N, K, seed):
+def _make_inputs(M, N, K, seed):
     import torch
 
     torch.manual_seed(seed)
@@ -219,16 +212,43 @@ def _make_inputs(mod, M, N, K, seed):
 
     A = _rand_fp8((M, K), fp8)
     B_logical = _rand_fp8((N, K), fp8)
-    B = mod.__dict__["preshuffle_b"](B_logical) if "preshuffle_b" in mod.__dict__ else None
-    if B is None:
-        from kernels.fp8_gemm_utils import preshuffle_b
+    # Input preparation is part of the trusted harness, not the candidate.
+    from kernels.fp8_gemm_utils import preshuffle_b
 
-        B = preshuffle_b(B_logical)
+    B = preshuffle_b(B_logical)
     B = B.contiguous()
     scale_a = torch.empty(M, device="cuda", dtype=torch.float32).uniform_(0.5, 1.5)
     scale_b = torch.empty(N, device="cuda", dtype=torch.float32).uniform_(0.5, 1.5)
     C = torch.zeros(M, N, device="cuda", dtype=torch.bfloat16)
     return A, B_logical, B, scale_a, scale_b, C
+
+
+def _torch_reference(A, B_logical, scale_a, scale_b):
+    import torch
+
+    ref = torch.mm(A.float(), B_logical.float().T)
+    ref = ref * scale_a.float().unsqueeze(1) * scale_b.float().unsqueeze(0)
+    return ref.to(torch.bfloat16).float()
+
+
+def _as_i8(tensor):
+    import torch
+
+    return tensor.view(torch.int8) if "float8" in str(tensor.dtype) else tensor
+
+
+def _kernel_args(C, A, B, scale_a, scale_b, M, N, stream):
+    """Match the flattened byte-pointer ABI used by the upstream FlyDSL test."""
+    return (
+        C.contiguous().view(-1),
+        _as_i8(A).contiguous().view(-1),
+        _as_i8(B).contiguous().view(-1),
+        scale_a.contiguous().view(-1),
+        scale_b.contiguous().view(-1),
+        int(M),
+        int(N),
+        stream,
+    )
 
 
 def _compile_and_run_once(mod, flyc, C, A, B, scale_a, scale_b, M, N, tiles):
@@ -248,7 +268,7 @@ def _compile_and_run_once(mod, flyc, C, A, B, scale_a, scale_b, M, N, tiles):
     import torch
 
     stream = torch.cuda.current_stream()
-    cf = flyc.compile(exe, C, A, B, scale_a, scale_b, int(M), int(N), stream)
+    cf = flyc.compile(exe, *_kernel_args(C, A, B, scale_a, scale_b, M, N, stream))
     torch.cuda.synchronize()
     return cf, stream
 
@@ -271,7 +291,7 @@ def _select_config(mod, flyc, M, N, K, seed=0):
             continue
         tried.append(tiles)
         try:
-            A, B_logical, B, scale_a, scale_b, C = _make_inputs(mod, M, N, K, seed)
+            A, B_logical, B, scale_a, scale_b, C = _make_inputs(M, N, K, seed)
             cf, stream = _compile_and_run_once(mod, flyc, C, A, B, scale_a, scale_b, M, N, tiles)
             _CONFIG_CACHE[key] = tiles
             return tiles, cf, stream, (A, B_logical, B, scale_a, scale_b, C)
@@ -284,7 +304,7 @@ def _select_config(mod, flyc, M, N, K, seed=0):
 
 
 # ============================================================================
-# Correctness (self-reference oracle)
+# Correctness (independent PyTorch oracle)
 # ============================================================================
 
 
@@ -295,49 +315,25 @@ def run_correctness(shapes=None, verbose=True):
     if shapes is None:
         shapes = HARNESS_SHAPES
     if verbose:
-        print(f"Running correctness on {len(shapes)} shapes (self-reference oracle)...")
+        print(f"Running correctness on {len(shapes)} shapes (PyTorch oracle)...")
 
     cand = _load_kernel(_CANDIDATE_DIR, "ps_v2_candidate")
-    oracle = _load_kernel(_ORACLE_DIR, "ps_v2_oracle")
-    if cand is None or oracle is None:
-        print("FAIL: cannot load kernel.py (candidate or oracle)")
+    if cand is None:
+        print("FAIL: cannot load candidate kernel.py")
         return {"correct": False, "num_correct": 0, "num_failed": len(shapes), "failures": []}
 
     results, failures = [], []
     for i, (M, N, K) in enumerate(shapes):
         try:
             seed = 1234 + i
-            # Build identical inputs ONCE and feed both kernels.
-            A, B_logical, B, scale_a, scale_b, C_cand = _make_inputs(cand, M, N, K, seed)
-            C_oracle = torch.zeros_like(C_cand)
-
-            # Pick a tile config that works for the candidate kernel.
-            tiles = None
-            last_err = None
-            cands = ([_CONFIG_CACHE[(M, N, K)]] if (M, N, K) in _CONFIG_CACHE else [])
-            cands += [t for t in _TILE_CANDIDATES if t not in cands]
-            for t in cands:
-                if not _valid_tiles(M, N, K, t):
-                    continue
-                try:
-                    cf_c, stream = _compile_and_run_once(cand, flyc, C_cand, A, B, scale_a, scale_b, M, N, t)
-                    tiles = t
-                    _CONFIG_CACHE[(M, N, K)] = t
-                    break
-                except Exception as e:  # noqa: BLE001
-                    last_err = e
-                    continue
-            if tiles is None:
-                raise RuntimeError(f"no working tile config; last error: {last_err}")
-
-            # Oracle uses the SAME tile config + identical inputs.
-            cf_o, _ = _compile_and_run_once(oracle, flyc, C_oracle, A, B, scale_a, scale_b, M, N, tiles)
+            tiles, _, _, tensors = _select_config(cand, flyc, M, N, K, seed)
+            A, B_logical, _, scale_a, scale_b, C_cand = tensors
             torch.cuda.synchronize()
 
-            cf = C_cand.float()
-            of = C_oracle.float()
-            ok = torch.allclose(cf, of, atol=ATOL, rtol=RTOL)
-            max_err = (cf - of).abs().max().item()
+            actual = C_cand.float()
+            ref = _torch_reference(A, B_logical, scale_a, scale_b)
+            ok = torch.allclose(actual, ref, atol=ATOL, rtol=RTOL)
+            max_err = (actual - ref).abs().max().item()
 
             if not ok:
                 raise AssertionError(f"max_abs_err={max_err:.4e} exceeds atol={ATOL}/rtol={RTOL}")
@@ -385,7 +381,7 @@ def run_profile(shapes=None, warmup=10, iters=50, verbose=True):
     for M, N, K in shapes:
         tiles, cf, stream, tensors = _select_config(mod, flyc, M, N, K)
         A, B_logical, B, scale_a, scale_b, C = tensors
-        args = (C, A, B, scale_a, scale_b, int(M), int(N), stream)
+        args = _kernel_args(C, A, B, scale_a, scale_b, M, N, stream)
         for _ in range(warmup):
             cf(*args)
         torch.cuda.synchronize()
@@ -426,7 +422,7 @@ def run_benchmark(shapes=None, warmup=10, iters=100, verbose=True):
             print(f"  SKIP (M={M}, N={N}, K={K}): {str(e)[:100]}")
             continue
         A, B_logical, B, scale_a, scale_b, C = tensors
-        args = (C, A, B, scale_a, scale_b, int(M), int(N), stream)
+        args = _kernel_args(C, A, B, scale_a, scale_b, M, N, stream)
 
         # Warmup (kernel already compiled; this is pure execution).
         for _ in range(warmup):
