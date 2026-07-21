@@ -19,13 +19,9 @@ Tensor layout (verified from kernel.py epilogue + kernels/fp8_gemm_utils.py Stor
     c_m, c_n: int32  (= M, N)
     stream:  torch.cuda.current_stream()
 
-Oracle: SELF-REFERENCE. The pristine kernel.py shipped in this task directory is
-loaded as the oracle; the candidate kernel.py is loaded from $GEAK_WORK_DIR
-(fallback: this task directory). Identical inputs are fed to both and the bf16
-outputs are compared with a tight torch.allclose. This mirrors the validated
-sibling harness (preshuffle_gemm_v2_kernel) -- a torch dequant oracle is brittle
-here because gfx942 hardware fp8 is E4M3 *FNUZ* while the kernel's StoreC/MFMA
-declare E4M3 *FN*, so byte-exact dequant in torch is not reliable.
+Correctness is checked against an independent PyTorch reference using the exact
+FP8 tensors consumed by the kernel, float32 GEMM accumulation, row/column scale
+application, and bf16 output quantization.
 """
 import argparse
 import importlib.util
@@ -147,7 +143,7 @@ else:
 _pidx = sorted(set(int(round(i * (_n_all - 1) / 4)) for i in range(5)))
 PROFILE_SHAPES = [ALL_SHAPES[i] for i in _pidx]
 
-# Tight tolerance: candidate vs pristine self-reference (same byte semantics).
+# Tolerance for bf16 output compared with a float32-accumulated PyTorch reference.
 RTOL, ATOL = 2e-2, 2e-2
 
 # Cache compiled functions per (K, M, N) so we never recompile during timing.
@@ -203,12 +199,40 @@ def _make_inputs(M, N, K, seed):
     return A, B_T, C, A_scale, B_scale
 
 
+def _torch_reference(A, B_T, A_scale, B_scale):
+    import torch
+
+    ref = torch.mm(A.float(), B_T.float().T)
+    ref = ref * A_scale.float().unsqueeze(1) * B_scale.float().unsqueeze(0)
+    return ref.to(torch.bfloat16).float()
+
+
 def _kernel_b(mod, B_T):
     if B_PRESHUFFLED:
         from kernels.fp8_gemm_utils import preshuffle_b
 
         return preshuffle_b(B_T).contiguous()
     return B_T
+
+
+def _as_i8(tensor):
+    import torch
+
+    return tensor.view(torch.int8) if "float8" in str(tensor.dtype) else tensor
+
+
+def _kernel_args(A, B_T, C, A_scale, B_scale, M, N, stream):
+    """Match the flat byte-pointer ABI used by the upstream FlyDSL tests."""
+    return (
+        _as_i8(A).contiguous().view(-1),
+        _as_i8(B_T).contiguous().view(-1),
+        C.contiguous().view(-1),
+        A_scale.contiguous().view(-1),
+        B_scale.contiguous().view(-1),
+        int(M),
+        int(N),
+        stream,
+    )
 
 
 def _compile_and_run_once(mod, flyc, A, B_T, C, A_scale, B_scale, M, N):
@@ -223,13 +247,13 @@ def _compile_and_run_once(mod, flyc, A, B_T, C, A_scale, B_scale, M, N):
         b_preshuffled=B_PRESHUFFLED,
     )
     stream = torch.cuda.current_stream()
-    cf = flyc.compile(exe, A, B_T, C, A_scale, B_scale, int(M), int(N), stream)
+    cf = flyc.compile(exe, *_kernel_args(A, B_T, C, A_scale, B_scale, M, N, stream))
     torch.cuda.synchronize()
     return cf, stream
 
 
 # ============================================================================
-# Correctness (self-reference oracle)
+# Correctness (independent PyTorch oracle)
 # ============================================================================
 
 
@@ -239,23 +263,13 @@ def run_correctness(shapes=None, verbose=True):
 
     if shapes is None:
         shapes = HARNESS_SHAPES
-    same_dir = os.path.abspath(_CANDIDATE_DIR) == os.path.abspath(_ORACLE_DIR)
     if verbose:
-        print(f"Running correctness on {len(shapes)} shapes (self-reference oracle)...")
-        if same_dir:
-            print("  candidate==oracle: single compile, dual launch")
+        print(f"Running correctness on {len(shapes)} shapes (PyTorch oracle)...")
 
     cand = _load_kernel(_CANDIDATE_DIR, "fp8_8w_candidate")
     if cand is None:
         print("FAIL: cannot load kernel.py (candidate)")
         return {"correct": False, "num_correct": 0, "num_failed": len(shapes), "failures": []}
-
-    oracle = None
-    if not same_dir:
-        oracle = _load_kernel(_ORACLE_DIR, "fp8_8w_oracle")
-        if oracle is None:
-            print("FAIL: cannot load kernel.py (oracle)")
-            return {"correct": False, "num_correct": 0, "num_failed": len(shapes), "failures": []}
 
     results, failures = [], []
     for i, (M, N, K) in enumerate(shapes):
@@ -263,20 +277,14 @@ def run_correctness(shapes=None, verbose=True):
             seed = 1234 + i
             A, B_T, C_cand, A_scale, B_scale = _make_inputs(M, N, K, seed)
             B_k = _kernel_b(cand, B_T)
-            C_oracle = torch.zeros_like(C_cand)
 
-            cf, stream = _compile_and_run_once(cand, flyc, A, B_k, C_cand, A_scale, B_scale, M, N)
-            if same_dir:
-                args_o = (A, B_k, C_oracle, A_scale, B_scale, int(M), int(N), stream)
-                cf(*args_o)
-            else:
-                _compile_and_run_once(oracle, flyc, A, B_k, C_oracle, A_scale, B_scale, M, N)
+            _compile_and_run_once(cand, flyc, A, B_k, C_cand, A_scale, B_scale, M, N)
             torch.cuda.synchronize()
 
-            cf = C_cand.float()
-            of = C_oracle.float()
-            ok = torch.allclose(cf, of, atol=ATOL, rtol=RTOL)
-            max_err = (cf - of).abs().max().item()
+            actual = C_cand.float()
+            ref = _torch_reference(A, B_T, A_scale, B_scale)
+            ok = torch.allclose(actual, ref, atol=ATOL, rtol=RTOL)
+            max_err = (actual - ref).abs().max().item()
             if not ok:
                 raise AssertionError(f"max_abs_err={max_err:.4e} exceeds atol={ATOL}/rtol={RTOL}")
 
@@ -324,7 +332,7 @@ def run_profile(shapes=None, warmup=10, iters=50, verbose=True):
         A, B_T, C, A_scale, B_scale = _make_inputs(M, N, K, seed=7)
         B_k = _kernel_b(mod, B_T)
         cf, stream = _compile_and_run_once(mod, flyc, A, B_k, C, A_scale, B_scale, M, N)
-        args = (A, B_k, C, A_scale, B_scale, int(M), int(N), stream)
+        args = _kernel_args(A, B_k, C, A_scale, B_scale, M, N, stream)
         for _ in range(warmup):
             cf(*args)
         torch.cuda.synchronize()
@@ -367,7 +375,7 @@ def run_benchmark(shapes=None, warmup=10, iters=100, verbose=True):
         except Exception as e:  # noqa: BLE001
             print(f"  SKIP (M={M}, N={N}, K={K}): {str(e)[:100]}")
             continue
-        args = (A, B_k, C, A_scale, B_scale, int(M), int(N), stream)
+        args = _kernel_args(A, B_k, C, A_scale, B_scale, M, N, stream)
 
         for _ in range(warmup):
             cf(*args)

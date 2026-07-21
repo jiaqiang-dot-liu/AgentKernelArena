@@ -25,20 +25,3 @@ prompt:
     keys/values, MFMA-based dot products, online softmax, multi-partition
     reduce, and supports both one-shot and split-reduce modes.
     You MUST keep the kernel in FlyDSL — do NOT rewrite it in HIP, CUDA, or Triton.
-
-platform_support:
-  # Requires `aiter` available in the environment (fp8 KV quant +
-  # paged-attention metadata/reduce reference). All other gfx942 tasks need
-  # only FlyDSL. The standard FlyDSL validation image does not ship aiter, so
-  # this task is marked `skip` for the default gate (like the gfx950-only
-  # tasks): it compiles + passes correctness/performance only in an
-  # aiter-enabled runtime. Self-containment intentionally fails (external aiter
-  # import), which is why it is excluded from the active set rather than active.
-  required_arch: gfx942
-  runnable_on_gfx942: true
-  requires_aiter: true
-  status: skip
-  skip_reason: |
-    Requires the external AMD aiter runtime for fp8 KV quantization and
-    paged-attention metadata/reduce helpers. It can run on gfx942 in an
-    aiter-enabled image, but is excluded from the default self-contained gate.

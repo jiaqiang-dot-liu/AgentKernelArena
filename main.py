@@ -13,7 +13,6 @@ from src.tasks import get_task_config
 from src.preprocessing import (
     get_task_workspace_path,
     is_task_complete,
-    resolve_gfx_arch,
     setup_rocm_env,
     setup_workspace,
 )
@@ -367,9 +366,7 @@ def _build_context(
     python_path = apply_subprocess_python_path()
     logger.info(f"Subprocess Python environment: {python_path}")
     setup_rocm_env(config["target_gpu_model"], logger)
-    current_gfx_arch = os.environ.get("PYTORCH_ROCM_ARCH") or resolve_gfx_arch(
-        config["target_gpu_model"]
-    )
+    current_gfx_arch = os.environ.get("PYTORCH_ROCM_ARCH")
 
     agent_launcher = None
     if need_agent_launcher:

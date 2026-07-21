@@ -23,22 +23,19 @@ python3 -c "import flydsl; print(flydsl.__version__)"
 
 ## Hardware support
 
-Benchmark hardware is **AMD MI300X = gfx942 (CDNA3)**. Not every catalogued
-kernel runs there. Per-task hardware support is machine-readable in each
-`config.yaml` (`platform_support.required_arch` / `runnable_on_gfx942` /
-`status`); see **[`ARCH_SUPPORT.md`](ARCH_SUPPORT.md)** for the full matrix.
+The suite has active tasks for **AMD MI300X = gfx942 (CDNA3)** and
+**AMD MI355X = gfx950 (CDNA4)**. Per-task hardware support is machine-readable
+in each `config.yaml`; the runner selects the tasks matching the current GPU.
+See **[`ARCH_SUPPORT.md`](ARCH_SUPPORT.md)** for the full matrix.
 
-`pa_decode_fp8_kernel` additionally requires **`aiter`** to be available in the
-environment (used for fp8 KV quantization and the paged-attention metadata/reduce
-reference). It is marked `status: skip` and excluded from the default gate because
-the standard FlyDSL validation image does not ship `aiter`; the other gfx942 tasks
-need only FlyDSL.
+`pa_decode_fp8_kernel` is a normal active task. It uses the framework-provided
+`aiter` package for FP8 KV quantization and paged-attention metadata/reduce, just
+as tasks may use other runtime dependencies; it has no task-specific dependency
+probe or skip condition.
 
-Notably, `fp8_gemm_4wave_kernel` and `fp8_gemm_8wave_kernel` are **gfx950/CDNA4-only**:
-they emit the CDNA4-only 16B `buffer_load_lds` intrinsic, which the gfx942 LLVM
-backend cannot legalize (`LLVM ERROR: Do not know how to expand this operator's
-operand!`, exit 134). They are marked `status: skip` and excluded from the
-gfx942 benchmark/validation set.
+`fp8_gemm_4wave_kernel` and `fp8_gemm_8wave_kernel` are active
+**gfx950/CDNA4-only** tasks. They emit the CDNA4-only 16B `buffer_load_lds`
+intrinsic, so the runner excludes them on gfx942 through `required_arch: gfx950`.
 
 ## Compute pattern (L1 / L2 / L3)
 
@@ -73,10 +70,10 @@ Examples are grouped by **compute pattern** (not by any other “difficulty” s
 |------|--------|
 | `flash_attn_func_kernel` | Fused multi-head attention: online softmax, MFMA32 GEMM, DMA-to-LDS, software-pipelined QK/PV. |
 | `hgemm_splitk_kernel` | Half-precision GEMM with split-K, double-buffered LDS, pre-shuffled B. |
-| `pa_decode_fp8_kernel` | Paged-attention decode with FP8 KV-cache and multi-partition reduce; most complex kernel. **Requires `aiter` available in the environment** and is `status: skip` in the default gate. |
+| `pa_decode_fp8_kernel` | Paged-attention decode with FP8 KV-cache and multi-partition reduce; most complex kernel. Active as a normal framework task. |
 | `blockscale_preshuffle_gemm_kernel` | FP8 blockscale GEMM with preshuffled B and MFMA epilogue. |
-| `fp8_gemm_4wave_kernel` | FP8 GEMM (4-wave) with row scales. **gfx950/CDNA4-only** — emits the CDNA4-only 16B `buffer_load_lds`; aborts at codegen on gfx942 (`status: skip`, see `ARCH_SUPPORT.md`). |
-| `fp8_gemm_8wave_kernel` | FP8 GEMM (8-wave) with row scales, ported from HipKittens CDNA4. **gfx950/CDNA4-only** — emits the CDNA4-only 16B `buffer_load_lds`; aborts at codegen on gfx942 (`status: skip`, see `ARCH_SUPPORT.md`). |
+| `fp8_gemm_4wave_kernel` | Active FP8 GEMM (4-wave) with row scales. **gfx950/CDNA4-only**; selected through `required_arch: gfx950`. |
+| `fp8_gemm_8wave_kernel` | Active FP8 GEMM (8-wave) with row scales, ported from HipKittens CDNA4. **gfx950/CDNA4-only**; selected through `required_arch: gfx950`. |
 | `preshuffle_gemm_v2_kernel` | Preshuffle GEMM v2 (layout API; fp8/fp16/bf16). |
 | `pa_decode_swa_kernel` | Paged-attention decode for sliding-window (partitioned) paths. |
 
