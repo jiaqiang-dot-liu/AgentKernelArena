@@ -331,11 +331,21 @@ performance_command:
 
 task_type: triton2triton
 
+# Optional: limit a task to a GPU architecture.
+platform_support:
+  required_arch: gfx942
+  status: active          # active | skip
+  skip_reason: null
+
 prompt:
   source_code: null
   instructions: null
   cheatsheet: null
 ```
+
+Tasks marked `platform_support.status: skip`, or requiring a different GPU
+architecture, are filtered before workspace creation. Omit `platform_support`
+for tasks that run on every architecture.
 
 Repository-level tasks use `task_type: repository`, `repo_url`, and `repository_language`; their source and target hints are optional. See [docs/how-to/add-task.md](docs/how-to/add-task.md) for the complete schemas.
 

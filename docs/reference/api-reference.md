@@ -128,6 +128,7 @@ For isolated-kernel tasks (`hip2hip`, `cuda2hip`, `triton2triton`,
 | `correctness_timeout` | No | Per-command correctness timeout in seconds (default `3600`) |
 | `performance_timeout` | No | Per-command performance timeout in seconds (default `3600`) |
 | `task_result_template` | No | Legacy compatibility field. The centralized evaluator writes the standard result schema regardless of this value |
+| `platform_support` | No | Optional run-gating metadata; see below |
 | `prompt.source_code` | No | Override the prompt's source-code section |
 | `prompt.instructions` | No | Custom prompt instructions |
 | `prompt.cheatsheet` | No | Reference/cheatsheet content for the prompt |
@@ -150,10 +151,18 @@ For repository-level tasks (`task_type: repository`):
 | `repo_subdir` | No | Workspace subdirectory for the clone; defaults to the repository name derived from `repo_url` |
 | `source_file_path` | No | Optional target source-file hints, relative to the cloned repository root |
 | `target_kernel_functions` | No | Optional target function or kernel-symbol hints |
+| `platform_support` | No | Optional run-gating metadata; see below |
 | `prompt.instructions` | No | Custom prompt instructions |
 | `prompt.cheatsheet` | No | Reference/cheatsheet content for the prompt |
 
 See [Add a task](../how-to/add-task.md) for layout and authoring rules.
+
+### Platform support
+
+`platform_support.status: skip` excludes a task unconditionally. An active task
+with `platform_support.required_arch` is run only when that value matches the
+detected GPU architecture. If `platform_support` is omitted, the task remains
+runnable on every architecture.
 
 ## Result schema (`task_result.yaml`)
 
