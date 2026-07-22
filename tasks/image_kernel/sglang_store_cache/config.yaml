@@ -1,5 +1,7 @@
 task_type: image_kernel
 image_repo_path: /sgl-workspace/sglang
+image_repo_exclude:
+- sgl-model-gateway/target
 repository_language: hip
 source_file_path:
 - python/sglang/jit_kernel/csrc/elementwise/kvcache.cuh

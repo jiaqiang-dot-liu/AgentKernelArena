@@ -227,7 +227,7 @@ def run_correctness() -> None:
     import torch
 
     # FP8 (e4m3/e5m2) has a tiny mantissa, so use fp8-appropriate tolerances
-    # matching the upstream op test (test_gemm_fp8: atol=0.02, rtol=1e-2).
+    # matching the upstream op tests (atol=0.02-0.03, rtol=1e-2).
     # Also validate the exact shapes that are scored (PERF_CASES); otherwise a
     # kernel that is correct on the small shapes but wrong -- or specializing
     # invalid behavior -- on the large scored shapes would still earn a perf score.
@@ -236,7 +236,7 @@ def run_correctness() -> None:
         case = _make_case(**cfg)
         out = _run_aiter(case)
         ref = _run_torch(case)
-        torch.testing.assert_close(out, ref, atol=0.1, rtol=0.1)
+        torch.testing.assert_close(out, ref, atol=0.03, rtol=1e-2)
         print(f"Correctness case {idx} {cfg}: PASS")
 
 

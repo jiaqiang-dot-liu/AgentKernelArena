@@ -169,15 +169,19 @@ def _ensure_repo_cloned(repo_url: str, target_dir: Path, logger: logging.Logger)
 
 
 def _ensure_repo_seeded_from_image(
-    image_path: Path, target_dir: Path, logger: logging.Logger
+    image_path: Path,
+    target_dir: Path,
+    logger: logging.Logger,
+    exclude_paths: tuple[str, ...] = (),
 ) -> bool:
     """Seed the repo working tree from an in-image source tree (image_kernel tasks).
 
     Unlike ``_ensure_repo_cloned`` (which fetches a fresh shallow copy from a git
     URL), this copies a tree that already ships inside the container image — so
     submodules, third-party headers, and any prebuilt build cache are present and
-    no network/clone/submodule step is needed. ``.git`` is excluded to keep the
-    copy lean (the task edits + rebuilds; upstream git history is not required).
+    no network/clone/submodule step is needed. ``.git`` and any task-declared
+    disposable cache paths are excluded during the copy so multi-GPU runs do not
+    duplicate gigabytes of history or rebuildable artifacts in every workspace.
 
     Copies once and skips if the target is already populated (reused by all runs).
 
@@ -202,44 +206,101 @@ def _ensure_repo_seeded_from_image(
 
     target_dir.parent.mkdir(parents=True, exist_ok=True)
     logger.info(f"Seeding repo from in-image path {image_path} -> {target_dir}")
+    excluded = tuple(sorted({".git", *exclude_paths}))
+    if excluded:
+        logger.info("Excluding disposable image-repo paths: %s", list(excluded))
     # Prefer copy-on-write (reflink) — an in-image repo can be multi-GB, and CoW
     # makes seeding near-instant / space-free on filesystems that support it.
-    # Fall back to a regular recursive copy otherwise. `.git` is dropped either way.
-    if not _reflink_copy_tree(image_path, target_dir, logger):
+    # Fall back to a regular recursive copy otherwise. Excluded paths are never
+    # copied in either path (rather than copied first and deleted afterwards).
+    if not _reflink_copy_tree(image_path, target_dir, logger, excluded):
         shutil.copytree(
             image_path,
             target_dir,
             symlinks=True,
-            ignore=shutil.ignore_patterns(".git"),
+            ignore=_image_repo_copy_ignore(image_path, excluded),
         )
     return True
 
 
-def _reflink_copy_tree(src: Path, dst: Path, logger: logging.Logger) -> bool:
-    """Copy ``src`` tree to ``dst`` via ``cp -a --reflink=auto`` then drop ``.git``.
+def _normalize_image_repo_excludes(raw: Any) -> tuple[str, ...]:
+    """Validate task-declared relative paths that are safe to omit while seeding."""
+    if raw is None:
+        return ()
+    if isinstance(raw, str):
+        raw = [raw]
+    if not isinstance(raw, (list, tuple)):
+        raise ValueError("image_repo_exclude must be a string or a list of strings")
+
+    normalized: set[str] = set()
+    for value in raw:
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("image_repo_exclude entries must be non-empty strings")
+        path = Path(value.strip())
+        if path.is_absolute() or ".." in path.parts or path.as_posix() in ("", "."):
+            raise ValueError(
+                f"image_repo_exclude entries must be safe relative paths: {value!r}"
+            )
+        normalized.add(path.as_posix().strip("/"))
+    return tuple(sorted(normalized))
+
+
+def _image_repo_copy_ignore(src: Path, exclude_paths: tuple[str, ...]):
+    """Build a copytree ignore callback for exact repo-relative paths."""
+    excluded = set(exclude_paths)
+
+    def ignore(directory: str, names: list[str]) -> set[str]:
+        relative_dir = Path(directory).relative_to(src)
+        ignored: set[str] = set()
+        for name in names:
+            relative = (relative_dir / name).as_posix()
+            if name == ".git" or relative in excluded:
+                ignored.add(name)
+        return ignored
+
+    return ignore
+
+
+def _reflink_copy_tree(
+    src: Path,
+    dst: Path,
+    logger: logging.Logger,
+    exclude_paths: tuple[str, ...] = (".git",),
+) -> bool:
+    """Copy top-level entries via ``cp -a --reflink=auto`` without excluded paths.
 
     ``--reflink=auto`` uses copy-on-write when the filesystem supports it and
     silently falls back to a normal copy otherwise, so this is safe everywhere.
+    Nested exclusions require ``shutil.copytree`` and return False here; top-level
+    exclusions (including ``.git``) are omitted from the cp argument list, so they
+    are never temporarily materialized on quota-limited workspaces.
     Returns True on success, False if ``cp`` is unavailable or failed (caller
     then uses ``shutil.copytree``). ``dst`` must not already exist.
     """
-    if shutil.which("cp") is None:
+    if shutil.which("cp") is None or any("/" in path for path in exclude_paths):
         return False
+    excluded_names = set(exclude_paths)
+    entries = [entry for entry in src.iterdir() if entry.name not in excluded_names]
+    dst.mkdir()
+    if not entries:
+        return True
     try:
         subprocess.run(
-            ["cp", "-a", "--reflink=auto", str(src), str(dst)],
+            ["cp", "-a", "--reflink=auto", "--", *(str(entry) for entry in entries), str(dst)],
             check=True,
             capture_output=True,
             text=True,
         )
     except (subprocess.CalledProcessError, OSError) as e:
-        logger.warning(f"reflink copy failed ({e}); falling back to copytree")
+        stderr = getattr(e, "stderr", "") or ""
+        logger.warning(
+            "reflink copy failed (%s%s); falling back to copytree",
+            e,
+            f": {stderr.strip()}" if stderr.strip() else "",
+        )
         if dst.exists():
             shutil.rmtree(dst, ignore_errors=True)
         return False
-    git_dir = dst / ".git"
-    if git_dir.exists():
-        shutil.rmtree(git_dir, ignore_errors=True)
     return True
 
 
@@ -349,7 +410,10 @@ def setup_repo_from_config(
             )
         repo_subdir = task_config.get("repo_subdir") or Path(image_repo_path).name
         repo_dir = workspace_path / repo_subdir
-        did_seed = _ensure_repo_seeded_from_image(Path(image_repo_path), repo_dir, logger)
+        excludes = _normalize_image_repo_excludes(task_config.get("image_repo_exclude"))
+        did_seed = _ensure_repo_seeded_from_image(
+            Path(image_repo_path), repo_dir, logger, excludes
+        )
         _maybe_post_clone_install(task_config, repo_dir, did_seed, logger)
         return repo_dir
     if not repo_url:
@@ -479,7 +543,10 @@ def setup_workspace(task_config_dir: str, run_directory: Path, timestamp: str, l
     #    (no tasks/ cache). One copy per run; nothing persisted under tasks/.
     if image_repo_path:
         repo_dir = workspace_path / repo_subdir
-        did_seed = _ensure_repo_seeded_from_image(Path(image_repo_path), repo_dir, logger)
+        excludes = _normalize_image_repo_excludes(task_config.get("image_repo_exclude"))
+        did_seed = _ensure_repo_seeded_from_image(
+            Path(image_repo_path), repo_dir, logger, excludes
+        )
         _maybe_post_clone_install(task_config, repo_dir, did_seed, logger)
 
     materialize_perf_helpers_in_workspace(workspace_path, logger=logger)

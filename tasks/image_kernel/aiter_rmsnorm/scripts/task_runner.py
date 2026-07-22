@@ -134,6 +134,9 @@ def _ensure_torch_python() -> None:
 
 
 def _configure_runtime() -> None:
+    # AITER normally reuses an existing module without checking the source
+    # files. Force a rebuild so an agent's edits are guaranteed to be compiled.
+    os.environ["AITER_REBUILD"] = "1"
     os.environ.setdefault("ENABLE_CK", "1")
     os.environ.setdefault("AITER_LOG_LEVEL", "WARNING")
     ck = _ck_dir()

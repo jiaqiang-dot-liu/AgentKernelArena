@@ -29,6 +29,7 @@ import signal
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -70,12 +71,46 @@ def _resolve_gpu_arch(eval_config: dict[str, Any]) -> str:
     )
 
 
-def _terminate_process_group(process: subprocess.Popen, logger: logging.Logger) -> None:
+def _process_group_exists(pgid: int) -> bool:
+    """Return whether a process group still has signalable members."""
+    try:
+        os.killpg(pgid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _wait_for_process_group_exit(
+    process: subprocess.Popen,
+    pgid: int,
+    timeout: float,
+) -> bool:
+    """Wait for the complete group to exit, reaping its leader along the way."""
+    deadline = time.monotonic() + timeout
+    while True:
+        process.poll()
+        if not _process_group_exists(pgid):
+            return True
+
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return False
+        time.sleep(min(0.1, remaining))
+
+
+def _terminate_process_group(
+    process: subprocess.Popen,
+    logger: logging.Logger,
+    term_timeout: float = 10,
+    kill_timeout: float = 5,
+) -> None:
     """Terminate the forge-loop and ALL its descendants (kernel-agents, claude, GPU).
 
     The subprocess is launched in its own session (``start_new_session=True``), so
     its PID is the process-group leader. Signalling the whole group (SIGTERM, then
-    SIGKILL after a grace period) reaps the deep child tree; signalling only the
+    SIGKILL after a grace period) terminates the deep child tree; signalling only the
     leader would orphan those children, which would keep holding the GPU and could
     keep editing the workspace while Arena runs git checkout and final scoring.
     """
@@ -93,16 +128,15 @@ def _terminate_process_group(process: subprocess.Popen, logger: logging.Logger) 
 
     if not _signal_group(signal.SIGTERM):
         return
-    try:
-        process.wait(timeout=10)
-        return
-    except subprocess.TimeoutExpired:
-        logger.warning("Force killing forge loop process group (SIGKILL)")
 
-    _signal_group(signal.SIGKILL)
-    try:
-        process.wait(timeout=5)
-    except subprocess.TimeoutExpired:
+    if _wait_for_process_group_exit(process, pgid, term_timeout):
+        return
+
+    logger.warning("Force killing forge loop process group (SIGKILL)")
+    if not _signal_group(signal.SIGKILL):
+        return
+
+    if not _wait_for_process_group_exit(process, pgid, kill_timeout):
         logger.warning("Forge loop process group did not exit even after SIGKILL")
 
 

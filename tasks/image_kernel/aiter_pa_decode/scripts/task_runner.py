@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Task runner for repository/aiter_hip_pa_decode.
 
-Optimizes the AITER HIP paged-attention kernel in the DECODE regime. The kernel
-lives in `csrc/cpp_itfs/pa/pa_kernels.cuh` (entry `attention_ragged.cu`) and is
-the hot decode variant `attention_paged_attention_ragged_102`. It is JIT-compiled
-from a jinja template plus the header sources, cached by source hash, so editing
-`pa_kernels.cuh` forces a recompile and the agent's changes take effect.
+Optimizes the AITER HIP paged-attention kernel in the DECODE regime. The shared
+device code lives in `csrc/cpp_itfs/pa/pa_kernels.cuh`, with its entry kernel in
+`csrc/cpp_itfs/pa/pa_ragged.cuh`. The hot decode variant is
+`attention_paged_attention_ragged_102`. It is JIT-compiled from a jinja template
+plus the header sources; this runner forces a fresh task-local build so source
+edits take effect.
 
 Unlike the sibling `aiter_hip_pa_ragged` task (which exercises PREFILL-ish ragged
 cases with short/uneven context), this task drives the DECODE partition path of
@@ -141,6 +142,9 @@ def _ensure_torch_python() -> None:
 
 
 def _configure_runtime() -> None:
+    # AITER's template JIT only checks whether lib.so exists. Force a rebuild
+    # so source edits always take effect.
+    os.environ["AITER_REBUILD"] = "1"
     os.environ.setdefault("ENABLE_CK", "1")
     os.environ.setdefault("AITER_LOG_LEVEL", "WARNING")
     ck = _ck_dir()

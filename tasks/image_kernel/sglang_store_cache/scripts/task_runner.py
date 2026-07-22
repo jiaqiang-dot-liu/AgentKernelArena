@@ -126,7 +126,7 @@ def _configure_runtime() -> None:
     os.chdir(_repo_root())
 
 
-def _benchmark_ms(fn, warmup: int = 10, rep: int = 30) -> float:
+def _benchmark_ms(fn, warmup: int = 10, rep: int = 100) -> float:
     import torch
 
     for _ in range(warmup):
@@ -142,7 +142,7 @@ def _benchmark_ms(fn, warmup: int = 10, rep: int = 30) -> float:
         end.record()
         torch.cuda.synchronize()
         samples.append(start.elapsed_time(end))
-    return statistics.median(samples)
+    return statistics.mean(samples)
 
 
 def _write_performance_report(results: list[dict]) -> None:

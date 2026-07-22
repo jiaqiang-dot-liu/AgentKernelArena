@@ -7,15 +7,15 @@ Optimizes the AITER HIP CK batch-prefill MHA kernel whose torch entry lives in
 which packs the arguments and dispatches to the CK `aiter::mha_batch_prefill`
 fmha kernel. The python op `aiter.mha_batch_prefill_func` is JIT-compiled from
 that `.cu` plus the CK fmha codegen (module `module_mha_batch_prefill`, decorated
-via `@compile_ops`). Editing the `.cu` invalidates the source-hash cache and
-forces a recompile, so the agent's changes take effect. This runner:
+via `@compile_ops`). This runner forces a fresh task-local JIT build so edits to
+the `.cu` take effect. It:
   - compile:     builds the op with a small case (smoke)
   - correctness: runs the HIP op vs a torch SDPA reference (assert close)
   - performance: benchmarks the HIP op and writes build/performance_report.json
 
 The build needs the Composable-Kernel fmha codegen shipped in the CK submodule
-(`3rdparty/composable_kernel/example/ck_tile/01_fmha/generate.py`); the task's
-`post_clone_install` fetches that submodule after a fresh clone.
+(`3rdparty/composable_kernel/example/ck_tile/01_fmha/generate.py`), which is
+seeded with the AITER repository from the task image.
 """
 from __future__ import annotations
 
@@ -144,6 +144,9 @@ def _ensure_torch_python() -> None:
 
 
 def _configure_runtime() -> None:
+    # AITER normally reuses an existing module without checking the source
+    # files. Force a rebuild so an agent's edits are guaranteed to be compiled.
+    os.environ["AITER_REBUILD"] = "1"
     os.environ.setdefault("ENABLE_CK", "1")
     os.environ.setdefault("AITER_LOG_LEVEL", "WARNING")
     ck = _ck_dir()
@@ -182,9 +185,9 @@ def _write_performance_report(results: list[dict]) -> None:
 # ---------------------------------------------------------------------------
 # Input construction (mirrors op_tests/test_batch_prefill.py: uniform-length
 # paged KV cache in the SGLANG 4D linear layout [num_pages, page_size, h_kv, d]).
-# All test cases use bf16 + causal + no soft-cap / bias / lse / dropout / descale
-# / sink, which maps to the single JIT kernel variant
-# `mha_batch_prefill_bf16_nlogits_nbias_mask_nlse_ndropout_nqscale_nsink`.
+# All test cases use bf16 + causal + logits soft-cap 30 and no bias / lse /
+# dropout / descale / sink. The nonzero soft cap avoids a documented ROCm 7.2
+# gfx950 compiler bug in the causal + zero-soft-cap kernel variant.
 # ---------------------------------------------------------------------------
 def _make_case(
     *,
@@ -196,6 +199,7 @@ def _make_case(
     head_size: int,
     page_size: int,
     dtype_str: str,
+    logits_soft_cap: float,
 ):
     import torch
 
@@ -247,6 +251,7 @@ def _make_case(
             "head_size": head_size,
             "page_size": page_size,
             "dtype": dtype_str,
+            "logits_soft_cap": logits_soft_cap,
         },
         "query": query,
         "key_cache": key_cache,
@@ -259,6 +264,7 @@ def _make_case(
         "max_seqlen_q": qo_len,
         "max_seqlen_k": kv_len,
         "scale": float(1.0 / math.sqrt(head_size)),
+        "logits_soft_cap": logits_soft_cap,
     }
 
 
@@ -275,6 +281,7 @@ def _run_aiter(case: dict):
         case["max_seqlen_q"],
         case["max_seqlen_k"],
         softmax_scale=case["scale"],
+        logits_soft_cap=case["logits_soft_cap"],
         causal=True,
         kv_last_page_lens=case["kv_last_page_lens"],
     )
@@ -294,6 +301,7 @@ def _run_torch(case: dict):
     d = p["head_size"]
     ratio = h_q // h_kv
     scale = case["scale"]
+    logits_soft_cap = case["logits_soft_cap"]
 
     q = case["query"]
     key_cache = case["key_cache"]
@@ -318,6 +326,8 @@ def _run_torch(case: dict):
 
         # [h_q, Sq, Sk]
         attn = scale * torch.einsum("qhd,khd->hqk", qi.float(), ki)
+        if logits_soft_cap > 0:
+            attn = logits_soft_cap * torch.tanh(attn / logits_soft_cap)
         # Bottom-right aligned causal mask: query row r (abs pos kv_len-qo_len+r)
         # attends key col c iff c <= (kv_len - qo_len) + r.
         row = torch.arange(qo_len, device=q.device).unsqueeze(1)
@@ -331,13 +341,13 @@ def _run_torch(case: dict):
 
 
 CASES = [
-    dict(batch_size=2, qo_len=64, kv_len=64, num_qo_heads=8, num_kv_heads=1, head_size=128, page_size=16, dtype_str="bfloat16"),
-    dict(batch_size=1, qo_len=48, kv_len=80, num_qo_heads=4, num_kv_heads=2, head_size=128, page_size=16, dtype_str="bfloat16"),
+    dict(batch_size=2, qo_len=64, kv_len=64, num_qo_heads=8, num_kv_heads=1, head_size=128, page_size=16, dtype_str="bfloat16", logits_soft_cap=30.0),
+    dict(batch_size=1, qo_len=48, kv_len=80, num_qo_heads=4, num_kv_heads=2, head_size=128, page_size=16, dtype_str="bfloat16", logits_soft_cap=30.0),
 ]
 
 PERF_CASES = [
-    ("batch_prefill_b4_q512_kv512", dict(batch_size=4, qo_len=512, kv_len=512, num_qo_heads=8, num_kv_heads=1, head_size=128, page_size=16, dtype_str="bfloat16")),
-    ("batch_prefill_b2_q2048_kv2048", dict(batch_size=2, qo_len=2048, kv_len=2048, num_qo_heads=8, num_kv_heads=1, head_size=128, page_size=16, dtype_str="bfloat16")),
+    ("batch_prefill_b4_q512_kv512", dict(batch_size=4, qo_len=512, kv_len=512, num_qo_heads=8, num_kv_heads=1, head_size=128, page_size=16, dtype_str="bfloat16", logits_soft_cap=30.0)),
+    ("batch_prefill_b2_q2048_kv2048", dict(batch_size=2, qo_len=2048, kv_len=2048, num_qo_heads=8, num_kv_heads=1, head_size=128, page_size=16, dtype_str="bfloat16", logits_soft_cap=30.0)),
 ]
 
 

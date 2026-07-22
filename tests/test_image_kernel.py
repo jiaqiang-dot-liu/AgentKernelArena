@@ -7,6 +7,11 @@ Run: python3 -m pytest tests/test_image_kernel.py -q
 from __future__ import annotations
 
 import logging
+import os
+import signal
+import subprocess
+import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -89,6 +94,64 @@ def test_forge_max_hours_tracks_timeout():
     assert _forge_max_hours({}) >= 0.1
 
 
+def _process_is_running(pid: int) -> bool:
+    """Treat a reparented zombie as stopped: it cannot edit files or hold the GPU."""
+    stat_path = Path(f"/proc/{pid}/stat")
+    try:
+        state = stat_path.read_text().split()[2]
+    except (FileNotFoundError, IndexError, OSError):
+        return False
+    return state not in {"Z", "X"}
+
+
+@pytest.mark.skipif(
+    not hasattr(os, "killpg") or not Path("/proc/self/stat").exists(),
+    reason="requires Linux process groups and /proc state",
+)
+def test_terminate_process_group_kills_descendant_after_leader_exits():
+    """A child that ignores SIGTERM must not survive an early-exiting leader."""
+    from agents.forge.launch_agent import _terminate_process_group
+
+    child_code = (
+        "import os, signal, time; "
+        "signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+        "print(os.getpid(), flush=True); "
+        "time.sleep(60)"
+    )
+    leader_code = (
+        "import subprocess, sys; "
+        f"child = subprocess.Popen([sys.executable, '-c', {child_code!r}]); "
+        "child.wait()"
+    )
+    leader = subprocess.Popen(
+        [sys.executable, "-c", leader_code],
+        stdout=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    assert leader.stdout is not None
+    child_pid = int(leader.stdout.readline().strip())
+    pgid = os.getpgid(leader.pid)
+
+    try:
+        _terminate_process_group(
+            leader,
+            logging.getLogger("test_process_group_cleanup"),
+            term_timeout=0.2,
+            kill_timeout=1,
+        )
+
+        deadline = time.monotonic() + 1
+        while _process_is_running(child_pid) and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert not _process_is_running(child_pid)
+    finally:
+        try:
+            os.killpg(pgid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
+
 # --------------------------------------------------------------------------
 # 2. preprocessing: image_kernel seeds the repo from an in-image path
 #    (copy, no clone), excluding .git, idempotently.
@@ -97,6 +160,8 @@ def _mk_fake_image_repo(tmp_path: Path) -> Path:
     src = tmp_path / "image_aiter"
     (src / "csrc").mkdir(parents=True)
     (src / "csrc" / "k.cuh").write_text("// k\n")
+    (src / "aiter" / "jit" / "build").mkdir(parents=True)
+    (src / "aiter" / "jit" / "build" / "cached.so").write_text("cache\n")
     (src / ".git").mkdir()
     (src / ".git" / "config").write_text("[core]\n")
     return src
@@ -111,6 +176,23 @@ def test_seed_from_image_copies_without_git(tmp_path):
     assert did is True
     assert (dst / "csrc" / "k.cuh").exists()
     assert not (dst / ".git").exists()  # .git excluded
+
+
+def test_seed_from_image_excludes_declared_disposable_cache(tmp_path):
+    from src.preprocessing import _ensure_repo_seeded_from_image
+
+    src = _mk_fake_image_repo(tmp_path)
+    dst = tmp_path / "tasks" / "aiter"
+    did = _ensure_repo_seeded_from_image(
+        src,
+        dst,
+        LOG,
+        ("aiter/jit/build",),
+    )
+    assert did is True
+    assert (dst / "csrc" / "k.cuh").exists()
+    assert not (dst / "aiter" / "jit" / "build").exists()
+    assert not (dst / ".git").exists()
 
 
 def test_seed_from_image_idempotent(tmp_path):
