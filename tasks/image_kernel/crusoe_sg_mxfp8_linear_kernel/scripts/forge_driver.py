@@ -187,6 +187,15 @@ def _matches(got: torch.Tensor, ref: torch.Tensor) -> bool:
     return bool(((a - b).abs().max() / scale).item() < 2e-2)
 
 
+def _mxfp8_matches(got: torch.Tensor, ref: torch.Tensor, case: dict) -> bool:
+    """Match task_runner.run_correctness(): norm relerr gate for MXFP8 ops."""
+    limit = case.get("params", {}).get("max_relerr", 0.06)
+    g = got.float()
+    r = ref.float()
+    rel = ((g - r).norm() / (r.norm() + 1e-8)).item()
+    return rel < limit
+
+
 def _run_correctness(mode: str) -> int:
     torch_mod = tr._torch()
     atol, rtol = _tolerance()
@@ -200,7 +209,10 @@ def _run_correctness(mode: str) -> int:
         actual, expected = _correctness_pair(inputs, ret)
         for got, ref in zip(actual, expected):
             snrs.append(_snr_db(ref, got))
-            if not torch_mod.allclose(
+            if tr.OPERATOR in ("mxfp8_linear", "mxfp8_grouped_gemm"):
+                if not _mxfp8_matches(got, ref, case):
+                    all_close = False
+            elif not torch_mod.allclose(
                 got.float(), ref.float(), atol=atol, rtol=rtol
             ):
                 all_close = False
