@@ -1,0 +1,153 @@
+{
+  "source_day": "2026-07-20",
+  "date_field": "session_ended_at",
+  "platform": "MI355X/gfx950",
+  "framework": "vllm 0.24.0",
+  "base_image": "harbor.crusoe.primus-safe.amd.com/sync/vllm-openai-rocm:v0.24.0",
+  "selection": "Same operator and same session-derived cases as mi355x_vllm_triton_unified_attention, but the target language is FlyDSL: AITER's Triton unified_attention is the correctness oracle and the speedup baseline, and the agent must produce an equivalent FlyDSL kernel. Keeping the case list identical makes the two tasks directly comparable (same-language optimization vs cross-language rewrite).",
+  "task_name": "mi355x-ci-unified-attention-flydsl-rewrite-20260720",
+  "operator": "unified_attention",
+  "cases": [
+    {
+      "id": "minimax-k004",
+      "model": "MiniMax-M2.7",
+      "session_breakdown_id": 88517,
+      "kernel_ids": [
+        "k004"
+      ],
+      "gpu_pct": 16.412,
+      "params": {
+        "q_tokens": 64,
+        "num_q_heads": 12,
+        "num_kv_heads": 2,
+        "head_size": 128,
+        "ctx_len": 1024,
+        "block_size": 16,
+        "q_dtype": "bf16",
+        "kv_dtype": "bf16"
+      },
+      "trace_input_shapes": [
+        "(64,12,128) bf16",
+        "(64,2,128) bf16",
+        "(64,2,128) bf16",
+        "(64,12,128) bf16"
+      ]
+    },
+    {
+      "id": "gemma-k002",
+      "model": "gemma-4-26B-A4B-it",
+      "session_breakdown_id": 88502,
+      "kernel_ids": [
+        "k002"
+      ],
+      "gpu_pct": 19.643,
+      "params": {
+        "q_tokens": 64,
+        "num_q_heads": 8,
+        "num_kv_heads": 4,
+        "head_size": 256,
+        "ctx_len": 1024,
+        "block_size": 16,
+        "q_dtype": "bf16",
+        "kv_dtype": "bf16"
+      },
+      "trace_input_shapes": [
+        "(64,8,256) bf16",
+        "(64,4,256) bf16",
+        "(64,4,256) bf16",
+        "(64,8,256) bf16"
+      ]
+    },
+    {
+      "id": "gemma-k006",
+      "model": "gemma-4-26B-A4B-it",
+      "session_breakdown_id": 88502,
+      "kernel_ids": [
+        "k006"
+      ],
+      "gpu_pct": 3.973,
+      "params": {
+        "q_tokens": 64,
+        "num_q_heads": 8,
+        "num_kv_heads": 1,
+        "head_size": 512,
+        "ctx_len": 1024,
+        "block_size": 16,
+        "q_dtype": "bf16",
+        "kv_dtype": "bf16"
+      },
+      "trace_input_shapes": [
+        "(64,8,512) bf16",
+        "(64,1,512) bf16"
+      ]
+    },
+    {
+      "id": "gptoss-k020",
+      "model": "gpt-oss-120b",
+      "session_breakdown_id": 88624,
+      "kernel_ids": [
+        "k020"
+      ],
+      "gpu_pct": 7.648,
+      "params": {
+        "q_tokens": 64,
+        "num_q_heads": 8,
+        "num_kv_heads": 1,
+        "head_size": 64,
+        "ctx_len": 1024,
+        "block_size": 16,
+        "q_dtype": "bf16",
+        "kv_dtype": "bf16"
+      },
+      "trace_input_shapes": [
+        "(64,8,64) bf16",
+        "(64,1,64) bf16"
+      ]
+    },
+    {
+      "id": "mixtral-k031",
+      "model": "Mixtral-8x7B-Instruct-v0.1",
+      "session_breakdown_id": 88512,
+      "kernel_ids": [
+        "k031"
+      ],
+      "gpu_pct": 5.764,
+      "params": {
+        "q_tokens": 64,
+        "num_q_heads": 4,
+        "num_kv_heads": 1,
+        "head_size": 128,
+        "ctx_len": 1024,
+        "block_size": 16,
+        "q_dtype": "bf16",
+        "kv_dtype": "fp8"
+      },
+      "trace_input_shapes": [
+        "(64,4,128) bf16",
+        "(64,1,128) bf16",
+        "(0,) fp8"
+      ]
+    }
+  ],
+  "profile_case": "minimax-k004",
+  "rewrite_contract": {
+    "target_language": "flydsl",
+    "op_name": "unified_attention_decode",
+    "builder_symbol": "build_unified_attention_decode_module",
+    "builder_signature": "build_unified_attention_decode_module(num_q_heads, num_kv_heads, head_size, block_size) -> launch_fn",
+    "launch_signature": "launch_fn(out, query, key_cache, value_cache, block_tables, seq_lens, scale, k_scale, v_scale) -> None (writes out in place)",
+    "tensor_layouts": {
+      "query": "(num_seqs, num_q_heads, head_size) bf16, contiguous",
+      "key_cache": "(num_blocks, block_size, num_kv_heads, head_size), bf16 or float8_e4m3fn",
+      "value_cache": "(num_blocks, block_size, num_kv_heads, head_size), same dtype as key_cache",
+      "block_tables": "(num_seqs, pages_per_seq) int32",
+      "seq_lens": "(num_seqs,) int32, per-sequence KV context length",
+      "k_scale": "(1,) fp32 dequant scale for key_cache; 1.0 when the cache is bf16",
+      "v_scale": "(1,) fp32 dequant scale for value_cache; 1.0 when the cache is bf16",
+      "out": "(num_seqs, num_q_heads, head_size) bf16, written in place"
+    },
+    "semantics": "Decode attention with one query token per sequence. For sequence s and query head h, attend over the first seq_lens[s] KV positions gathered through block_tables[s], with softmax scale `scale` and GQA sharing num_q_heads/num_kv_heads query heads per KV head. An fp8 KV cache is dequantized by the corresponding scale before use. Causal with no sliding window, no ALiBi, no logit softcap.",
+    "geometry_spread": "The five cases deliberately span a wide geometry range: head_size 64/128/256/512 and GQA ratios 4:1, 2:1, 6:1 and 8:1, plus one fp8 KV case. A single FlyDSL implementation must cover all of them, which is a broader surface than any one session shape.",
+    "source_reference": "aiter/ops/triton/_triton_kernels/attention/unified_attention.py (kernel_unified_attention_2d / _3d / reduce_segments); host wrapper aiter/ops/triton/attention/unified_attention.py"
+  }
+}

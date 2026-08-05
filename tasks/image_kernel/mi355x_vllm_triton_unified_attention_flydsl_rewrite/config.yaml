@@ -1,0 +1,57 @@
+task_type: image_kernel
+image_repo_path: /usr/local/lib/python3.12/dist-packages/aiter
+repo_subdir: aiter
+image_repo_exclude:
+- jit/build
+- jit/flydsl_cache
+repository_language: triton
+source_file_path:
+- ops/triton/_triton_kernels/attention/unified_attention.py
+target_kernel_functions:
+- kernel_unified_attention_2d
+- kernel_unified_attention_3d
+- reduce_segments
+kernel_identity:
+  logical_operator: unified_attention_with_output
+  kernel_kind: flydsl
+  source_owner: aiter
+  workload:
+    source: session_cases.json
+    primary_case: minimax-k004
+# Rewrite pipeline metadata. Read only by agents/forge/launch_agent.py, which
+# dispatches `kernel-agents forge-rewrite-by-flydsl` instead of `forge-loop`
+# when target_language is set. Everything else stays a normal image_kernel task.
+rewrite:
+  target_language: flydsl
+  op_name: unified_attention_decode
+  source_entry: unified_attention
+  flydsl_kernel_name: kernel.py
+  snr_threshold: 30.0
+  max_port_attempts: 3
+compile_command:
+- python3 scripts/task_runner.py compile
+correctness_command:
+- python3 scripts/task_runner.py correctness
+performance_command:
+- python3 scripts/task_runner.py performance
+task_result_template: null
+prompt:
+  source_code: null
+  instructions: 'Rewrite the AITER Triton unified-attention decode kernel in FlyDSL on
+    MI355X/gfx950. This is a REWRITE task, not a same-language optimization: the Triton
+    implementation reached through aiter.ops.triton.attention.unified_attention is the
+    correctness oracle and the speedup baseline, and it must not be edited. Produce
+    kernel.py exposing build_unified_attention_decode_module(num_q_heads, num_kv_heads,
+    head_size, block_size) -> launch_fn, where launch_fn(out, query, key_cache,
+    value_cache, block_tables, seq_lens, scale, k_scale, v_scale) writes out in place.
+    scripts/forge_driver.py is the authoritative statement of the tensor layouts and is
+    self-contained; read it. The workload is BF16 decode with one query token per
+    sequence, 64 sequences and 1024 tokens of KV context, but the five cases span a
+    deliberately wide geometry range: head_size 64, 128, 256 and 512, GQA ratios 4:1,
+    2:1, 6:1 and 8:1, and one case with an fp8_e4m3fn KV cache that must be dequantized
+    by k_scale / v_scale. One implementation has to cover all of them, so prefer a
+    parameterized design over anything specialized to a single shape. Cases are
+    identical to mi355x_vllm_triton_unified_attention so the two tasks are directly
+    comparable. Preserve all correctness cases and improve CUDA-graph measured
+    performance.'
+  cheatsheet: null
