@@ -1,0 +1,95 @@
+task_type: image_kernel
+image_repo_path: /usr/local/lib/python3.12/dist-packages/vllm
+repo_subdir: vllm
+image_repo_exclude:
+- __pycache__
+repository_language: triton
+# source_file_path[0] is the anchor the rewrite pipeline passes as --source-kernel,
+# so it is fused_recurrent.py: fused_recurrent_kda_packed_decode_kernel is the
+# token-serial statement of the recurrence, i.e. the semantics the port must match.
+# chunk.py and the FLA ops are the blockwise formulation of the same recurrence and
+# are the reference material for the OPTIMIZE phase.
+source_file_path:
+- models/kimi_k3/amd/ops/third_party/kda/fused_recurrent.py
+- models/kimi_k3/amd/ops/third_party/kda/chunk.py
+- models/kimi_k3/amd/ops/third_party/kda/chunk_intra.py
+- models/kimi_k3/amd/ops/third_party/kda/chunk_intra_token_parallel.py
+- third_party/flash_linear_attention/ops/chunk_delta_h.py
+- third_party/flash_linear_attention/ops/cumsum.py
+- third_party/flash_linear_attention/ops/l2norm.py
+- third_party/flash_linear_attention/ops/solve_tril.py
+- third_party/flash_linear_attention/ops/wy_fast.py
+target_kernel_functions:
+- fused_recurrent_kda_packed_decode
+- chunk_kda_with_fused_gate
+kernel_identity:
+  logical_operator: kda_linear_attn
+  kernel_kind: flydsl
+  source_owner: vllm
+  workload:
+    source: session_cases.json
+    primary_case: kda-decode-packed-k007
+# Rewrite pipeline metadata. Read only by agents/forge/launch_agent.py, which
+# dispatches `kernel-agents forge-rewrite-by-flydsl` instead of `forge-loop`
+# when target_language is set. Everything else stays a normal image_kernel task.
+rewrite:
+  target_language: flydsl
+  op_name: kda_linear_attn
+  source_entry: fused_recurrent_kda_packed_decode
+  flydsl_kernel_name: kernel.py
+  snr_threshold: 30.0
+  max_port_attempts: 3
+compile_command:
+- python3 scripts/task_runner.py compile
+correctness_command:
+- python3 scripts/task_runner.py correctness
+performance_command:
+- python3 scripts/task_runner.py performance
+compile_timeout: 1800
+correctness_timeout: 3600
+performance_timeout: 3600
+task_result_template: null
+platform_support:
+  required_arch: gfx950
+  status: active
+  skip_reason: null
+prompt:
+  source_code: null
+  instructions: >-
+    Rewrite Kimi-K3 KDA (Kimi Delta Attention) linear attention in FlyDSL on
+    MI355X/gfx950. This is a REWRITE task, not a same-language optimization: the
+    vendored Triton implementation under
+    vllm/models/kimi_k3/amd/ops/third_party/kda is the correctness oracle and the
+    speedup baseline, and it must not be edited.
+    Produce kernel.py exposing
+    build_kda_linear_attn_module(num_heads, head_dim, chunk_size) -> launch_fn,
+    where launch_fn(out, q, k, v, raw_g, raw_beta, A_log, dt_bias, state,
+    state_indices, cu_seqlens, scale, lower_bound) writes out and state in place.
+    scripts/forge_driver.py is the authoritative statement of the tensor layouts
+    and is self-contained; read it.
+    The source exposes two entries -- fused_recurrent_kda_packed_decode (decode
+    hot kernel k007) and chunk_kda_with_fused_gate (the prefill chunk-KDA kernel
+    group) -- but both evaluate the same gated delta-rule recurrence, one
+    token-serial and one blockwise, so the port implements ONE varlen entry driven
+    by cu_seqlens and state_indices: decode is the degenerate case of one token
+    per segment. Do NOT retarget anything at fused_recurrent_kda: that is the
+    speculative-decode entry and K3 never executes it
+    (num_nextn_predict_layers=0).
+    Dims are the session's per-rank TP=8 shapes: num_heads=12, head_dim=128
+    (d_k=d_v), chunk_size=64, lower_bound=-5.0. That lower bound selects the
+    safe-gate branch gate = -5.0 * sigmoid(exp(A_log) * (raw_g + dt_bias)) rather
+    than the softplus branch, and raw_beta arrives pre-sigmoid because the source
+    applies sigmoid internally. q and k are l2-normalised inside the kernel and
+    the recurrent state is fp32. In the decode case q/k/v are strided views into
+    the packed mixed_qkv block, so their row stride is 3*num_heads*head_dim rather
+    than num_heads*head_dim -- read the strides instead of assuming them.
+    session_cases.json carries the session's real packed prefill token counts
+    (7211 and 1080) plus long-sequence headroom up to T=32768. One implementation
+    has to cover all five cases, and a token-serial scan that is adequate at T=1
+    will not be at T=32768, so prefer the blocked formulation.
+    Arena-side correctness is numerical parity against an independent float64
+    golden (cos > 0.999 and normalized max error < 0.03); the rewrite pipeline
+    additionally gates the port against the live Triton output on SNR. Preserve
+    all correctness cases and improve the CUDA-graph measured performance,
+    especially at long sequence length.
+  cheatsheet: null
