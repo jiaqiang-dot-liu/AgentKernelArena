@@ -639,6 +639,110 @@ if __name__ == "__main__":
 """
 
 
+def _rewrite_spec(task_config: dict[str, Any]) -> dict[str, Any]:
+    """Return the task's ``rewrite`` block when it targets another language.
+
+    A task opts into KernelForge's rewrite pipeline (``forge-rewrite-by-flydsl``)
+    instead of the same-language ``forge-loop`` by declaring
+    ``rewrite.target_language``. Everything else about the task — seeding,
+    perf-helper injection, the arena compile/correctness/performance commands —
+    is unchanged, so this stays a normal task to the rest of the framework.
+    """
+    spec = task_config.get("rewrite")
+    if not isinstance(spec, dict):
+        return {}
+    if str(spec.get("target_language", "")).strip().lower() != "flydsl":
+        return {}
+    return spec
+
+
+def _build_forge_rewrite_command(
+    *,
+    forge_bin: str,
+    source_kernel: Path,
+    driver_dest: Path,
+    workspace: str,
+    experiments_dir: Path,
+    result_json: Path,
+    agent_config: dict[str, Any],
+    rewrite: dict[str, Any],
+    gpu_arch: str,
+    target_functions: list[str],
+    shapes: list[dict[str, Any]],
+) -> list[str]:
+    """Build argv for ``kernel-agents forge-rewrite-by-flydsl``.
+
+    The pipeline ports ``source_kernel`` into FlyDSL (correctness-only PORT
+    phase, gated on SNR against the live oracle) and then hands the result to
+    forge-loop to optimize. The driver is the oracle and the baseline: it is
+    invoked as ``--ref-bench-mode`` for the source and ``--bench-mode`` for the
+    port, so it must be self-contained.
+    """
+    op_name = str(rewrite.get("op_name") or "").strip()
+    if not op_name:
+        raise RuntimeError("rewrite.op_name is required for a FlyDSL rewrite task")
+    cmd = [
+        forge_bin,
+        "forge-rewrite-by-flydsl",
+        "--source-kernel",
+        str(source_kernel),
+        "--driver",
+        str(driver_dest),
+        "--op-name",
+        op_name,
+        "--workspace",
+        str(workspace),
+        "--experiments-dir",
+        str(experiments_dir),
+        "--result-json",
+        str(result_json),
+        "--flydsl-kernel-name",
+        str(rewrite.get("flydsl_kernel_name", "kernel.py")),
+        "--gpu-target",
+        gpu_arch,
+        "--snr-threshold",
+        str(rewrite.get("snr_threshold", agent_config.get("snr_threshold", 30.0))),
+        "--max-port-attempts",
+        str(rewrite.get("max_port_attempts", 3)),
+        "--max-iters",
+        str(agent_config.get("max_iters", 2)),
+        "--max-hours",
+        str(_forge_max_hours(agent_config)),
+        "--model",
+        str(agent_config.get("model", "claude-opus-4-8")),
+        "--permission-mode",
+        str(agent_config.get("permission_mode", "acceptEdits")),
+    ]
+    # Passing --source-entry explicitly also keeps ingest from AST-parsing a
+    # non-Python source (a HIP/jinja file) to auto-discover it.
+    source_entry = str(rewrite.get("source_entry") or "").strip()
+    if source_entry:
+        cmd.extend(["--source-entry", source_entry])
+    if target_functions:
+        cmd.extend(["--target-functions", ",".join(str(n) for n in target_functions)])
+    if shapes:
+        cmd.extend(["--shapes-json", json.dumps(shapes)])
+    return cmd
+
+
+def _rewrite_shapes(workspace: str) -> list[dict[str, Any]]:
+    """Case params from session_cases.json, forwarded to the port prompt."""
+    cases_file = Path(workspace) / "session_cases.json"
+    if not cases_file.is_file():
+        return []
+    try:
+        spec = json.loads(cases_file.read_text())
+    except (OSError, ValueError):
+        return []
+    shapes: list[dict[str, Any]] = []
+    for case in spec.get("cases", []):
+        params = dict(case.get("params") or {})
+        if params:
+            params["case_id"] = case.get("id")
+            shapes.append(params)
+    return shapes
+
+
 def _build_forge_command(
     *,
     forge_bin: str,
@@ -951,23 +1055,44 @@ def launch_agent(eval_config: dict[str, Any], task_config_dir: str, workspace: s
     result_json.unlink(missing_ok=True)
 
     model = str(agent_config.get("model", "claude-opus-4-8"))
-    cmd_parts = _build_forge_command(
-        forge_bin=forge_bin,
-        kernel_file=kernel_file,
-        driver_dest=driver_dest,
-        workspace=workspace,
-        experiments_dir=experiments_dir,
-        result_json=result_json,
-        program_md=program_md,
-        agent_config=agent_config,
-        gpu_arch=gpu_arch,
-        fellow=fellow,
-        task_type=task_type,
-        source_files=all_source_files,
-        target_functions=target_funcs,
-        logical_operator=logical_operator,
-        framework=framework,
-    )
+    rewrite = _rewrite_spec(task_config)
+    if rewrite:
+        logger.info(
+            "Forge: task targets %s - dispatching forge-rewrite-by-flydsl "
+            "(the source stays the oracle and the baseline)",
+            rewrite.get("target_language"),
+        )
+        cmd_parts = _build_forge_rewrite_command(
+            forge_bin=forge_bin,
+            source_kernel=kernel_file,
+            driver_dest=driver_dest,
+            workspace=workspace,
+            experiments_dir=experiments_dir,
+            result_json=result_json,
+            agent_config=agent_config,
+            rewrite=rewrite,
+            gpu_arch=gpu_arch,
+            target_functions=target_funcs,
+            shapes=_rewrite_shapes(workspace),
+        )
+    else:
+        cmd_parts = _build_forge_command(
+            forge_bin=forge_bin,
+            kernel_file=kernel_file,
+            driver_dest=driver_dest,
+            workspace=workspace,
+            experiments_dir=experiments_dir,
+            result_json=result_json,
+            program_md=program_md,
+            agent_config=agent_config,
+            gpu_arch=gpu_arch,
+            fellow=fellow,
+            task_type=task_type,
+            source_files=all_source_files,
+            target_functions=target_funcs,
+            logical_operator=logical_operator,
+            framework=framework,
+        )
     # Human-readable rendering for the log only; the process is launched from the
     # argv list (cmd_parts) with shell=False, so no shell parsing is involved.
     cmd = " ".join(shlex.quote(p) for p in cmd_parts)

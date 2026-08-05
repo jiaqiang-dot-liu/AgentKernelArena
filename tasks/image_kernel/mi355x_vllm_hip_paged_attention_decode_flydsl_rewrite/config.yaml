@@ -1,0 +1,58 @@
+task_type: image_kernel
+image_repo_path: /usr/local/lib/python3.12/dist-packages/aiter_meta
+repo_subdir: aiter_meta
+repository_language: hip
+# pa.cpp.jinja is the launch contract (template parameters plus both kernel
+# launches) and is the only PA file small enough to survive the port prompt's
+# 16 KB source cap. The device code it instantiates lives in the sibling
+# pa.cuh / pa_kernels.cuh / pa_common.cuh, which the agent can read in the
+# seeded tree.
+source_file_path:
+- csrc/cpp_itfs/pa/pa.cpp.jinja
+target_kernel_functions:
+- paged_attention_ll4mi_QKV_mfma16_kernel
+- paged_attention_ll4mi_reduce_kernel
+kernel_identity:
+  logical_operator: paged_attention_rocm
+  kernel_kind: flydsl
+  source_owner: aiter
+  workload:
+    source: session_cases.json
+    primary_case: llama3_1-8b-decode-m64-ctx1024
+# Rewrite pipeline metadata. Read only by agents/forge/launch_agent.py, which
+# dispatches `kernel-agents forge-rewrite-by-flydsl` instead of `forge-loop`
+# when target_language is set. Everything else about the task stays a normal
+# image_kernel task.
+rewrite:
+  target_language: flydsl
+  op_name: paged_attention_decode
+  source_entry: paged_attention_rocm
+  flydsl_kernel_name: kernel.py
+  snr_threshold: 30.0
+  max_port_attempts: 3
+compile_command:
+- python3 scripts/task_runner.py compile
+correctness_command:
+- python3 scripts/task_runner.py correctness
+performance_command:
+- python3 scripts/task_runner.py performance
+task_result_template: null
+prompt:
+  source_code: null
+  instructions: 'Rewrite the ROCm paged-attention decode operator in FlyDSL on
+    MI355X/gfx950. This is a REWRITE task, not a same-language optimization: the AITER
+    HIP implementation reached through aiter.paged_attention_rocm is the correctness
+    oracle and the speedup baseline, and it must not be edited. Produce kernel.py
+    exposing build_paged_attention_decode_module(num_q_heads, num_kv_heads, head_size,
+    block_size) -> launch_fn, where launch_fn(out, query, key_cache, value_cache,
+    block_tables, seq_lens, scale) writes out in place. scripts/forge_driver.py is the
+    authoritative statement of the tensor layouts and is self-contained; read it. The
+    workload is BF16 decode with one query token per sequence, 64 sequences,
+    head_size 128, block_size 16 and 1024-2048 tokens of KV context, across three head
+    geometries (GQA 2:1, 4:1 and 5:1) taken from four MI355X Hyperloom 2026-08-01
+    sessions. Unlike the AITER source the port is not handed exp_sums / max_logits /
+    tmp_out scratch, so the KV partitioning strategy is entirely your choice. Cases are
+    identical to mi355x_vllm_hip_paged_attention_decode so the two tasks are directly
+    comparable. Preserve all correctness cases and improve CUDA-graph measured
+    performance.'
+  cheatsheet: null
