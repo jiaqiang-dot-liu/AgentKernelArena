@@ -111,25 +111,56 @@ AITER oracle gave **SNR 51.6–51.9 dB, allclose True on all seven cases**, so t
 30 dB port gate has ample margin for this operator. That stand-in also surfaced
 and confirmed the graph-capture fallback described above.
 
-End to end, the real `forge-rewrite-by-flydsl` pipeline was driven with the argv
-the launcher builds, and **ingest and seed are confirmed working**: the spec
-resolves `builder_symbol` to `build_paged_attention_decode_module`, matching what
-the driver and task runner expect, and the pipeline wrote the seeded `kernel.py`.
+## End-to-end run
 
-**Not verified:** the PORT and OPTIMIZE stages. Both spawn an LLM session, and
-the container used for this work has no Anthropic gateway configured
-(`ANTHROPIC_BASE_URL` / `ANTHROPIC_AUTH_TOKEN` unset). This is an environment
-limitation, not a known defect.
+A full run through `main.py` with the forge agent on MI355X/gfx950
+(`claude-opus-5`) exercised the whole chain:
+
+```text
+arena          task discovery -> workspace -> aiter_meta seeding
+arena baseline 7 cases, average 0.1012 ms          (task_runner, AITER)
+launcher       "task targets flydsl - dispatching forge-rewrite-by-flydsl"
+pipeline       ingest -> seeded skeleton kernel.py -> using task driver
+source baseline 0.0744 ms (full suite)             (driver --ref-bench-mode)
+PORT           OK on attempt 1/3, SNR 51.62 dB
+interim        flydsl 0.402904 ms vs source 0.074388 ms -> 0.185x
+OPTIMIZE       forge-loop --fellow flydsl-fellow, iteration 1 reached
+```
+
+The port is genuine FlyDSL: one wavefront per (sequence, query head), a two-pass
+softmax with the scores staged in LDS and fp32 accumulation, then a weighted
+value reduction with the output dimension partitioned across lanes.
+
+Two results worth reading carefully:
+
+- **SNR 51.62 dB matches the PyTorch stand-in exactly.** That is the BF16 output
+  quantization floor, so the port is numerically correct rather than barely
+  clearing the 30 dB gate.
+- **The ported kernel starts 5.4x slower than AITER.** That is expected — PORT is
+  a correctness-only phase — and it is why the pipeline hands off to OPTIMIZE.
+  Contrary to the scope note below, the port itself was not the obstacle here.
+
+The in-session gate also demonstrably works: edit 6 was blocked with
+`validation driver_error` (the candidate kernel faulted the GPU), the agent
+recovered, and edit 8 was allowed.
+
+The run was stopped once OPTIMIZE reached iteration 1, so there is no final
+optimized speedup number. Everything before that is clean, with no errors in any
+preceding stage.
 
 ## Scope note
 
 FlyDSL is an MLIR-level DSL — see `tasks/flydsl2flydsl/flash_attn_func_kernel`
 for what a hand-written attention kernel looks like there. Porting a full paged
-attention (three GQA geometries, paged KV gather, split-K reduction) is a hard
-target, and the PORT phase may well fail. That is a property of the benchmark,
-not a defect: the task's job is to pose the problem faithfully. If the port
-proves unreachable in practice, the natural narrowing is to keep only the two
-GQA 4:1 cases and widen again once that works.
+attention (three GQA geometries, paged KV gather, split-K reduction) looked like
+a hard enough target that the PORT phase might not clear it at all.
+
+That turned out to be too pessimistic: the run above ported on the first
+attempt. The real difficulty is on the other side — the port lands 5.4x slower
+than the hand-tuned AITER assembly, so the interesting question this task poses
+is whether OPTIMIZE can close a 5x gap, not whether the port is reachable. Keep
+that in mind before narrowing the case list; the two GQA 4:1 cases remain the
+natural reduction if it is ever needed.
 
 Expected runtime image:
 
