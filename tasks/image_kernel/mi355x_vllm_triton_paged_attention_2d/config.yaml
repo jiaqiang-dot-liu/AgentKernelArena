@@ -15,35 +15,6 @@ kernel_identity:
   workload:
     source: session_cases.json
     primary_case: qwen3_5-122b-decode-m64-ctx1024
-performance_ceiling:
-  bound: memory-bound
-  mean_case_latency_ms: 0.017854145
-  cases:
-  - case_id: qwen3_5-122b-decode-m64-ctx1024
-    semantic_io_bytes: 67387908
-    arithmetic_ops: 269352704
-    ideal_latency_ms: 0.009463489
-  - case_id: qwen3_5-122b-decode-m64-ctx2048
-    semantic_io_bytes: 134513156
-    arithmetic_ops: 538574592
-    ideal_latency_ms: 0.017854145
-  - case_id: qwen3_5-122b-decode-m64-ctx3072
-    semantic_io_bytes: 201638404
-    arithmetic_ops: 807796480
-    ideal_latency_ms: 0.026244801
-  methodology:
-    type: profile-calibrated-latency-roofline
-    gpu: MI355X/gfx950
-    profiler: rocprofv3
-    minimum_dispatches_per_case: 1
-    dispatch_floor_ms: 0.00104
-    hbm_bandwidth_tb_per_s: 8.0
-    bf16_matrix_peak_pflops: 2.5
-    formula: dispatch_floor_ms + max(arithmetic_ops / 2.5e12, semantic_io_bytes / 8.0e9)
-    evidence:
-      representative_case: qwen3_5-122b-decode-m64-ctx3072
-      mean_mfma_util_pct: 1.655
-      mean_memory_stalled_pct: 0.001
 compile_command:
 - python3 scripts/task_runner.py compile
 correctness_command:

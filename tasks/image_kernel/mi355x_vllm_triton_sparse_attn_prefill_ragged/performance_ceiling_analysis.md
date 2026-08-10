@@ -1,56 +1,37 @@
 # Performance ceiling analysis
 
-## Result
+## Conclusion
 
-- Classification: `mixed-bound`
-- Mean ideal latency: `0.075736640 ms`
-- Measured mean latency: `2.174253802 ms`
-- Ceiling efficiency: `3.48%`
+- Ideal mean case latency: `0.075736640 ms`.
+- Bound classification: `mixed-bound`.
+- Baseline mean latency: `2.174253802 ms`.
+- Baseline reaches `3.48%` of the modeled ceiling.
 
-## Profiling evidence
+### Why mixed-bound
 
-All three cases passed correctness and CUDA Graph timing. `rocprofv3` measured
-the target kernel at `5836.966 us`, `967.392 us`, and `93.183 us` for query
-counts 7211, 1073, and 64. On the largest case, mean MFMA utilization was
-`16.954%` and mean memory-stall time was `0.041%`.
+With pool-resident latent-KV reuse, the 7211- and 1073-query cases are
+compute-bound. The 64-query case is at the compute/memory/dispatch crossover.
+Implementations that repeatedly fetch gathered KV rows instead of reusing the
+4–8 MB KV pool move the large cases toward memory-bound behavior.
 
-## Model
+## Proof approach
 
-For query count \(Q\), KV-pool size \(N_{kv}\), 64 heads, head dimension 512,
-and top-k 512:
+1. Validate and benchmark query counts 7211, 1073, and 64; trace the single
+   `_sparse_attn_prefill_ragged_kernel` dispatch.
+2. For queries \(Q\), heads \(H=64\), head dimension \(D=512\), top-k
+   \(K=512\), and KV-pool size \(N_{kv}\):
 
-\[
-F = 4Q \times 64 \times 512 \times 512
-\]
+   \[
+   F=4QHKD
+   \]
 
-\[
-B = 4Q \times 64 \times 512
-  + 2N_{kv} \times 512
-  + 4Q \times 512 + 4(Q+1)
-\]
+3. Minimum semantic traffic counts Q/output, one pool-resident KV read, sparse
+   indices, and indptr:
 
-The terms cover Q read plus output write, one pool-resident latent-KV read,
-indices, and indptr. The 4–8 MB KV pools fit in the shared last-level cache, so
-the ideal semantic model reuses pool rows across queries. The ideal latency is:
+   \[
+   B=4QHD+2N_{kv}D+4QK+4(Q+1)
+   \]
 
-\[
-T = 0.00104 + \max(F/2.5{\times}10^{12}, B/8.0{\times}10^9)
-\]
-
-The per-case results are `0.194608807`, `0.029843124`, and `0.002757987 ms`.
-The two large cases are compute-bound; the 64-query case is at the
-compute/memory/latency crossover. Without cross-query KV reuse, the observed
-implementation can behave memory-bound, hence the task-level `mixed-bound`
-classification.
-
-## Why the task is mixed-bound
-
-- `dsv4-flash-prefill-sq7211` and `sq1073` are compute-bound when selected KV
-  pool rows remain cache-resident and are reused across query heads and queries.
-- `dsv4-flash-prefill-sq64` is at the compute, memory, and dispatch-latency
-  crossover.
-- An implementation that repeatedly fetches gathered KV rows from HBM moves the
-  large cases toward memory-bound behavior.
-
-The label therefore describes both the per-case crossover and the operator's
-sensitivity to legally achievable KV reuse.
+4. Apply `2.5 PFLOP/s` BF16, `8.0 TB/s` HBM, and a `1.04 us` dispatch floor.
+5. Ideal latencies are `0.194608807`, `0.029843124`, and `0.002757987 ms`.
+   Their equal-weight mean is the reported task ceiling.

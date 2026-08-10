@@ -1,44 +1,34 @@
 # Performance ceiling analysis
 
-## Result
+## Conclusion
 
-- Classification: `mixed-bound`
-- Mean ideal latency: `0.109817744 ms`
-- Measured mean latency: `0.460481549 ms`
-- Ceiling efficiency: `23.85%`
+- Ideal mean case latency: `0.109817744 ms`.
+- Bound classification: `mixed-bound`.
+- Baseline mean latency: `0.460481549 ms`.
+- Baseline reaches `23.85%` of the modeled ceiling.
 
-## Profiling evidence
+### Why mixed-bound
 
-All cases passed correctness and CUDA Graph timing. Each invocation launches
-`fused_moe_kernel` twice. Mean per-launch target times were `75.821`, `94.063`,
-and `423.752 us` for 64, 1080, and 7218 tokens. The largest case showed
-`25.686%` mean MFMA utilization and `0.142%` mean memory-stall time.
+The 64-token decode and 1080-token prefill cases are memory-bound by selected
+BF16 expert weights. At 7218 tokens, matrix work exceeds minimum weight service
+time, so the case becomes compute-bound. The deterministic routes select 124,
+128, and 128 experts respectively.
 
-## Model
+## Proof approach
 
-For \(M\) tokens, top-k 8, hidden size 2816, and per-rank intermediate size 352:
+1. Validate and benchmark the three token counts; trace both
+   `fused_moe_kernel` launches and surrounding MoE stages.
+2. Measure distinct active experts from each deterministic routing tensor so the
+   ideal does not charge unused expert weights.
+3. For tokens \(M\), top-k \(K=8\), hidden \(H=2816\), and intermediate
+   \(I=352\), count the two expert GEMMs:
 
-\[
-F = 6M \times 8 \times 2816 \times 352
-\]
+   \[
+   F = 6MKHI
+   \]
 
-The semantic byte model includes BF16 weights for the experts actually selected
-by each deterministic route tensor, plus input, output, and routing metadata.
-Profiling found 124, 128, and 128 active experts. The ideal model permits a
-token-centric one-dispatch implementation of both GEMMs and top-k reduction.
-
-At 8 TB/s HBM and 2.5 PFLOP/s BF16 matrix peak, ideal latencies are
-`0.093315200`, `0.097727552`, and `0.138410481 ms`. Decode and 1080-token
-prefill are weight-memory-bound; 7218-token prefill is compute-bound, making the
-task `mixed-bound`.
-
-## Why the task is mixed-bound
-
-- The 64-token decode case selects 124 experts; selected BF16 expert weights
-  dominate its small GEMMs.
-- The 1080-token case selects all 128 experts and remains memory-bound.
-- At 7218 tokens, the two expert GEMMs contain enough work to exceed the minimum
-  expert-weight service time, making the case compute-bound.
-
-The classification changes with routed token count even though the expert
-geometry is unchanged.
+4. Count selected BF16 expert weights, activation, output, and routing metadata.
+   Model a legal token-centric fused dispatch using `2.5 PFLOP/s` BF16,
+   `8.0 TB/s` HBM, and a `1.04 us` dispatch floor.
+5. The ideal case latencies are `0.093315200`, `0.097727552`, and
+   `0.138410481 ms`; their arithmetic mean gives the reported ceiling.

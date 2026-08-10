@@ -15,45 +15,6 @@ kernel_identity:
   workload:
     source: session_cases.json
     primary_case: gemma4-moe-decode-m64
-performance_ceiling:
-  bound: mixed-bound
-  bound_rationale: Decode and 1080-token prefill are memory-bound by selected
-    BF16 expert weights. The 7218-token prefill case is compute-bound. The
-    deterministic routes select 124, 128, and 128 experts respectively.
-  mean_case_latency_ms: 0.109817744
-  cases:
-  - case_id: gemma4-moe-decode-m64
-    active_experts: 124
-    semantic_io_bytes: 738201600
-    arithmetic_ops: 3045064704
-    ideal_latency_ms: 0.093315200
-    bound: memory-bound
-  - case_id: gemma4-moe-prefill-m1080
-    active_experts: 128
-    semantic_io_bytes: 773500416
-    arithmetic_ops: 51385466880
-    ideal_latency_ms: 0.097727552
-    bound: memory-bound
-  - case_id: gemma4-moe-prefill-m7218
-    active_experts: 128
-    semantic_io_bytes: 843031680
-    arithmetic_ops: 343426203648
-    ideal_latency_ms: 0.138410481
-    bound: compute-bound
-  methodology:
-    type: profile-calibrated-latency-roofline
-    gpu: MI355X/gfx950
-    profiler: rocprofv3
-    current_source_level_dispatches: 5
-    minimum_dispatches_per_case: 1
-    dispatch_floor_ms: 0.00104
-    hbm_bandwidth_tb_per_s: 8.0
-    bf16_matrix_peak_pflops: 2.5
-    formula: dispatch_floor_ms + max(arithmetic_ops / 2.5e12, semantic_io_bytes / 8.0e9)
-    evidence:
-      representative_case: gemma4-moe-prefill-m7218
-      mean_mfma_util_pct: 25.686
-      mean_memory_stalled_pct: 0.142
 compile_command:
 - python3 scripts/task_runner.py compile
 correctness_command:

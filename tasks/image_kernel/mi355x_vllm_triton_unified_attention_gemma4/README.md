@@ -1,8 +1,5 @@
 # mi355x-gemma4-26b-vllm-triton-unified-attention-20260801
 
-See [performance_ceiling_analysis.md](performance_ceiling_analysis.md) for the
-`memory-bound` classification and ideal latency calculation.
-
 Image_kernel harness for vLLM's Triton attention kernel `kernel_unified_attention`
 (`vllm/v1/attention/ops/triton_unified_attention.py:179`).
 

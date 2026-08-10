@@ -1,33 +1,33 @@
 # Performance ceiling analysis
 
-## Result
+## Conclusion
 
-- Classification: `memory-bound`
-- Mean ideal latency: `0.030501057 ms`
-- Measured mean latency: `0.087319104 ms`
-- Ceiling efficiency: `34.93%`
+- Ideal mean case latency: `0.030501057 ms`.
+- Bound classification: `memory-bound`.
+- Baseline mean latency: `0.087319104 ms`.
+- Baseline reaches `34.93%` of the modeled ceiling.
 
-## Profiling evidence
+### Why memory-bound
 
-All cases passed correctness and CUDA Graph timing. Target-kernel times were
-`64.701` and `64.845 us` for the two sliding-window cases, and `77.441` and
-`156.666 us` for full attention at context 1024 and 2048. The largest full case
-showed `6.065%` mean MFMA utilization and `0.005%` mean memory-stall time.
+All four decode cases stream more BF16 K/V data than their matrix-core service
+time. Sliding-window cases attend exactly 1024 tokens even at context 2048; full
+attention scales with the complete context. The one-dispatch floor is smaller
+than ideal K/V service in every geometry.
 
-## Model
+## Proof approach
 
-For each case:
+1. Validate and benchmark both Gemma4 head geometries at contexts 1024 and 2048.
+2. Trace the single 2D `kernel_unified_attention` path; no reduction companion is
+   present.
+3. For sequences \(B\), query heads \(H_q\), KV heads \(H_{kv}\), attended
+   length \(L\), and head dimension \(D\):
 
-\[
-F = 4B H_q L D
-\]
+   \[
+   F=4BH_qLD
+   \]
 
-\[
-Bytes = 4B H_q D + 4B H_{kv} L D
-\]
+   Semantic bytes include Q/output, shared K/V, and page metadata.
 
-The model reads BF16 Q once, writes BF16 output once, and reads shared BF16 K/V
-once per KV head. Sliding attention uses \(L=1024\) for both context lengths.
-With one dispatch, 8 TB/s HBM, and 2.5 PFLOP/s BF16 matrix peak, ideal latencies
-are `0.034662081`, `0.034662081`, `0.017950401`, and `0.034729665 ms`. The HBM
-term dominates every case.
+4. Apply `2.5 PFLOP/s` BF16, `8.0 TB/s` HBM, and a `1.04 us` dispatch floor.
+5. Ideal latencies are `0.034662081`, `0.034662081`, `0.017950401`, and
+   `0.034729665 ms`; HBM service dominates each case.

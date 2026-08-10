@@ -1,8 +1,5 @@
 # mi355x-qwen3_5-122b-paged-attention-2d-20260724
 
-See [performance_ceiling_analysis.md](performance_ceiling_analysis.md) for the
-`memory-bound` classification and ideal latency calculation.
-
 Self-contained image_kernel harness for the vLLM Triton decode paged-attention
 kernel `kernel_paged_attention_2d`
 (`vllm/v1/attention/ops/chunked_prefill_paged_decode.py`).

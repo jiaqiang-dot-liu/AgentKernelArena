@@ -15,39 +15,6 @@ kernel_identity:
   workload:
     source: session_cases.json
     primary_case: gemma4-sliding-decode-m64-ctx1024
-performance_ceiling:
-  bound: memory-bound
-  mean_case_latency_ms: 0.030501057
-  cases:
-  - case_id: gemma4-sliding-decode-m64-ctx1024
-    semantic_io_bytes: 268976644
-    arithmetic_ops: 538705408
-    ideal_latency_ms: 0.034662081
-  - case_id: gemma4-sliding-decode-m64-ctx2048
-    semantic_io_bytes: 268976644
-    arithmetic_ops: 538705408
-    ideal_latency_ms: 0.034662081
-  - case_id: gemma4-full-decode-m64-ctx1024
-    semantic_io_bytes: 135283204
-    arithmetic_ops: 1075838464
-    ideal_latency_ms: 0.017950401
-  - case_id: gemma4-full-decode-m64-ctx2048
-    semantic_io_bytes: 269517316
-    arithmetic_ops: 2151153152
-    ideal_latency_ms: 0.034729665
-  methodology:
-    type: profile-calibrated-latency-roofline
-    gpu: MI355X/gfx950
-    profiler: rocprofv3
-    minimum_dispatches_per_case: 1
-    dispatch_floor_ms: 0.00104
-    hbm_bandwidth_tb_per_s: 8.0
-    bf16_matrix_peak_pflops: 2.5
-    formula: dispatch_floor_ms + max(arithmetic_ops / 2.5e12, semantic_io_bytes / 8.0e9)
-    evidence:
-      representative_case: gemma4-full-decode-m64-ctx2048
-      mean_mfma_util_pct: 6.065
-      mean_memory_stalled_pct: 0.005
 compile_command:
 - python3 scripts/task_runner.py compile
 correctness_command:

@@ -28,50 +28,6 @@ kernel_identity:
   workload:
     source: session_cases.json
     primary_case: kimi-k3-prefill-flydsl-k003-k006
-performance_ceiling:
-  bound: mixed-bound
-  bound_rationale: The decode case is dominated by the selected experts' FP4
-    weights and E8M0 scales, while the prefill case is dominated by the BF16
-    matrix work performed after unpacking the FP4 weights.
-  mean_case_latency_ms: 0.278601693
-  cases:
-  - case_id: kimi-k3-prefill-flydsl-k003-k006
-    routed_tokens: 115376
-    active_experts: 896
-    matrix_ops: 952721473536
-    vector_ops_proxy: 830707200
-    semantic_io_bytes: 2069593472
-    ideal_latency_ms: 0.385616347
-    bound: compute-bound
-  - case_id: kimi-k3-decode-graph-k001-k002
-    routed_tokens: 992
-    active_experts: 619
-    matrix_ops: 8191475712
-    vector_ops_proxy: 7142400
-    semantic_io_bytes: 1358616320
-    ideal_latency_ms: 0.171587040
-    bound: memory-bound
-  methodology:
-    type: fused-two-stage-profile-calibrated-latency-roofline
-    gpu: MI355X/gfx950
-    profiler: rocprofv3 1.1.0
-    current_dispatches:
-      kimi-k3-prefill-flydsl-k003-k006: 6
-      kimi-k3-decode-graph-k001-k002: 4
-    minimum_dispatches_per_case: 1
-    dispatch_floor_ms: 0.00176
-    hbm_bandwidth_tb_per_s: 8.0
-    bf16_matrix_peak_pflops: 2.5166
-    fp32_vector_peak_tflops: 157.2864
-    formula: dispatch_floor_ms + max(matrix_ops / 2.5166e12 + vector_ops_proxy
-      / 157.2864e9, semantic_io_bytes / 8.0e9)
-    evidence:
-      prefill_stage1_mean_mfma_util_pct: 32.204057
-      prefill_stage1_mean_memory_stalled_pct: 0.022367
-      prefill_stage2_mean_mfma_util_pct: 23.692408
-      prefill_stage2_mean_memory_stalled_pct: 0.449476
-      decode_stage1_mean_mfma_util_pct: 28.275530
-      decode_stage2_mean_mfma_util_pct: 25.439461
 compile_command:
 - python3 scripts/task_runner.py compile
 correctness_command:

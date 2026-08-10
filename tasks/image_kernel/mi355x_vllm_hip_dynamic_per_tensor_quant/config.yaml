@@ -41,32 +41,6 @@ kernel_identity:
         RANK: 3
         INPUT_DTYPE: bf16
         OUTPUT_DTYPE: fp8
-performance_ceiling:
-  bound: latency-bound
-  mean_case_latency_ms: 0.001105537
-  cases:
-  - case_id: mixtral-k006
-    semantic_io_bytes: 786436
-    ideal_latency_ms: 0.001138305
-  - case_id: mixtral-k002
-    semantic_io_bytes: 98308
-    ideal_latency_ms: 0.001052289
-  - case_id: mixtral-k004
-    semantic_io_bytes: 688132
-    ideal_latency_ms: 0.001126017
-  methodology:
-    type: profile-calibrated-latency-roofline
-    gpu: MI355X/gfx950
-    profiler: rocprofv3
-    timing_scope: end-to-end operator
-    current_dispatches_per_case: 3
-    minimum_dispatches_per_case: 1
-    dispatch_floor_ms: 0.00104
-    hbm_bandwidth_tb_per_s: 8.0
-    formula: dispatch_floor_ms + semantic_io_bytes / 8.0e9_bytes_per_ms
-    evidence:
-      max_valu_busy_pct: 0.381
-      max_memory_stalled_pct: 0.018
 compile_command:
 - python3 scripts/task_runner.py compile
 correctness_command:

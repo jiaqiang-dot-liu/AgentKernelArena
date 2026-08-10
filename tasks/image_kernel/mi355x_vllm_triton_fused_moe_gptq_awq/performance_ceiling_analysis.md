@@ -1,50 +1,34 @@
 # Performance ceiling analysis
 
-## Result
+## Conclusion
 
-- Classification: `mixed-bound`
-- Mean ideal latency: `0.173026087 ms`
-- Measured mean latency: `2.056249977 ms`
-- Ceiling efficiency: `8.41%`
+- Ideal mean case latency: `0.173026087 ms`.
+- Bound classification: `mixed-bound`.
+- Baseline mean latency: `2.056249977 ms`.
+- Baseline reaches `8.41%` of the modeled ceiling.
 
-## Profiling evidence
+### Why mixed-bound
 
-All cases passed correctness and CUDA Graph timing. Each invocation launches
-`fused_moe_kernel_gptq_awq` twice. Mean target-kernel time per launch was
-`1314.305`, `1043.850`, and `649.261 us` for 7211, 1080, and 64 tokens. The
-largest case showed `16.435%` mean MFMA utilization and `0.169%` mean
-memory-stall time.
+The 7211-token case is compute-bound. The 1080- and 64-token cases are
+memory-bound by packed INT4 expert weights and BF16 group scales. The
+deterministic routes select 384, 384, and 282 experts, so the small case has a
+smaller but still dominant weight bank.
 
-## Model
+## Proof approach
 
-The two expert GEMMs perform:
+1. Validate and benchmark all three cases; trace both WNA16 expert-GEMM
+   dispatches and collect MFMA/memory counters.
+2. Count active experts from the actual deterministic route IDs.
+3. For tokens \(M\), top-k \(K=8\), hidden \(H=7168\), and intermediate
+   \(I=256\), matrix work is:
 
-\[
-F = 6M \times 8 \times 7168 \times 256
-\]
+   \[
+   F = 6MKHI
+   \]
 
-The semantic bytes include packed INT4 weights and BF16 scales for the experts
-actually selected by each deterministic route tensor, plus activation, output,
-and routing metadata. Profiling found 384, 384, and 282 active experts.
-
-The ideal model permits a token-centric one-dispatch implementation that performs
-both GEMMs and top-k reduction internally. At 8 TB/s HBM and 2.5 PFLOP/s BF16
-matrix peak it gives:
-
-- 7211 tokens: `0.255099060 ms`, compute-bound.
-- 1080 tokens: `0.153555008 ms`, memory-bound.
-- 64 tokens: `0.110424192 ms`, memory-bound.
-
-The task is `mixed-bound` because the dominant roofline term changes with token
-count.
-
-## Why the task is mixed-bound
-
-- At 7211 tokens, matrix work exceeds minimum expert-weight service time, so the
-  case is compute-bound.
-- At 1080 tokens, the same 384-expert INT4 weight and scale bank dominates the
-  smaller matrix workload.
-- At 64 tokens, only 282 experts are active, but their packed weights and scales
-  still dominate the very small GEMMs.
-
-The task-level label must not be replaced by the bound of its largest case.
+4. Semantic traffic includes selected packed INT4 W1/W2 weights, both BF16 scale
+   banks, activation, output, and route IDs/weights. Model a legal token-centric
+   fused dispatch using `2.5 PFLOP/s` BF16 service, `8.0 TB/s` HBM, and a
+   `1.04 us` dispatch floor.
+5. The ideal case latencies are `0.255099060`, `0.153555008`, and
+   `0.110424192 ms`; their arithmetic mean is `0.173026087 ms`.

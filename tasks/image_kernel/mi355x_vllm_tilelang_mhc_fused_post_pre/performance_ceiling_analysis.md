@@ -1,52 +1,43 @@
 # Performance ceiling analysis
 
-## Result
+## Conclusion
 
-- Classification: `mixed-bound`
-- Mean ideal latency: `0.052599100 ms`
-- Measured mean latency: `0.400270797 ms`
-- Ceiling efficiency: `13.14%`
+- Ideal mean case latency: `0.052599100 ms`.
+- Bound classification: `mixed-bound`.
+- Baseline mean latency: `0.400270797 ms`.
+- Baseline reaches `13.14%` of the modeled ceiling.
 
-## Profiling evidence
+### Why mixed-bound
 
-All four cases passed correctness and CUDA Graph timing. Every invocation
-contains post-mix, prenorm GEMM, and pre-mix kernels. Their summed target-kernel
-times track the task latency: approximately `47.45 us` and `1034.63 us` for the
-7168-wide cases, and `33.98 us` and `518.67 us` for the 4096-wide cases. The
-largest case showed no reported MFMA utilization and `0.877%` mean memory-stall
-time.
+The 64-token, 4096-wide case is latency-bound because its semantic memory
+service is below the dispatch floor. The other cases are memory-bound, although
+both 64-token cases remain near the latency/memory crossover because their grids
+cannot use all 256 CUs. No case is compute-bound under the MI355X FP32 roofline.
 
-## Model
+## Proof approach
 
-For token count \(T\), hidden width \(H\), and `hc_mult=4`, the fused semantic
-traffic model is:
+1. Validate and benchmark all four cases, then trace the post-mix, prenorm GEMM,
+   and pre-mix TileLang kernels.
+2. For token count \(T\), hidden width \(H\), `hc_mult=4`, and 20 Sinkhorn
+   iterations, derive minimum semantic traffic:
 
-\[
-B = 20TH + 160T + 384H + 108
-\]
+   \[
+   B = 20TH + 160T + 384H + 108
+   \]
 
-It counts each required input and output once, including BF16 residual and layer
-data, FP32 mix tensors, and the FP32 prenorm matrix. FP32 roofline work covering
-post-mix, the 24-output prenorm GEMM, reductions, pre-mix, and 20 Sinkhorn
-iterations is:
+3. Count FP32 roofline work, including post/pre mixing, the 24-output projection,
+   reductions, and Sinkhorn:
 
-\[
-F = T(244H + 1390)
-\]
+   \[
+   F = T(244H + 1390)
+   \]
 
-Using one ideal fused dispatch, 8 TB/s HBM, and 157.3 TFLOP/s FP32 peak gives
-`0.002532238`, `0.130749418`, `0.001893262`, and `0.075221482 ms`. The
-`deepseek-flash-k021` case is latency-bound; the other cases are memory-bound,
-with the small cases close to the latency/memory crossover.
+4. Model a legal one-dispatch fused implementation using `157.3 TFLOP/s` FP32,
+   `8.0 TB/s` HBM, and a `1.04 us` dispatch floor:
 
-## Why the task is mixed-bound
+   \[
+   T_i = 0.00104+\max(F_i/157.3{\times}10^9,\ B_i/8.0{\times}10^9)
+   \]
 
-- `deepseek-flash-k021` is latency-bound because its semantic memory service
-  time is below the single-dispatch floor.
-- `deepseek-pro-k014` is memory-bound by the strict formula but remains close to
-  the latency/memory crossover.
-- Both 7211-token cases are memory-bound; their large residual and output tensors
-  dominate the FP32 projection work.
-
-The task mixes latency-limited and memory-limited cases; it is not
-compute-bound under the MI355X FP32 roofline.
+5. The ideal case latencies are `0.002532238`, `0.130749418`, `0.001893262`,
+   and `0.075221482 ms`.

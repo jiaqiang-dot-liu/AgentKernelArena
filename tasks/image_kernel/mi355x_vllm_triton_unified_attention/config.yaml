@@ -27,54 +27,6 @@ kernel_identity:
         num_q_heads: QHEADS
         num_kv_heads: KVHEADS
         head_size: HEADSIZE
-performance_ceiling:
-  bound: mixed-bound
-  bound_rationale: The MiniMax and Gemma cases are memory-bound. The smaller
-    GPT-OSS and Mixtral cases are at the memory and two-dispatch latency
-    crossover imposed by the required partial-attention and reduction stages.
-  mean_case_latency_ms: 0.014833230
-  cases:
-  - case_id: minimax-k004
-    semantic_io_bytes: 68318220
-    arithmetic_ops: 405208320
-    ideal_latency_ms: 0.010619778
-    bound: memory-bound
-  - case_id: gemma-k002
-    semantic_io_bytes: 270033932
-    arithmetic_ops: 538705408
-    ideal_latency_ms: 0.035834242
-    bound: memory-bound
-  - case_id: gemma-k006
-    semantic_io_bytes: 137389068
-    arithmetic_ops: 1075838464
-    ideal_latency_ms: 0.019253634
-    bound: memory-bound
-  - case_id: gptoss-k020
-    semantic_io_bytes: 17196044
-    arithmetic_ops: 135855616
-    ideal_latency_ms: 0.004229506
-    bound: mixed-bound
-  - case_id: mixtral-k031
-    semantic_io_bytes: 17191948
-    arithmetic_ops: 135069440
-    ideal_latency_ms: 0.004228994
-    bound: mixed-bound
-  methodology:
-    type: profile-calibrated-latency-roofline
-    gpu: MI355X/gfx950
-    profiler: rocprofv3
-    current_dispatches_per_case: 2
-    minimum_dispatches_per_case: 2
-    source_segments: 16
-    ideal_segments: 1
-    dispatch_floor_ms: 0.00104
-    hbm_bandwidth_tb_per_s: 8.0
-    bf16_matrix_peak_pflops: 2.5
-    formula: 2 * dispatch_floor_ms + max(arithmetic_ops / 2.5e12, semantic_io_bytes / 8.0e9)
-    evidence:
-      representative_case: gemma-k002
-      mean_mfma_util_pct: 2.830
-      mean_memory_stalled_pct: 0.082
 compile_command:
 - python3 scripts/task_runner.py compile
 correctness_command:

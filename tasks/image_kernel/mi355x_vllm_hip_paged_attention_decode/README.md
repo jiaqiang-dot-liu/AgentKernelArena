@@ -1,8 +1,5 @@
 # mi355x-rocm-paged-attention-decode-20260801
 
-See [performance_ceiling_analysis.md](performance_ceiling_analysis.md) for the
-`memory-bound` classification and ideal latency calculation.
-
 Image_kernel harness for the ROCm custom paged-attention decode pair
 `paged_attention_ll4mi_QKV_mfma16_kernel` (per-partition attention) and
 `paged_attention_ll4mi_reduce_kernel` (cross-partition softmax reduction), reached

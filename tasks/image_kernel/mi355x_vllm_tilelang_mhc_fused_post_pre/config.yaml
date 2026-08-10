@@ -13,46 +13,6 @@ kernel_identity:
   workload:
     source: session_cases.json
     primary_case: deepseek-pro-k014
-performance_ceiling:
-  bound: mixed-bound
-  bound_rationale: The 64-token, 4096-wide case is latency-bound; the other
-    cases are memory-bound. Both 64-token cases are close to the device-latency
-    and HBM-service crossover because their grids cannot saturate all CUs.
-  mean_case_latency_ms: 0.052599100
-  cases:
-  - case_id: deepseek-pro-k014
-    semantic_io_bytes: 11937900
-    arithmetic_ops: 112024448
-    ideal_latency_ms: 0.002532238
-    bound: memory-bound
-  - case_id: deepseek-pro-k015
-    semantic_io_bytes: 1037675340
-    arithmetic_ops: 12622004602
-    ideal_latency_ms: 0.130749418
-    bound: memory-bound
-  - case_id: deepseek-flash-k021
-    semantic_io_bytes: 6826092
-    arithmetic_ops: 64052096
-    ideal_latency_ms: 0.001893262
-    bound: latency-bound
-  - case_id: deepseek-flash-k022
-    semantic_io_bytes: 593451852
-    arithmetic_ops: 7216869754
-    ideal_latency_ms: 0.075221482
-    bound: memory-bound
-  methodology:
-    type: profile-calibrated-latency-roofline
-    gpu: MI355X/gfx950
-    profiler: rocprofv3
-    minimum_dispatches_per_case: 1
-    dispatch_floor_ms: 0.00104
-    hbm_bandwidth_tb_per_s: 8.0
-    fp32_peak_tflops: 157.3
-    formula: dispatch_floor_ms + max(arithmetic_ops / 157.3e9, semantic_io_bytes / 8.0e9)
-    evidence:
-      representative_case: deepseek-pro-k015
-      mean_mfma_util_pct: 0.0
-      mean_memory_stalled_pct: 0.877
 compile_command:
 - python3 scripts/task_runner.py compile
 correctness_command:
