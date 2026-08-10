@@ -1,5 +1,8 @@
 # mi355x-kimi-k2.7-code-fused-moe-gptq-awq-20260724
 
+See [performance_ceiling_analysis.md](performance_ceiling_analysis.md) for the
+`mixed-bound` classification and ideal latency calculation.
+
 Self-contained image_kernel harness for the vLLM Triton WNA16 (int4 weight /
 bf16 activation) fused-MoE kernel `fused_moe_kernel_gptq_awq`
 (`vllm/model_executor/layers/fused_moe/fused_moe.py`).

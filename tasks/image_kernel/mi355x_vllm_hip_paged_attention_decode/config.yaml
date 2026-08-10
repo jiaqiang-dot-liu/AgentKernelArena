@@ -17,6 +17,52 @@ kernel_identity:
   workload:
     source: session_cases.json
     primary_case: llama3_1-8b-decode-m64-ctx1024
+performance_ceiling:
+  bound: memory-bound
+  mean_case_latency_ms: 0.053289573
+  cases:
+  - case_id: llama3_1-8b-decode-m64-ctx1024
+    semantic_io_bytes: 273826304
+    arithmetic_ops: 1082415104
+    ideal_latency_ms: 0.036308288
+  - case_id: llama3_1-8b-decode-m64-ctx1536
+    semantic_io_bytes: 410214912
+    arithmetic_ops: 1623492608
+    ideal_latency_ms: 0.053356864
+  - case_id: llama3_1-8b-decode-m64-ctx2048
+    semantic_io_bytes: 546603520
+    arithmetic_ops: 2164570112
+    ideal_latency_ms: 0.070405440
+  - case_id: qwen3-0_6b-decode-m64-ctx1024
+    semantic_io_bytes: 271139328
+    arithmetic_ops: 541207552
+    ideal_latency_ms: 0.035972416
+  - case_id: qwen3-0_6b-decode-m64-ctx2048
+    semantic_io_bytes: 541753856
+    arithmetic_ops: 1082285056
+    ideal_latency_ms: 0.069799232
+  - case_id: qwen3-14b-fp8-decode-m64-ctx1024
+    semantic_io_bytes: 275169792
+    arithmetic_ops: 1353018880
+    ideal_latency_ms: 0.036476224
+  - case_id: qwen3-14b-fp8-decode-m64-ctx2048
+    semantic_io_bytes: 549028352
+    arithmetic_ops: 2705712640
+    ideal_latency_ms: 0.070708544
+  methodology:
+    type: profile-calibrated-latency-roofline
+    gpu: MI355X/gfx950
+    profiler: rocprofv3
+    current_dispatches_per_case: 2
+    minimum_dispatches_per_case: 2
+    dispatch_floor_ms: 0.00104
+    hbm_bandwidth_tb_per_s: 8.0
+    bf16_matrix_peak_pflops: 2.5
+    formula: 2 * dispatch_floor_ms + max(arithmetic_ops / 2.5e12, semantic_io_bytes / 8.0e9)
+    evidence:
+      representative_case: qwen3-14b-fp8-decode-m64-ctx2048
+      mean_mfma_util_pct: 1.450
+      mean_memory_stalled_pct: 0.133
 compile_command:
 - python3 scripts/task_runner.py compile
 correctness_command:

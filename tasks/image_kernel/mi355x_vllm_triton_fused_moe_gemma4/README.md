@@ -1,5 +1,8 @@
 # mi355x-gemma4-26b-vllm-triton-fused-moe-20260801
 
+See [performance_ceiling_analysis.md](performance_ceiling_analysis.md) for the
+`mixed-bound` classification and ideal latency calculation.
+
 Image_kernel harness for vLLM's unquantized Triton fused-MoE expert GEMM
 `fused_moe_kernel` (`vllm/model_executor/layers/fused_moe/fused_moe.py:293`).
 

@@ -15,6 +15,45 @@ kernel_identity:
   workload:
     source: session_cases.json
     primary_case: kimi-k2.7-moe-m7211
+performance_ceiling:
+  bound: mixed-bound
+  bound_rationale: The 7211-token case is compute-bound, while the 1080- and
+    64-token cases are memory-bound by selected INT4 expert weights and BF16
+    scales. The 64-token case selects only 282 of 384 experts.
+  mean_case_latency_ms: 0.173026087
+  cases:
+  - case_id: kimi-k2.7-moe-m7211
+    active_experts: 384
+    semantic_io_bytes: 1396300480
+    arithmetic_ops: 635147649024
+    ideal_latency_ms: 0.255099060
+    bound: compute-bound
+  - case_id: kimi-k2.7-moe-m1080
+    active_experts: 384
+    semantic_io_bytes: 1220120064
+    arithmetic_ops: 95126814720
+    ideal_latency_ms: 0.153555008
+    bound: memory-bound
+  - case_id: kimi-k2.7-moe-m64
+    active_experts: 282
+    semantic_io_bytes: 875073536
+    arithmetic_ops: 5637144576
+    ideal_latency_ms: 0.110424192
+    bound: memory-bound
+  methodology:
+    type: profile-calibrated-latency-roofline
+    gpu: MI355X/gfx950
+    profiler: rocprofv3
+    current_source_level_dispatches: 5
+    minimum_dispatches_per_case: 1
+    dispatch_floor_ms: 0.00104
+    hbm_bandwidth_tb_per_s: 8.0
+    bf16_matrix_peak_pflops: 2.5
+    formula: dispatch_floor_ms + max(arithmetic_ops / 2.5e12, semantic_io_bytes / 8.0e9)
+    evidence:
+      representative_case: kimi-k2.7-moe-m7211
+      mean_mfma_util_pct: 16.435
+      mean_memory_stalled_pct: 0.169
 compile_command:
 - python3 scripts/task_runner.py compile
 correctness_command:

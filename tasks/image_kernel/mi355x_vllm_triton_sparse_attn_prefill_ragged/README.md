@@ -1,5 +1,8 @@
 # mi355x-deepseek-v4-flash-sparse-attn-prefill-20260724
 
+See [performance_ceiling_analysis.md](performance_ceiling_analysis.md) for the
+`mixed-bound` classification and ideal latency calculation.
+
 Self-contained image_kernel harness for the vLLM Triton DeepSeek-V4 sparse-attention
 prefill kernel `_sparse_attn_prefill_ragged_kernel`
 (`vllm/v1/attention/ops/rocm_aiter_mla_sparse.py`).
