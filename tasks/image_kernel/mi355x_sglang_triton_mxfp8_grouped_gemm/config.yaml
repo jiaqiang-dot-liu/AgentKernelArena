@@ -14,6 +14,72 @@ kernel_identity:
   workload:
     source: session_cases.json
     primary_case: decode-t1
+performance_ceiling:
+  bound: mixed-bound
+  bound_rationale: Both decode cases are limited by selected-expert MXFP8
+    weights. In the prefill case GEMM1 is compute-bound while GEMM2 is
+    memory-bound by its FP32 per-route output, so the two serial stages have
+    different limiting resources.
+  mean_case_latency_ms: 0.159286152
+  cases:
+  - case_id: decode-t1
+    active_experts: 4
+    num_tokens_post_padded: 256
+    semantic_io_bytes: 29310760
+    arithmetic_ops: 56623104
+    stage1_semantic_io_bytes: 19477716
+    stage1_arithmetic_ops: 37748736
+    stage1_ideal_latency_ms: 0.003514715
+    stage2_semantic_io_bytes: 9833044
+    stage2_arithmetic_ops: 18874368
+    stage2_ideal_latency_ms: 0.002309131
+    ideal_latency_ms: 0.005823845
+    bound: memory-bound
+  - case_id: decode-t64
+    active_experts: 110
+    num_tokens_post_padded: 7040
+    semantic_io_bytes: 810147704
+    arithmetic_ops: 3623878656
+    stage1_semantic_io_bytes: 536092604
+    stage1_arithmetic_ops: 2415919104
+    stage1_ideal_latency_ms: 0.068091576
+    stage2_semantic_io_bytes: 274055100
+    stage2_arithmetic_ops: 1207959552
+    stage2_ideal_latency_ms: 0.035336887
+    ideal_latency_ms: 0.103428463
+    bound: memory-bound
+  - case_id: prefill-t16384
+    active_experts: 128
+    num_tokens_post_padded: 69376
+    semantic_io_bytes: 2776144360
+    arithmetic_ops: 927712935936
+    stage1_semantic_io_bytes: 827608308
+    stage1_arithmetic_ops: 618475290624
+    stage1_ideal_latency_ms: 0.123959141
+    stage2_semantic_io_bytes: 1948536052
+    stage2_arithmetic_ops: 309237645312
+    stage2_ideal_latency_ms: 0.244647007
+    ideal_latency_ms: 0.368606147
+    bound: mixed-bound
+  methodology:
+    type: two-stage-profile-calibrated-latency-roofline
+    gpu: MI355X/gfx950
+    profiler: rocprofv3 1.1.0
+    current_target_dispatches_per_case: 2
+    current_total_dispatches_per_case: 4
+    minimum_dispatches_per_case: 2
+    dispatch_floor_ms: 0.00108
+    hbm_bandwidth_tb_per_s: 8.0
+    mxfp8_matrix_peak_pflops: 5.0332
+    mxfp8_matrix_peak_source: AMD Instinct MI355X GPU brochure
+    scale_format: UE8M0 uint8 per 32 FP8 values
+    formula: sum(stage_dispatch_floor_ms + max(stage_arithmetic_ops / 5.0332e12, stage_semantic_io_bytes / 8.0e9))
+    evidence:
+      representative_case: prefill-t16384
+      stage1_mean_mfma_util_pct: 12.110704
+      stage1_mean_memory_stalled_pct: 0.037160
+      stage2_mean_mfma_util_pct: 7.093900
+      stage2_mean_memory_stalled_pct: 0.615392
 compile_command:
   - python3 scripts/task_runner.py compile
 correctness_command:
