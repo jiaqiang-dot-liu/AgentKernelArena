@@ -20,10 +20,19 @@ Contract implemented (forge-loop runs ``python forge_driver.py <args>`` and read
 only stdout):
 
   * Correctness  ``--mode <smoke|stability|determinism|full>``
-        prints ``SNR: <db> dB`` against the harness's dequantized torch reference
-        (``torch_moe_stage1``/``torch_moe_stage2``), reporting the worst case.
-        NOTE the stage2 kernel reduces with atomics, so the SNR moves a little
-        run to run; the measured level clears forge's 30 dB gate with margin.
+        runs the task's own ``run_correctness()`` and prints
+        ``allclose: True|False``. The suite owns every criterion the scored run
+        asserts: the numeric tolerance taken worst-of-N repeats (the stage2
+        kernel reduces with atomics, so a single launch is not representative),
+        and -- decisively for this task -- ``_assert_tuned_dispatch`` plus the
+        check that the correctness token dispatches the same kernel pair as the
+        timed token. Routing the op to a different tuned variant is a scoring
+        failure, so the search has to see it as one.
+
+        Do NOT add an ``SNR: <db> dB`` line here. Both metrics are parsed but
+        SNR takes precedence (``mcp_server/tools/test.py``), so an SNR line
+        silently overrides this verdict -- and an SNR derived from the output
+        norm cannot express a dispatch mismatch at all.
 
   * Benchmark    ``--warmup <n> --iters <n> --bench-mode``
         prints ``case_ms: <case_id> <ms>`` per case plus one ``mean_ms: <ms>``
@@ -38,8 +47,8 @@ only stdout):
         launches, one synchronize, exit 0. No timing is printed.
 
 All measurement logic is REUSED from ``scripts/task_runner.py`` (``_configure`` /
-``_prepare`` / ``_run`` / ``_reference`` / ``_benchmark_cuda_graph_or_events``), so
-the driver measures exactly the same op Arena scores. forge-loop never edits it.
+``_prepare`` / ``_run`` / ``run_correctness`` / ``_benchmark_cuda_graph_or_events``),
+so the driver measures exactly the same op Arena scores. forge-loop never edits it.
 """
 from __future__ import annotations
 
@@ -155,23 +164,22 @@ def _load_profile_inputs(tr, case: dict):
 
 
 def _run_correctness(tr) -> int:
-    """Per-case SNR against the dequantized torch reference; report the worst."""
-    import torch
+    """Delegate to the task's own correctness suite; map any failure to allclose.
 
-    worst_db = math.inf
-    for case in tr.CASES:
-        inputs = tr._prepare(case, correctness=True)
-        got = tr._run(inputs)
-        torch.cuda.synchronize()
-        expected = tr._reference(inputs)
-        g = got.float().flatten()
-        e = expected.float().flatten()
-        noise = (g - e).norm().item()
-        signal = e.norm().item()
-        db = 200.0 if noise <= 0 else 20.0 * math.log10(signal / noise)
-        worst_db = min(worst_db, db)
-        print(f"# case {case['id']}: SNR={db:.2f} dB finite={bool(torch.isfinite(got).all())}")
-    print(f"SNR: {worst_db:.2f} dB")
+    The suite owns every criterion the scored run asserts -- the worst-of-N
+    numeric tolerance, the tuned-dispatch guard and the correctness/timed token
+    parity check -- and it prints the per-case numbers itself. Re-deriving a
+    subset of them here would gate the search on a weaker bar than the one that
+    decides the score, letting a candidate pass this driver and still be
+    rejected by the scorer.
+    """
+    ok = True
+    try:
+        tr.run_correctness()  # asserts / raises on any failing case
+    except Exception as exc:  # noqa: BLE001 - any failure is a correctness fail
+        ok = False
+        print(f"# correctness failed: {type(exc).__name__}: {str(exc)[:300]}")
+    print(f"allclose: {ok}")
     return 0
 
 

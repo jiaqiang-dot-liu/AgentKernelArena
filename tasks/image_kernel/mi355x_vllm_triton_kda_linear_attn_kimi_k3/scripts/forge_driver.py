@@ -21,10 +21,15 @@ Contract implemented (forge-loop runs ``python forge_driver.py <args>`` and read
 only stdout):
 
   * Correctness  ``--mode <smoke|stability|determinism|full>``
-        prints ``SNR: <db> dB`` -- the worst case's signal-to-noise ratio against
-        the harness's independent float64 golden. KDA clears forge's default 30 dB
-        gate with a wide margin (measured 48-57 dB), so SNR is emitted rather than
-        the weaker ``allclose`` fallback.
+        runs the task's own ``run_correctness()`` -- the same per-case cosine,
+        normalized max-error, shape and finiteness assertions the scored run
+        makes against the harness's independent float64 golden -- and prints
+        ``allclose: True|False``.
+
+        Do NOT add an ``SNR: <db> dB`` line here. Both metrics are parsed but
+        SNR takes precedence (``mcp_server/tools/test.py``), so an SNR line
+        silently overrides this verdict and gates the search on an aggregate L2
+        statistic while the score is decided by a per-element bound.
 
   * Benchmark    ``--warmup <n> --iters <n> --bench-mode``
         prints ``case_ms: <case_id> <ms>`` per case plus one ``mean_ms: <ms>``
@@ -39,8 +44,8 @@ only stdout):
         synchronize, exit 0. No timing is printed.
 
 All measurement logic is REUSED from ``scripts/task_runner.py`` (``_configure`` /
-``_prepare`` / ``_run`` / ``_golden`` / ``_benchmark_cuda_graph_or_events``), so
-the driver measures exactly the same op Arena scores. forge-loop never edits it.
+``_prepare`` / ``_run`` / ``run_correctness`` / ``_benchmark_cuda_graph_or_events``),
+so the driver measures exactly the same op Arena scores. forge-loop never edits it.
 """
 from __future__ import annotations
 
@@ -76,23 +81,21 @@ def _case_cost(case: dict) -> int:
 
 
 def _run_correctness(tr) -> int:
-    """Per-case SNR against the float64 golden; report the worst case."""
-    import torch
+    """Delegate to the task's own correctness suite; map any failure to allclose.
 
-    worst_db = math.inf
-    for case in tr.CASES:
-        inp = tr._prepare(case)
-        ref = tr._golden(inp)          # BEFORE _run: the kernels mutate the state
-        out, _state = tr._run(inp)
-        torch.cuda.synchronize()
-        got = out.double().flatten()
-        gold = ref.flatten()
-        noise = (got - gold).norm().item()
-        signal = gold.norm().item()
-        db = 200.0 if noise <= 0 else 20.0 * math.log10(signal / noise)
-        worst_db = min(worst_db, db)
-        print(f"# case {case['id']}: SNR={db:.2f} dB finite={bool(torch.isfinite(out).all())}")
-    print(f"SNR: {worst_db:.2f} dB")
+    The suite owns every criterion the scored run asserts, orders the golden
+    before the mutating launch, and prints the per-case numbers itself.
+    Re-deriving a metric here would gate the search on a different statistic
+    than the one that decides the score, letting a candidate pass this driver
+    and still be rejected by the scorer.
+    """
+    ok = True
+    try:
+        tr.run_correctness()  # asserts / raises on any failing case
+    except Exception as exc:  # noqa: BLE001 - any failure is a correctness fail
+        ok = False
+        print(f"# correctness failed: {type(exc).__name__}: {str(exc)[:300]}")
+    print(f"allclose: {ok}")
     return 0
 
 
