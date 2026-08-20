@@ -23,10 +23,17 @@ Contract implemented (forge-loop reads only stdout; parsers are
 ``mcp_server/tools/test.py:74-83`` and ``mcp_server/tools/bench.py:341-347``):
 
   * Correctness  ``--mode <smoke|stability|determinism|full>``
-        prints ``SNR: <db> dB`` (worst case) against the harness's independent
-        vectorized torch implementation, plus ``max_diff:``. The pristine chain
-        measures rel_norm_err ~0.0034, i.e. ~49 dB, so it clears forge's 30 dB
-        gate with ~19 dB of margin.
+        runs the task's own ``run_correctness()`` and prints
+        ``allclose: True|False``. The suite owns every criterion the scored run
+        asserts against the harness's independent vectorized torch
+        implementation: the output tolerance, and -- decisively for a stateful
+        operator -- the ``conv_state`` / ``ssm_state`` drift checks.
+
+        Do NOT add an ``SNR: <db> dB`` line here. Both metrics are parsed but
+        SNR takes precedence (``test.py:85``), so an SNR line silently overrides
+        this verdict; and since SNR can only carry the output's norm error, a
+        candidate that returns the right activations while corrupting either
+        cache would pass the gate.
 
   * Benchmark    ``--warmup <n> --iters <n> --bench-mode``
         prints ``case_ms: <case_id> <ms>`` for every declared case plus one
@@ -51,7 +58,6 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
-import math
 import sys
 from pathlib import Path
 
@@ -77,59 +83,27 @@ def _cases(tr) -> list[dict]:
     return cases
 
 
-def _snr_db(rel_norm_err: float) -> float:
-    """SNR in dB from a relative norm error: 20*log10(||ref|| / ||err||)."""
-    if rel_norm_err <= 0:
-        return 200.0
-    return -20.0 * math.log10(rel_norm_err)
-
-
 # --------------------------------------------------------------------------- #
 # Modes
 # --------------------------------------------------------------------------- #
 def _run_correctness(tr) -> int:
-    import torch
+    """Delegate to the task's own correctness suite; map any failure to allclose.
 
-    worst_err, worst_cos, all_ok = 0.0, 1.0, True
-    for case in _cases(tr):
-        inputs = tr._prepare(case)
-        tr._reset_state(inputs)
-        got = tr._run(inputs)
-        torch.cuda.synchronize()
-        expected = tr._reference(inputs, steps=1)
-        finite = bool(torch.isfinite(got).all())
-        cos, err = tr._deviation(got, expected)
-
-        # The caches are the point of this operator: an implementation that
-        # returns the right activations but corrupts conv_state / ssm_state
-        # breaks the next token, so check them too.
-        ref_conv = inputs["conv_state0"].clone()
-        ref_ssm = inputs["ssm_state0"].clone()
-        tr._reference_step(inputs, ref_conv, ref_ssm)
-        c_cos, c_err = tr._deviation(inputs["conv_state"], ref_conv)
-        s_cos, s_err = tr._deviation(inputs["ssm_state"], ref_ssm)
-        state_ok = c_cos > 0.999 and c_err < 0.02 and s_cos > 0.999 and s_err < 0.02
-
-        tol = case["params"]
-        ok = (
-            finite
-            and state_ok
-            and cos > tol.get("min_cosine", 0.999)
-            and err < tol.get("max_rel_norm_err", 0.03)
-        )
-        all_ok = all_ok and ok
-        worst_err, worst_cos = max(worst_err, err), min(worst_cos, cos)
-        print(f"# case {case['id']}: cos={cos:.6f} rel_norm_err={err:.5f} "
-              f"conv_state_cos={c_cos:.6f} ssm_state_cos={s_cos:.6f} "
-              f"finite={finite} ok={ok}")
-        del inputs, expected, got, ref_conv, ref_ssm
-        tr._free()
-
-    print(f"max_diff: {worst_err:.6e}")
-    print(f"SNR: {_snr_db(worst_err):.2f} dB")
-    print(f"allclose: {all_ok}")
-    print(f"# worst cosine {worst_cos:.6f} across {len(_cases(tr))} case(s)")
-    return 0 if all_ok else 1
+    The suite owns every criterion the scored run asserts -- the output
+    tolerance and the conv_state / ssm_state drift checks -- restores the
+    pristine caches itself, and prints the per-case numbers. Re-deriving a
+    subset of them here would gate the search on a weaker bar than the one that
+    decides the score, letting a candidate pass this driver and still be
+    rejected by the scorer.
+    """
+    ok = True
+    try:
+        tr.run_correctness()  # asserts / raises on any failing case
+    except Exception as exc:  # noqa: BLE001 - any failure is a correctness fail
+        ok = False
+        print(f"# correctness failed: {type(exc).__name__}: {str(exc)[:300]}")
+    print(f"allclose: {ok}")
+    return 0
 
 
 def _run_bench(tr, warmup: int, iters: int) -> int:

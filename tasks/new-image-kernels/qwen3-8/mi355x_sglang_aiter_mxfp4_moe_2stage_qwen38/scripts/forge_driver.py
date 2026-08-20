@@ -23,18 +23,23 @@ only stdout; parsers are ``mcp_server/tools/test.py:74-83`` and
 ``mcp_server/tools/bench.py:341-347``):
 
   * Correctness  ``--mode <smoke|stability|determinism|full>``
-        prints ``allclose: True|False`` and ``max_diff: <rel_norm_err>``, worst
-        case across the suite.
+        runs the task's own ``run_correctness()`` and prints
+        ``allclose: True|False``. The suite owns every criterion the scored run
+        asserts: the numeric tolerance (``min_cosine`` 0.97 /
+        ``max_rel_norm_err`` 0.25 in session_cases.json), and -- decisively for
+        this task -- ``_assert_flydsl_dispatch`` plus ``_assert_expected_pair``,
+        which pin the dispatched kernel pair to the one the traced session ran.
+        Retuning the tile heuristic so a different variant is dispatched is a
+        scoring failure, so the search has to see it as one.
 
         It deliberately does NOT print ``SNR: <db> dB``. Both metrics are
         parsed, but SNR takes precedence (``test.py:85``) and is gated at 30 dB,
         while this op is **a4w4** -- the activations are MXFP4, ~2 mantissa
         bits. The pristine kernel measures rel_norm_err ~0.15 against the
         dequantized torch reference, i.e. ~16.5 dB. Printing SNR would fail the
-        gate on the UNMODIFIED kernel and make every candidate look broken.
-        ``allclose`` is judged against the task's own tolerance
-        (``min_cosine`` 0.97 / ``max_rel_norm_err`` 0.25 in session_cases.json),
-        which is the physically meaningful bar for fp4 activations.
+        gate on the UNMODIFIED kernel and make every candidate look broken, and
+        it would also override the ``allclose`` verdict above -- an SNR derived
+        from the output norm cannot express a dispatch mismatch at all.
 
   * Benchmark    ``--warmup <n> --iters <n> --bench-mode``
         prints ``case_ms: <case_id> <ms>`` for every declared case plus one
@@ -92,35 +97,22 @@ def _cases(tr) -> list[dict]:
 # Modes
 # --------------------------------------------------------------------------- #
 def _run_correctness(tr) -> int:
-    import torch
+    """Delegate to the task's own correctness suite; map any failure to allclose.
 
-    worst_err, worst_cos, all_ok = 0.0, 1.0, True
-    for case in _cases(tr):
-        inputs = tr._prepare(case)
-        got = tr._run(inputs)
-        torch.cuda.synchronize()
-        expected = tr._reference(inputs)
-        finite = bool(torch.isfinite(got).all())
-        cos, err = tr._deviation(got, expected)
-        tol = case["params"]
-        ok = (
-            finite
-            and cos > tol.get("min_cosine", 0.97)
-            and err < tol.get("max_rel_norm_err", 0.25)
-        )
-        all_ok = all_ok and ok
-        worst_err, worst_cos = max(worst_err, err), min(worst_cos, cos)
-        print(f"# case {case['id']}: cos={cos:.6f} rel_norm_err={err:.5f} "
-              f"finite={finite} ok={ok}")
-        del inputs, expected, got
-        tr._free()
-
-    # max_diff carries the relative norm error, the same statistic the task's own
-    # tolerance is expressed in, so a human reading the log compares like with like.
-    print(f"max_diff: {worst_err:.6e}")
-    print(f"allclose: {all_ok}")
-    print(f"# worst cosine {worst_cos:.6f} across {len(_cases(tr))} case(s)")
-    return 0 if all_ok else 1
+    The suite owns every criterion the scored run asserts -- the numeric
+    tolerance, the FlyDSL dispatch guard and the expected-pair check -- and it
+    prints the per-case numbers itself. Re-deriving a subset of them here would
+    gate the search on a weaker bar than the one that decides the score, letting
+    a candidate pass this driver and still be rejected by the scorer.
+    """
+    ok = True
+    try:
+        tr.run_correctness()  # asserts / raises on any failing case
+    except Exception as exc:  # noqa: BLE001 - any failure is a correctness fail
+        ok = False
+        print(f"# correctness failed: {type(exc).__name__}: {str(exc)[:300]}")
+    print(f"allclose: {ok}")
+    return 0
 
 
 def _run_bench(tr, warmup: int, iters: int) -> int:
