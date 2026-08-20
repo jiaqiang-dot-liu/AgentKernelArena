@@ -26,7 +26,7 @@ from agents.forge.launch_agent import (
     _resolve_framework,
     _resolve_gpu_type,
     _resolve_kernel_kind,
-    _restore_forge_best_tree,
+    _restore_forge_tree_to_head,
     _verify_forge_edit_scope,
 )
 
@@ -289,43 +289,12 @@ def _commit_kernel(workspace, body: str, message: str) -> str:
     ).stdout.strip()
 
 
-def test_restore_resets_to_reported_best_commit(tmp_path):
-    _init_scope_test_repo(tmp_path)
-    best = _commit_kernel(tmp_path, "def kernel(): return 1\n", "iter-1: best")
-    # A kill after a later commit the loop never validated, plus a dirty tree.
-    _commit_kernel(tmp_path, "def kernel(): return 99\n", "agent side commit")
-    (tmp_path / "kernel.py").write_text("def kernel(): return 123\n")
-
-    _restore_forge_best_tree(str(tmp_path), {"best_commit": best}, logging.getLogger())
-
-    assert (tmp_path / "kernel.py").read_text() == "def kernel(): return 1\n"
-    head = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
-        cwd=tmp_path,
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.strip()
-    assert head == best
-
-
-@pytest.mark.parametrize(
-    "result",
-    [
-        None,
-        {},
-        {"best_commit": ""},
-        {"best_commit": "not-a-sha"},
-        {"best_commit": "0" * 40},
-    ],
-    ids=["missing", "empty", "no-keep", "malformed", "unknown-commit"],
-)
-def test_restore_without_usable_best_commit_falls_back_to_head(tmp_path, result):
+def test_restore_discards_an_unstaged_candidate(tmp_path):
     _init_scope_test_repo(tmp_path)
     head = _commit_kernel(tmp_path, "def kernel(): return 1\n", "iter-1: best")
     (tmp_path / "kernel.py").write_text("def kernel(): return 123\n")
 
-    _restore_forge_best_tree(str(tmp_path), result, logging.getLogger())
+    _restore_forge_tree_to_head(str(tmp_path), logging.getLogger())
 
     assert (tmp_path / "kernel.py").read_text() == "def kernel(): return 1\n"
     assert (
@@ -340,14 +309,14 @@ def test_restore_without_usable_best_commit_falls_back_to_head(tmp_path, result)
     )
 
 
-def test_restore_fallback_discards_a_staged_candidate(tmp_path):
-    """``git checkout -- .`` would reinstate this; the fallback must not."""
+def test_restore_discards_a_staged_candidate(tmp_path):
+    """``git checkout -- .`` would reinstate this from the index; HEAD wins."""
     _init_scope_test_repo(tmp_path)
     _commit_kernel(tmp_path, "def kernel(): return 1\n", "iter-1: best")
     (tmp_path / "kernel.py").write_text("def kernel(): return 123\n")
     subprocess.run(["git", "add", "kernel.py"], cwd=tmp_path, check=True)
 
-    _restore_forge_best_tree(str(tmp_path), None, logging.getLogger())
+    _restore_forge_tree_to_head(str(tmp_path), logging.getLogger())
 
     assert (tmp_path / "kernel.py").read_text() == "def kernel(): return 1\n"
     assert not subprocess.run(

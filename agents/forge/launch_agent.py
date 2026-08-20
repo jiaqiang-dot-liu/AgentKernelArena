@@ -571,63 +571,26 @@ def _verify_forge_edit_scope(
         )
 
 
-def _resolve_forge_best_commit(workspace: str, result: dict[str, Any] | None) -> str:
-    """Return the loop's best-kept commit, or "" when none can be trusted.
+def _restore_forge_tree_to_head(workspace: str, logger: logging.Logger) -> None:
+    """Discard the loop's in-flight candidate before Arena re-scores.
 
-    forge-loop rewrites ``--result-json`` atomically on every validated KEEP, so
-    the field survives a hard kill. It stays empty until the first KEEP. The
-    commit must also exist here: forge-loop never unlinks the file at startup, so
-    a run that dies before its first KEEP can leave an earlier run's file behind
-    and redirect scoring to an unrelated tree.
+    A timeout kills the loop mid-iteration, so the working tree can still hold
+    an unvalidated candidate on top of the last KEEP commit. Restoring index and
+    worktree from HEAD is the loop's own revert semantics; ``git checkout -- .``
+    is weaker because it copies the index into the worktree, which reinstates a
+    candidate that a kill left staged inside the loop's commit window.
+
+    HEAD is the only signal Arena relies on here. forge-loop also records its
+    best-kept commit in ``--result-json``, but resetting to that would make the
+    scored artifact depend on a schema Arena otherwise reads for diagnostics
+    only, and a rename there would silently change what gets scored. Committed
+    state that HEAD cannot vouch for is instead the job of
+    ``_verify_forge_edit_scope``, which compares against Arena's own baseline.
     """
-    if not isinstance(result, dict):
-        return ""
-    commit = str(result.get("best_commit") or "").strip()
-    if not re.fullmatch(r"[0-9a-f]{40,64}", commit):
-        return ""
-    probe = subprocess.run(
-        ["git", "cat-file", "-e", f"{commit}^{{commit}}"],
-        cwd=workspace,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    return commit if probe.returncode == 0 else ""
-
-
-def _restore_forge_best_tree(
-    workspace: str,
-    result: dict[str, Any] | None,
-    logger: logging.Logger,
-) -> None:
-    """Put the workspace on the loop's best-kept tree before Arena re-scores.
-
-    A timeout kills the loop mid-iteration, so the working tree still holds an
-    unvalidated candidate while HEAD sits at the last KEEP. Resetting to the
-    recorded best commit makes the scored tree the very commit the loop
-    validated and published, rather than whatever HEAD happens to be: the
-    implementer agent's shell is not blocked from committing, so HEAD alone is
-    not a guarantee.
-
-    With no trustworthy commit, fall back to the loop's own revert semantics and
-    restore index and worktree from HEAD. ``git checkout -- .`` is not
-    equivalent, since it copies the index into the worktree and would keep a
-    candidate that a kill left staged inside the KEEP commit window.
-    """
-    best_commit = _resolve_forge_best_commit(workspace, result)
-    if best_commit:
-        _git_required(workspace, "reset", "--hard", best_commit)
-        logger.info(
-            "Restored the Forge workspace to the best-kept commit %s", best_commit
-        )
-        return
     _git_required(
         workspace, "restore", "--source=HEAD", "--staged", "--worktree", "--", "."
     )
-    logger.info(
-        "Forge reported no best-kept commit; discarded uncommitted changes and "
-        "restored the workspace to HEAD"
-    )
+    logger.info("Discarded uncommitted Forge changes; workspace restored to HEAD")
 
 
 # Build artifacts / regenerated reports / forge scaffolding must NOT be tracked:
@@ -1108,8 +1071,7 @@ def launch_agent(eval_config: dict[str, Any], task_config_dir: str, workspace: s
     logger.info(f"Forge loop completed with exit code: {process.returncode}")
     logger.info("=" * 80)
 
-    forge_result = _read_forge_result(result_json, "\n".join(stdout_lines))
-    _restore_forge_best_tree(workspace, forge_result, logger)
+    _restore_forge_tree_to_head(workspace, logger)
     _verify_forge_edit_scope(
         workspace,
         edit_baseline,
@@ -1120,6 +1082,7 @@ def launch_agent(eval_config: dict[str, Any], task_config_dir: str, workspace: s
     output = "\n".join(stdout_lines)
     if stderr_lines:
         output += "\n=== STDERR ===\n" + "\n".join(stderr_lines)
+    forge_result = _read_forge_result(result_json, "\n".join(stdout_lines))
     kb_status = _publication_status(forge_result)
     _write_forge_status(
         experiments_dir,
