@@ -596,6 +596,16 @@ def test_optimize_declares_a_source_tree_task_shape(tmp_path, monkeypatch):
     assert command[command.index("--task-type") + 1] == "repository"
 
 
+@pytest.mark.parametrize("state, opt_out", [("implemented", "--no-prepare-task"), ("unimplemented", "--no-prepare-driver")])
+def test_no_engine_agent_authors_or_repairs_the_generated_driver(tmp_path, monkeypatch, state, opt_out):
+    context, _, _ = fixture_task(tmp_path, initial_state=state)
+    monkeypatch.setenv("ARENA_TASK_CONTEXT", str(context.path))
+    commands = mock_engine(monkeypatch)
+    adapter.launch({}, "unused", str(context.workspace))
+    command, = commands
+    assert [flag for flag in command if flag in ("--no-prepare-task", "--no-prepare-driver")] == [opt_out]
+
+
 @pytest.mark.parametrize("kwargs", [dict(fail=True), dict(timeout=True), dict(port_ok=False)])
 def test_launcher_reports_engine_failure_and_preserves_original(tmp_path, monkeypatch, kwargs):
     context, _, _ = fixture_task(tmp_path, initial_state="unimplemented")

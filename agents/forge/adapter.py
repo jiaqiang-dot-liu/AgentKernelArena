@@ -349,6 +349,9 @@ def build_command(plan: dict, context: TaskContext, config: dict, *, gpu_arch: s
                     # colocated test/reference protection and the entry-point
                     # prompt sections with it.
                     "--task-type", "repository",
+                    # The generated driver is the task's measurement contract:
+                    # no engine agent may author or repair it, as in a rewrite.
+                    "--no-prepare-task",
                     "--baseline-json", plan["baseline"], "--program-md-file", plan["program"],
                     "--agent-backend", config["agent_backend"],
                     "--session-timeout-sec", str(config["session_timeout_seconds"])]

@@ -409,11 +409,14 @@ copy of those three headers and keeping every other header already set, so each
 engine line carries them whichever gateway it reaches. The status file and the
 log record the headers sent. `null`, the default, sends none.
 
-Task preparation, profiling, planning probes and knowledge warm starts follow
-the engine defaults. Arena publishes the task and leaves the search policy to
-Forge. Two consequences are load bearing. The public task
+The generated driver is the task's measurement contract, so no engine agent
+authors or repairs it: an optimize passes `--no-prepare-task` and a rewrite
+`--no-prepare-driver`. Profiling, planning probes and knowledge warm starts
+follow the engine defaults. Arena publishes the task and leaves the search
+policy to Forge. Two consequences are load bearing. The public task
 protocol exposes no profiler invocation, so the bridge answers `--profile-run`
-with an explicit unsupported capability. A single-file upstream recipe cannot
+with an explicit unsupported capability, and an engine session that profiles
+does so without the driver. A single-file upstream recipe cannot
 describe a multi-file candidate, so a task whose `candidate.editable` spans more
 than one file may receive a warm start that covers only part of its submission.
 
