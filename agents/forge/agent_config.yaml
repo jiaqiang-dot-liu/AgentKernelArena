@@ -14,5 +14,14 @@ initialization_max_attempts: 3
 initialization_budget_fraction: 0.4
 # Empty follows agent_backend; no accidental provider/model mismatch.
 supervisor_backend: ""
+# Search controls passed to the engine's forge-loop (a rewrite passes them to
+# its nested forge-loop). null leaves the engine default.
+lanes: null
+search_strategy: null
+relay_mode: null
+# inherit: the engine reads whatever knowledge store this process is set up for.
+# local: every campaign starts from an empty local knowledge store of its own,
+# so no campaign warm-starts from, or publishes into, another one's records.
+knowledge_store: inherit
 # Optional executable for an environment with Hyperloom[forge] installed.
 # python: /opt/forge/bin/python

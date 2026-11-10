@@ -57,7 +57,16 @@ def probe() -> dict:
     return {"adapter_api": ADAPTER_API, "version": version,
             "initialization_targets": ["flydsl", "hip", "triton"],
             "backends": sorted(KERNEL_BACKENDS), "rewrite_target": "flydsl",
-            "applyback_optional": applyback_optional}
+            "applyback_optional": applyback_optional,
+            "search_controls": {name: search_controls(cli.main.commands[name]) for name in required}}
+
+
+def search_controls(command) -> dict:
+    """What one engine command accepts of the search controls: whether it takes --lanes, and each choice's values."""
+    parameters = {parameter.name: parameter for parameter in command.params}
+    choices = {name: getattr(getattr(parameters.get(name), "type", None), "choices", None) or ()
+               for name in ("search_strategy", "relay_mode")}
+    return {"lanes": "lanes" in parameters, **{name: sorted(map(str, values)) for name, values in choices.items()}}
 
 
 def main(argv=None):

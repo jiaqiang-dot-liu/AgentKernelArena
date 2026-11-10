@@ -382,10 +382,26 @@ Search defaults live in [agent_config.yaml](agent_config.yaml); the run may
 override `workflow`, `model`, `agent_backend`, `permission_mode`,
 `timeout_seconds`, `session_timeout_seconds`, `max_port_attempts`,
 `initialization_max_attempts`, `initialization_budget_fraction`,
-`supervisor_backend`, and `python`. An empty supervisor follows the selected
-backend. Lane count, task preparation, profiling, planning probes and knowledge
-warm starts follow the engine defaults. Arena publishes the task and leaves the
-search policy to Forge. Two consequences are load bearing. The public task
+`supervisor_backend`, `python`, `lanes`, `search_strategy`, `relay_mode` and
+`knowledge_store`. An empty supervisor follows the selected backend.
+
+`lanes`, `search_strategy` and `relay_mode` are passed as the engine's
+`--lanes`, `--search-strategy` and `--relay-mode` on every workflow; a rewrite
+passes them to its nested forge-loop. `null` leaves the engine default. The
+`--arena-probe` answer reports, per engine command, whether it takes `--lanes`
+and the values it accepts for the other two, and a run that asks for one the
+command does not accept fails before the campaign starts.
+
+`knowledge_store: local` gives every campaign an empty local knowledge store of
+its own, `knowledge/` in the campaign's artifact directory, through the
+engine's `KNOWLEDGE_STORE_MODE=local` and `KNOWLEDGE_LOCAL_ROOT`: the campaign
+warm-starts from nothing another campaign published, and what it publishes
+stays in its own store. `inherit`, the default, leaves the engine on whatever
+store this process is set up for.
+
+Task preparation, profiling, planning probes and knowledge warm starts follow
+the engine defaults. Arena publishes the task and leaves the search policy to
+Forge. Two consequences are load bearing. The public task
 protocol exposes no profiler invocation, so the bridge answers `--profile-run`
 with an explicit unsupported capability. A single-file upstream recipe cannot
 describe a multi-file candidate, so a task whose `candidate.editable` spans more

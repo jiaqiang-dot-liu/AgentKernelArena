@@ -53,6 +53,55 @@ def choose_workflow(context: TaskContext, *, target_verified: bool, requested: s
     return "rewrite" if context.spec.candidate.language == "flydsl" else "initialize"
 
 
+#: Run-configuration search controls and the engine option each one sets.
+SEARCH_CONTROL_FLAGS = {"lanes": "--lanes", "search_strategy": "--search-strategy", "relay_mode": "--relay-mode"}
+KNOWLEDGE_STORES = ("inherit", "local")
+
+
+def _check_search_controls(config: dict) -> None:
+    """Refuse a search control or knowledge store no engine could take; which values it takes is the probe's."""
+    lanes = config["lanes"]
+    if lanes is not None and (type(lanes) is not int or not 1 <= lanes <= 8):
+        raise ValueError("Forge lanes must be an integer from 1 to 8")
+    for field in ("search_strategy", "relay_mode"):
+        value = config[field]
+        if value is not None and (not isinstance(value, str) or not value):
+            raise ValueError(f"Forge {field} must be a non-empty string")
+    if config["knowledge_store"] not in KNOWLEDGE_STORES:
+        raise ValueError(f"Forge knowledge_store must be one of: {', '.join(KNOWLEDGE_STORES)}")
+
+
+def search_control_args(config: dict) -> list[str]:
+    """The engine options of the search controls the run configuration sets."""
+    return [item for key, flag in SEARCH_CONTROL_FLAGS.items() if config.get(key) is not None
+            for item in (flag, str(config[key]))]
+
+
+def require_search_controls(config: dict, capabilities: dict, command: str) -> None:
+    """Refuse a search control the engine command does not accept, before the campaign spends anything."""
+    accepted = (capabilities.get("search_controls") or {}).get(command) or {}
+    if config.get("lanes") is not None and not accepted.get("lanes"):
+        raise ForgeRunError(f"KernelForge {command} does not accept --lanes")
+    for key in ("search_strategy", "relay_mode"):
+        value, choices = config.get(key), accepted.get(key) or []
+        if value is not None and value not in choices:
+            raise ForgeRunError(f"KernelForge {command} does not accept {SEARCH_CONTROL_FLAGS[key]} {value}; "
+                                f"it accepts: {', '.join(choices) or 'none'}")
+
+
+def knowledge_environment(config: dict, artifact_root: Path) -> dict:
+    """The engine environment of the configured knowledge store: a local campaign gets an empty one of its own."""
+    if config["knowledge_store"] != "local":
+        return {}
+    root = artifact_root / "knowledge"
+    root.mkdir()
+    return {"KNOWLEDGE_STORE_MODE": "local", "KNOWLEDGE_LOCAL_ROOT": str(root)}
+
+
+def engine_command(workflow: str) -> str:
+    return "forge-rewrite-by-flydsl" if workflow == "rewrite" else "forge-loop"
+
+
 def _config(eval_config: dict) -> dict:
     config = yaml.safe_load(Path(__file__).with_name("agent_config.yaml").read_text())
     overrides = eval_config.get("agent") or {}
@@ -60,8 +109,10 @@ def _config(eval_config: dict) -> dict:
         raise ValueError("agent run configuration must be a mapping")
     allowed = {"workflow", "model", "timeout_seconds", "permission_mode", "agent_backend",
                "python", "max_port_attempts", "supervisor_backend", "session_timeout_seconds",
-               "initialization_max_attempts", "initialization_budget_fraction"}
+               "initialization_max_attempts", "initialization_budget_fraction", "knowledge_store",
+               *SEARCH_CONTROL_FLAGS}
     config.update({key: value for key, value in overrides.items() if key in allowed})
+    _check_search_controls(config)
     if overrides.get("agent_backend") not in (None, "claude") and "model" not in overrides:
         # A Claude default is not a model ID for another provider. Let upstream
         # resolve that provider's configured model unless explicitly overridden.
@@ -229,8 +280,7 @@ def engine_entry(config: dict, workflow: str) -> list[str]:
 
 def build_command(plan: dict, context: TaskContext, config: dict, *, gpu_arch: str, gpu_type: str) -> list[str]:
     root = Path(plan["engine_root"])
-    command = [*engine_entry(config, plan["workflow"]),
-               "forge-rewrite-by-flydsl" if plan["workflow"] == "rewrite" else "forge-loop",
+    command = [*engine_entry(config, plan["workflow"]), engine_command(plan["workflow"]),
                "--workspace", str(root), "--driver", str(root / "arena_forge_driver.py"),
                "--experiments-dir", str(root / "forge_experiments"), "--result-json", plan["result"],
                "--max-hours", str(engine_budget_hours(plan)),
@@ -238,6 +288,7 @@ def build_command(plan: dict, context: TaskContext, config: dict, *, gpu_arch: s
                "--permission-mode", config["permission_mode"]]
     if config.get("model"):
         command.extend(["--model", config["model"]])
+    command += search_control_args(config)
     symbols = [entry.symbol for entry in context.spec.candidate.entrypoints if entry.symbol]
     identity = context.spec.to_mapping().get("kernel_identity", {})
     operator = identity.get("logical_operator") or context.spec.task_id
@@ -340,6 +391,9 @@ def launch(eval_config: dict, task_config_dir: str, workspace: str) -> str:
                     # engine's session can also reach a task module from its own
                     # shell, and bytecode left there ends the session too.
                     **bridge.TASK_ENV})
+        knowledge = knowledge_environment(config, artifact_root)
+        env.update(knowledge)
+        status["knowledge_store"] = knowledge.get("KNOWLEDGE_LOCAL_ROOT", config["knowledge_store"])
         arena_root = Path(__file__).resolve().parents[2]
         env["PYTHONPATH"] = os.pathsep.join([str(arena_root), *filter(None, [env.get("PYTHONPATH", "")])])
         # Probe in the exact interpreter used by both outer and nested CLIs.
@@ -377,6 +431,7 @@ def launch(eval_config: dict, task_config_dir: str, workspace: str) -> str:
         plan["workflow"] = choose_workflow(context, target_verified=target_verified,
                                            requested=config["workflow"])
         status["workflow"] = plan["workflow"]
+        require_search_controls(config, capabilities, engine_command(plan["workflow"]))
         if plan["workflow"] == "initialize":
             from agents.forge.initialization import materialize_targets
             materialize_targets(context.spec, engine, plan["anchor"])

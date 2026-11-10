@@ -8,7 +8,7 @@ from pathlib import Path
 import subprocess
 import sys
 import time
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 
 import pytest
 
@@ -387,20 +387,24 @@ def test_action_budget_is_capped_by_remaining_campaign(tmp_path):
         bounded_spec(context.spec, time.time() - 1)
 
 
-def mock_engine(monkeypatch, *, fail=False, port_ok=True, timeout=False, applyback_optional=False):
+def mock_engine(monkeypatch, *, fail=False, port_ok=True, timeout=False, applyback_optional=False,
+                search_controls=None, envs=None):
+    """A stand-in engine that records each command it is launched with, and each environment into ``envs``."""
     commands = []
     real_run = subprocess.run
     def subprocess_run(command, **kwargs):
         if "--arena-probe" in command:
             return SimpleNamespace(returncode=0, stdout=json.dumps(
                 {"backends": ["flydsl", "hip", "triton"], "adapter_api": 1,
-                 "applyback_optional": applyback_optional}), stderr="")
+                 "applyback_optional": applyback_optional, "search_controls": search_controls or {}}), stderr="")
         return real_run(command, **kwargs)
     monkeypatch.setattr(adapter.subprocess, "run", subprocess_run)
     monkeypatch.setattr(adapter, "_resolve_gpu_arch", lambda _: "gfx950")
     monkeypatch.setattr(adapter, "_resolve_gpu_type", lambda _: "mi355x")
     def run(command, *, workspace, env, **kwargs):
         commands.append(command)
+        if envs is not None:
+            envs.append(env)
         plan = json.loads(Path(env["ARENA_FORGE_PLAN"]).read_text())
         engine = Path(workspace)
         result = {"improved": False}
@@ -461,6 +465,94 @@ def test_rewrite_declines_the_framework_patch_when_the_engine_accepts_that(tmp_p
     command, = commands
     assert "forge-rewrite-by-flydsl" in command
     assert ("--no-applyback" in command) is optional
+
+
+SEARCH_CONTROLS = {"lanes": True, "search_strategy": ["linear", "tree"], "relay_mode": ["handoff", "off", "split"]}
+
+
+@pytest.mark.parametrize("state", ["implemented", "unimplemented"])
+def test_search_controls_reach_the_engine_on_either_workflow(tmp_path, monkeypatch, state):
+    context, _, _ = fixture_task(tmp_path, initial_state=state)
+    monkeypatch.setenv("ARENA_TASK_CONTEXT", str(context.path))
+    accepted = {"forge-loop": SEARCH_CONTROLS, "forge-rewrite-by-flydsl": SEARCH_CONTROLS}
+    commands = mock_engine(monkeypatch, search_controls=accepted)
+    controls = {"lanes": 3, "search_strategy": "tree", "relay_mode": "off"}
+    adapter.launch({"agent": controls}, "unused", str(context.workspace))
+    command, = commands
+    assert [command[command.index(flag) + 1] for flag in ("--lanes", "--search-strategy", "--relay-mode")] == [
+        "3", "tree", "off"]
+
+
+def test_default_search_controls_and_knowledge_store_leave_the_engine_as_it_was(tmp_path, monkeypatch):
+    context, _, _ = fixture_task(tmp_path)
+    monkeypatch.setenv("ARENA_TASK_CONTEXT", str(context.path))
+    monkeypatch.delenv("KNOWLEDGE_LOCAL_ROOT", raising=False)
+    envs = []
+    commands = mock_engine(monkeypatch, envs=envs)
+    adapter.launch({}, "unused", str(context.workspace))
+    command, = commands
+    assert not {"--lanes", "--search-strategy", "--relay-mode"} & set(command)
+    assert "KNOWLEDGE_LOCAL_ROOT" not in envs[0]
+
+
+def test_a_search_control_the_engine_does_not_accept_fails_before_the_campaign(tmp_path, monkeypatch):
+    context, _, _ = fixture_task(tmp_path)
+    monkeypatch.setenv("ARENA_TASK_CONTEXT", str(context.path))
+    older = {"forge-loop": {"lanes": True, "search_strategy": ["linear", "tree"], "relay_mode": ["handoff", "split"]}}
+    commands = mock_engine(monkeypatch, search_controls=older)
+    with pytest.raises(adapter.ForgeRunError, match="does not accept --relay-mode off; it accepts: handoff, split"):
+        adapter.launch({"agent": {"relay_mode": "off"}}, "unused", str(context.workspace))
+    assert commands == []
+
+
+def test_a_local_knowledge_store_is_empty_and_the_campaign_s_own(tmp_path, monkeypatch):
+    envs = []
+    for name in ("first", "second"):
+        (tmp_path / name).mkdir()
+        context, _, _ = fixture_task(tmp_path / name)
+        monkeypatch.setenv("ARENA_TASK_CONTEXT", str(context.path))
+        mock_engine(monkeypatch, envs=envs)
+        adapter.launch({"agent": {"knowledge_store": "local"}}, "unused", str(context.workspace))
+    roots = [Path(env["KNOWLEDGE_LOCAL_ROOT"]) for env in envs]
+    assert [env["KNOWLEDGE_STORE_MODE"] for env in envs] == ["local", "local"]
+    assert roots[0] != roots[1] and all(root.is_dir() and not any(root.iterdir()) for root in roots)
+    # Outside the engine's own workspace, whose untracked files a tree search refuses.
+    assert all(root.parent.name.startswith("workspace-forge-") for root in roots)
+
+
+@pytest.mark.parametrize("override, message", [
+    ({"lanes": 0}, "lanes must be an integer from 1 to 8"),
+    ({"lanes": "3"}, "lanes must be an integer from 1 to 8"),
+    ({"relay_mode": ""}, "relay_mode must be a non-empty string"),
+    ({"knowledge_store": "remote"}, "knowledge_store must be one of: inherit, local"),
+])
+def test_a_search_control_no_engine_could_take_is_refused(override, message):
+    with pytest.raises(ValueError, match=message):
+        adapter._config({"agent": override})
+
+
+def test_the_probe_reports_the_search_controls_of_each_engine_command(monkeypatch):
+    from agents.forge import engine
+
+    def command(*names, **choices):
+        parameters = [SimpleNamespace(name=name) for name in names]
+        parameters += [SimpleNamespace(name=name, type=SimpleNamespace(choices=values)) for name, values in choices.items()]
+        return SimpleNamespace(params=parameters)
+
+    loop = command("kernel", "driver", "workspace_dir", "max_hours", "source_files", "target_functions",
+                   "baseline_json", "lanes", search_strategy=("linear", "tree"), relay_mode=("handoff", "split", "off"))
+    rewrite = command("source_kernel", "driver", "workspace_dir", "max_hours", "prepare_driver", "flydsl_kernel_name")
+    package = ModuleType("kernelforge")
+    package.__path__ = []
+    package.cli = SimpleNamespace(main=SimpleNamespace(commands={"forge-loop": loop, "forge-rewrite-by-flydsl": rewrite}))
+    monkeypatch.setitem(sys.modules, "kernelforge", package)
+    monkeypatch.setitem(sys.modules, "kernelforge.kernel_backends", ModuleType("kernelforge.kernel_backends"))
+    monkeypatch.setitem(sys.modules, "kernelforge.kernel_backends.constants", SimpleNamespace(KERNEL_BACKENDS=("flydsl",)))
+
+    assert engine.probe()["search_controls"] == {
+        "forge-loop": {"lanes": True, "search_strategy": ["linear", "tree"], "relay_mode": ["handoff", "off", "split"]},
+        "forge-rewrite-by-flydsl": {"lanes": False, "search_strategy": [], "relay_mode": []},
+    }
 
 
 def test_optimize_declares_a_source_tree_task_shape(tmp_path, monkeypatch):
