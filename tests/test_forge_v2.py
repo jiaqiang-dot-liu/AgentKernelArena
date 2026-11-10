@@ -483,16 +483,36 @@ def test_search_controls_reach_the_engine_on_either_workflow(tmp_path, monkeypat
         "3", "tree", "off"]
 
 
-def test_default_search_controls_and_knowledge_store_leave_the_engine_as_it_was(tmp_path, monkeypatch):
+def test_default_run_settings_leave_the_engine_as_it_was(tmp_path, monkeypatch):
     context, _, _ = fixture_task(tmp_path)
     monkeypatch.setenv("ARENA_TASK_CONTEXT", str(context.path))
-    monkeypatch.delenv("KNOWLEDGE_LOCAL_ROOT", raising=False)
+    for variable in ("KNOWLEDGE_LOCAL_ROOT", *adapter.CUSTOM_HEADER_VARIABLES):
+        monkeypatch.delenv(variable, raising=False)
     envs = []
     commands = mock_engine(monkeypatch, envs=envs)
-    adapter.launch({}, "unused", str(context.workspace))
+    output = adapter.launch({}, "unused", str(context.workspace))
     command, = commands
     assert not {"--lanes", "--search-strategy", "--relay-mode"} & set(command)
-    assert "KNOWLEDGE_LOCAL_ROOT" not in envs[0]
+    assert not {"KNOWLEDGE_LOCAL_ROOT", *adapter.CUSTOM_HEADER_VARIABLES} & set(envs[0])
+    assert '"litellm"' not in output
+
+
+def test_a_litellm_attribution_reaches_both_lines_of_the_engine(tmp_path, monkeypatch):
+    context, _, _ = fixture_task(tmp_path)
+    monkeypatch.setenv("ARENA_TASK_CONTEXT", str(context.path))
+    monkeypatch.setenv("ANTHROPIC_CUSTOM_HEADERS", "x-gateway-route: forge\nx-litellm-tags: stale")
+    monkeypatch.delenv("OPENAI_CUSTOM_HEADERS", raising=False)
+    envs = []
+    mock_engine(monkeypatch, envs=envs)
+    attribution = {"user": "jqliu", "session": "forgeab_20261110T1000Z_g1-tree-off", "tags": ["project=forge-ab"]}
+    output = adapter.launch({"agent": {"litellm": attribution}}, "unused", str(context.workspace))
+    # The configured session is followed by the task, so a run of several tasks files each under its own.
+    session = "forgeab_20261110T1000Z_g1-tree-off_arbitrary-suite"
+    headers = (f"user: jqliu\nx-litellm-tags: project=forge-ab,task=arbitrary-suite,session={session}\n"
+               f"x-litellm-trace-id: {session}")
+    assert envs[0]["OPENAI_CUSTOM_HEADERS"] == headers
+    assert envs[0]["ANTHROPIC_CUSTOM_HEADERS"] == "x-gateway-route: forge\n" + headers
+    assert f'"x-litellm-trace-id": "{session}"' in output
 
 
 def test_a_search_control_the_engine_does_not_accept_fails_before_the_campaign(tmp_path, monkeypatch):
@@ -525,8 +545,12 @@ def test_a_local_knowledge_store_is_empty_and_the_campaign_s_own(tmp_path, monke
     ({"lanes": "3"}, "lanes must be an integer from 1 to 8"),
     ({"relay_mode": ""}, "relay_mode must be a non-empty string"),
     ({"knowledge_store": "remote"}, "knowledge_store must be one of: inherit, local"),
+    ({"litellm": {"user": "jqliu", "session": "s", "extra": 1}}, "litellm must be a mapping"),
+    ({"litellm": {"user": "", "session": "s"}}, "litellm.user must be"),
+    ({"litellm": {"user": "jqliu", "session": "two words"}}, "litellm.session must be"),
+    ({"litellm": {"user": "jqliu", "session": "s", "tags": ["a,b"]}}, "litellm.tags must be"),
 ])
-def test_a_search_control_no_engine_could_take_is_refused(override, message):
+def test_a_run_setting_no_engine_could_take_is_refused(override, message):
     with pytest.raises(ValueError, match=message):
         adapter._config({"agent": override})
 

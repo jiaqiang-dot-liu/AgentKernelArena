@@ -102,6 +102,47 @@ def engine_command(workflow: str) -> str:
     return "forge-rewrite-by-flydsl" if workflow == "rewrite" else "forge-loop"
 
 
+#: The engine's two LLM lines read their extra request headers from these.
+CUSTOM_HEADER_VARIABLES = ("ANTHROPIC_CUSTOM_HEADERS", "OPENAI_CUSTOM_HEADERS")
+_SESSION_RE = re.compile(r"[A-Za-z0-9._-]+")
+
+
+def _check_litellm(config: dict) -> None:
+    """Refuse an attribution the gateway could not file: one-line user, header-safe session and tags."""
+    attribution = config["litellm"]
+    if attribution is None:
+        return
+    if not isinstance(attribution, dict) or set(attribution) - {"user", "session", "tags"}:
+        raise ValueError("Forge litellm must be a mapping of user, session and tags")
+    user, session, tags = attribution.get("user"), attribution.get("session"), attribution.get("tags") or []
+    if not isinstance(user, str) or not user.strip() or "\n" in user:
+        raise ValueError("Forge litellm.user must be a non-empty one-line string")
+    if not isinstance(session, str) or not _SESSION_RE.fullmatch(session):
+        raise ValueError("Forge litellm.session must be letters, digits, '.', '_' and '-'")
+    if not isinstance(tags, list) or any(not isinstance(tag, str) or not tag or re.search(r"[,\r\n]", tag)
+                                         for tag in tags):
+        raise ValueError("Forge litellm.tags must be non-empty strings without commas or line breaks")
+
+
+def litellm_headers(config: dict, task_id: str) -> dict[str, str]:
+    """The LiteLLM attribution of one campaign; its session is the configured one followed by the task it runs."""
+    attribution = config["litellm"]
+    if attribution is None:
+        return {}
+    task = re.sub(r"[^A-Za-z0-9._-]+", "-", task_id).strip("-")
+    session = f"{attribution['session']}_{task}"
+    tags = [*(attribution.get("tags") or []), f"task={task}", f"session={session}"]
+    return {"user": attribution["user"].strip(), "x-litellm-tags": ",".join(tags), "x-litellm-trace-id": session}
+
+
+def with_custom_headers(raw: str, headers: dict[str, str]) -> str:
+    """A ``*_CUSTOM_HEADERS`` value carrying ``headers``, every other ``Name: Value`` line it held kept."""
+    replaced = {name.lower() for name in headers}
+    kept = [line for line in raw.splitlines()
+            if line.strip() and line.partition(":")[0].strip().lower() not in replaced]
+    return "\n".join([*kept, *(f"{name}: {value}" for name, value in headers.items())])
+
+
 def _config(eval_config: dict) -> dict:
     config = yaml.safe_load(Path(__file__).with_name("agent_config.yaml").read_text())
     overrides = eval_config.get("agent") or {}
@@ -109,10 +150,11 @@ def _config(eval_config: dict) -> dict:
         raise ValueError("agent run configuration must be a mapping")
     allowed = {"workflow", "model", "timeout_seconds", "permission_mode", "agent_backend",
                "python", "max_port_attempts", "supervisor_backend", "session_timeout_seconds",
-               "initialization_max_attempts", "initialization_budget_fraction", "knowledge_store",
+               "initialization_max_attempts", "initialization_budget_fraction", "knowledge_store", "litellm",
                *SEARCH_CONTROL_FLAGS}
     config.update({key: value for key, value in overrides.items() if key in allowed})
     _check_search_controls(config)
+    _check_litellm(config)
     if overrides.get("agent_backend") not in (None, "claude") and "model" not in overrides:
         # A Claude default is not a model ID for another provider. Let upstream
         # resolve that provider's configured model unless explicitly overridden.
@@ -394,6 +436,11 @@ def launch(eval_config: dict, task_config_dir: str, workspace: str) -> str:
         knowledge = knowledge_environment(config, artifact_root)
         env.update(knowledge)
         status["knowledge_store"] = knowledge.get("KNOWLEDGE_LOCAL_ROOT", config["knowledge_store"])
+        attribution = litellm_headers(config, context.spec.task_id)
+        if attribution:
+            env.update({name: with_custom_headers(env.get(name, ""), attribution) for name in CUSTOM_HEADER_VARIABLES})
+            status["litellm"] = attribution
+            logger.info("LiteLLM attribution headers: %s", attribution)
         arena_root = Path(__file__).resolve().parents[2]
         env["PYTHONPATH"] = os.pathsep.join([str(arena_root), *filter(None, [env.get("PYTHONPATH", "")])])
         # Probe in the exact interpreter used by both outer and nested CLIs.

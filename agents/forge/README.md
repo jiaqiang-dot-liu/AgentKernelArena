@@ -382,8 +382,8 @@ Search defaults live in [agent_config.yaml](agent_config.yaml); the run may
 override `workflow`, `model`, `agent_backend`, `permission_mode`,
 `timeout_seconds`, `session_timeout_seconds`, `max_port_attempts`,
 `initialization_max_attempts`, `initialization_budget_fraction`,
-`supervisor_backend`, `python`, `lanes`, `search_strategy`, `relay_mode` and
-`knowledge_store`. An empty supervisor follows the selected backend.
+`supervisor_backend`, `python`, `lanes`, `search_strategy`, `relay_mode`,
+`knowledge_store` and `litellm`. An empty supervisor follows the selected backend.
 
 `lanes`, `search_strategy` and `relay_mode` are passed as the engine's
 `--lanes`, `--search-strategy` and `--relay-mode` on every workflow; a rewrite
@@ -398,6 +398,16 @@ engine's `KNOWLEDGE_STORE_MODE=local` and `KNOWLEDGE_LOCAL_ROOT`: the campaign
 warm-starts from nothing another campaign published, and what it publishes
 stays in its own store. `inherit`, the default, leaves the engine on whatever
 store this process is set up for.
+
+`litellm: {user, session, tags}` files every request a campaign's engine sends
+under its own LiteLLM attribution. The campaign's session is `session` followed
+by its task, so a run of several tasks still gives each campaign its own; every
+request carries `user: <user>`, `x-litellm-tags: <tags>,task=<task>,session=<session>`
+and `x-litellm-trace-id: <session>`. They are added to both
+`ANTHROPIC_CUSTOM_HEADERS` and `OPENAI_CUSTOM_HEADERS`, replacing any earlier
+copy of those three headers and keeping every other header already set, so each
+engine line carries them whichever gateway it reaches. The status file and the
+log record the headers sent. `null`, the default, sends none.
 
 Task preparation, profiling, planning probes and knowledge warm starts follow
 the engine defaults. Arena publishes the task and leaves the search policy to

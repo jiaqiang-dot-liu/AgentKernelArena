@@ -23,5 +23,9 @@ relay_mode: null
 # local: every campaign starts from an empty local knowledge store of its own,
 # so no campaign warm-starts from, or publishes into, another one's records.
 knowledge_store: inherit
+# LiteLLM cost attribution of every request the campaign's engine sends:
+# {user: <end user>, session: <unique run name>, tags: [<extra tag>, ...]}.
+# null sends no attribution headers.
+litellm: null
 # Optional executable for an environment with Hyperloom[forge] installed.
 # python: /opt/forge/bin/python
